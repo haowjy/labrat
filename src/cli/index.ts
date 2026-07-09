@@ -1,12 +1,46 @@
 #!/usr/bin/env node
-/** TODO(wave-4): CLI entrypoint — enqueue a path (watcher stub) */
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { enqueueAndRun } from "../harness/orchestrator/index.js";
+
+function expandUserPath(p: string): string {
+  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+}
+
 async function main(): Promise<void> {
-  const inputPath = process.argv[2];
-  if (!inputPath) {
-    console.error("Usage: labrat <input-path>");
-    process.exit(1);
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  if (command === "enqueue" || command === undefined) {
+    const inputPath = command === "enqueue" ? args[1] : args[0];
+    if (!inputPath) {
+      console.error("Usage: labrat enqueue <dicom-path-or-zip>");
+      process.exit(1);
+    }
+
+    const inputAbs = resolve(expandUserPath(inputPath));
+    const protocol = args[2] ?? "bonemorph-oa-mouse-knee";
+
+    console.log(`enqueue ${inputAbs} protocol=${protocol}`);
+    const result = await enqueueAndRun(inputAbs, protocol);
+
+    console.log(JSON.stringify({
+      taskId: result.taskId,
+      taskDir: result.taskDir,
+      state: result.task.state,
+      phasesComplete: result.task.phasesComplete,
+      workerSessions: result.phases.map((p) => ({
+        phase: p.phase,
+        sessionId: p.workerSessionId,
+        gate: p.gate,
+      })),
+    }, null, 2));
+    return;
   }
-  console.log(`enqueue not implemented yet: ${inputPath}`);
+
+  console.error(`Unknown command: ${command}`);
+  console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
+  process.exit(1);
 }
 
 main().catch((err: unknown) => {
