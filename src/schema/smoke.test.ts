@@ -103,6 +103,27 @@ describe("schema validators round-trip", () => {
 
     const bad = validateProtocolYaml({ ...valid, kind: "skill" });
     assert.equal(bad.ok, false);
+
+    // F3 regression: duplicate phase ids must be rejected, not silently
+    // first-match-wins.
+    const dupPhase = validateProtocolYaml({
+      ...valid,
+      phases: [valid.phases[0], valid.phases[0]],
+    });
+    assert.equal(dupPhase.ok, false);
+
+    // F3 regression: duplicate subphase ids within one phase must be rejected.
+    const dupSubphase = validateProtocolYaml({
+      ...valid,
+      phases: [
+        valid.phases[0],
+        {
+          ...valid.phases[1],
+          subphases: [{ id: "threshold" }, { id: "threshold" }],
+        },
+      ],
+    });
+    assert.equal(dupSubphase.ok, false);
   });
 
   it("subphases.json + closeable helper", () => {
@@ -180,6 +201,14 @@ describe("schema validators round-trip", () => {
       decision: "fail-upstream",
     });
     assert.equal(bad.ok, false);
+
+    // F1 regression: explicit null rewind_to must be rejected too, not just
+    // the undefined case above (gate.ts:66 previously only checked undefined).
+    const badNullRewind = validateSubmitGateDecisionInput({
+      decision: "fail-upstream",
+      rewind_to: null,
+    });
+    assert.equal(badNullRewind.ok, false);
   });
 
   it("provenance manifest entry", () => {

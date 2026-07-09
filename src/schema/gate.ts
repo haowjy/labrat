@@ -63,7 +63,10 @@ export function validateSubmitGateDecisionInput(
   );
   if (!subphase_assessments.ok) return subphase_assessments;
 
-  if (decision.value === "fail-upstream" && rewind_to === undefined) {
+  if (
+    decision.value === "fail-upstream" &&
+    (rewind_to === undefined || rewind_to === null)
+  ) {
     return {
       ok: false,
       errors: [
