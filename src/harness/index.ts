@@ -11,5 +11,12 @@ export {
   createLabratMcpServer,
 } from "./tools/index.js";
 export { appendManifestEntry } from "./provenance/index.js";
-export { ensureRuntime } from "./runtime-setup/index.js";
+export {
+  ensureRuntime,
+  pythonRuntime,
+  mergeRuntimeDeps,
+  type RuntimeHandle,
+  type RuntimeSetupResult,
+  type EnsureRuntimeOptions,
+} from "./runtime-setup/index.js";
 export { emit, subscribe } from "./events/index.js";
