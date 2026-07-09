@@ -1,0 +1,33 @@
+# Meridian / Mars
+.claude/
+.mars/
+.meridian/
+.meridian-scratch/
+.meridian-export/
+mars.lock
+meridian.local.toml
+mars.local.toml
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Runtime
+tasks/
+*.nii.gz
+*.dcm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
