@@ -413,9 +413,37 @@ export function validateProtocolYaml(
     return failure([{ path: "$.phases", message: "expected at least one phase" }]);
   }
   const phases: ProtocolPhase[] = [];
+  const seenPhaseIds = new Set<string>();
   for (let i = 0; i < phasesArr.value.length; i++) {
     const phase = validatePhase(phasesArr.value[i], `$.phases[${i}]`);
     if (!phase.ok) return phase;
+    if (seenPhaseIds.has(phase.value.id)) {
+      return failure([
+        {
+          path: `$.phases[${i}].id`,
+          message: `duplicate phase id: ${phase.value.id}`,
+        },
+      ]);
+    }
+    seenPhaseIds.add(phase.value.id);
+
+    const subphases = phase.value.subphases ?? [];
+    const seenSubphaseIds = new Set<string>();
+    for (let j = 0; j < subphases.length; j++) {
+      const sp = subphases[j];
+      if (sp && seenSubphaseIds.has(sp.id)) {
+        return failure([
+          {
+            path: `$.phases[${i}].subphases[${j}].id`,
+            message: `duplicate subphase id in phase "${phase.value.id}": ${sp.id}`,
+          },
+        ]);
+      }
+      if (sp) {
+        seenSubphaseIds.add(sp.id);
+      }
+    }
+
     phases.push(phase.value);
   }
 
