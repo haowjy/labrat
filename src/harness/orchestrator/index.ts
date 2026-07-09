@@ -180,6 +180,11 @@ async function stageInput(
 }
 
 export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult> {
+  const { resolveRuntimePaths } = await import("../runtime-setup/config.js");
+  const paths = resolveRuntimePaths();
+  process.env["PYTHONPATH"] = paths.microctSrcPath;
+  process.env["MPLBACKEND"] = process.env["MPLBACKEND"] ?? "Agg";
+
   const runtimeResult = await ensureRuntime(config.protocol.yaml, {
     skillRuntimeDeps: [],
   });
