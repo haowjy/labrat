@@ -1,0 +1,4 @@
+{
+  "overall": "medium",
+  "notes": "Labels correct and measurements in range, but femur mask is fragmented into 4 connected components (3 speckle islands). Cleanup recommended before landmark placement."
+}

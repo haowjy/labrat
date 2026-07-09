@@ -1,0 +1,4 @@
+{
+  "overall": "high",
+  "notes": "Slice count and spacing re-derived independently from DICOM headers; no gaps or duplicates."
+}

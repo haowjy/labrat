@@ -1,0 +1,69 @@
+- phase: intake
+  attempt: 1
+  started: "2026-07-09T10:15:23Z"
+  completed: "2026-07-09T10:18:45Z"
+  skills_loaded:
+    - name: resources/intake
+      hash: abc123ef
+      source: local
+  agent: worker
+  inputs: []
+  outputs:
+    - path: artifacts/intensity.nii.gz
+      hash: def456
+    - path: artifacts/spacing.json
+      hash: ghi789
+    - path: artifacts/transforms.json
+      hash: jkl012
+  subphases: null
+  sessions:
+    worker: "sess_a1b2c3"
+    gate: "sess_d4e5f6"
+  gate_decision: pass
+  verification:
+    code: review/verification/intake/
+    results: review/gates/intake.json
+
+- phase: segmentation
+  attempt: 2
+  started: "2026-07-09T10:37:04Z"
+  completed: "2026-07-09T10:42:00Z"
+  skills_loaded:
+    - name: segmentation-bone-ct
+      hash: mno345
+      source: registry
+    - name: resources/threshold
+      hash: pqr678
+      source: local
+    - name: resources/watershed
+      hash: stu901
+      source: local
+    - name: resources/bone-assignment
+      hash: vwx234
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/intensity.nii.gz
+      hash: def456
+    - path: artifacts/spacing.json
+      hash: ghi789
+  outputs:
+    - path: artifacts/labels.nii.gz
+      hash: yza567
+    - path: artifacts/masks/
+      fileCount: 2
+    - path: artifacts/bone_assignments.json
+      hash: bcd890
+    - path: artifacts/meshes/
+      fileCount: 2
+  subphases:
+    threshold: "pass (high)"
+    watershed: "pass (high)"
+    bone-assignment: "pass (high)"
+  sessions:
+    worker: "sess_g7h8i9"
+    gate: "sess_j0k1l2"
+  gate_decision: pass-with-concerns
+  verification:
+    code: review/verification/segmentation/
+    results: review/gates/segmentation.json

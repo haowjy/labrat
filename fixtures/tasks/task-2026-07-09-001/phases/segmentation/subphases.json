@@ -1,0 +1,34 @@
+[
+  {
+    "subphase": "threshold",
+    "mark": "pass",
+    "confidence": "high",
+    "notes": "Bone/soft-tissue split is clean at 1180 HU.",
+    "attempt": 1,
+    "timestamp": "2026-07-09T10:38:10Z"
+  },
+  {
+    "subphase": "watershed",
+    "mark": "pass",
+    "confidence": "medium",
+    "notes": "Condyles separated at the joint line; growth-plate boundary uncertain on the medial side.",
+    "attempt": 1,
+    "timestamp": "2026-07-09T10:39:22Z"
+  },
+  {
+    "subphase": "bone-assignment",
+    "mark": "human-review",
+    "confidence": "medium",
+    "notes": "Ambiguous bone identity; calibration unverified. Flagged needs-seeds.",
+    "attempt": 1,
+    "timestamp": "2026-07-09T10:40:05Z"
+  },
+  {
+    "subphase": "bone-assignment",
+    "mark": "pass",
+    "confidence": "high",
+    "notes": "Seeds replayed; femur=1, tibia=2 confirmed, status ready.",
+    "attempt": 2,
+    "timestamp": "2026-07-09T10:41:30Z"
+  }
+]

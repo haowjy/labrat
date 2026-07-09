@@ -1,0 +1,11 @@
+[
+  {
+    "id": "sg-001",
+    "taskId": "task-2026-07-09-001",
+    "protocol": "bonemorph-oa-mouse-knee",
+    "phase": "segmentation",
+    "text": "The femur speckle islands are a recurring pattern. The segmentation skill should run a largest-connected-component filter per bone before handing off, so the reviewer does not have to catch it every time.",
+    "createdAt": "2026-07-09T10:45:00Z",
+    "author": "jimmy@voluma.bio"
+  }
+]

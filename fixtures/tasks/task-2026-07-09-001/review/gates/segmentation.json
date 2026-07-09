@@ -1,0 +1,12 @@
+{
+  "phase": "segmentation",
+  "decidedAt": "2026-07-09T10:42:12Z",
+  "decision": "pass-with-concerns",
+  "rewind_to": null,
+  "feedback": "Labels {femur: 1, tibia: 2} confirmed after the seed replay resolved the initial ambiguous-bone-identity and calibration-unverified flags. An independent connected-components check found femur (label 1) split into 4 connected components; expected 1. The largest component is 99.96% of femur voxels (142735 of 142789); the other three are stray islands of 37, 12, and 5 voxels near the cortex, consistent with thresholding speckle. Tibia (label 2) is a single clean component. Measurements land within expected ranges, so passing, but the femur mask should be cleaned with a largest-connected-component filter before landmark placement. Verification code and output: review/verification/segmentation/.",
+  "subphase_assessments": {
+    "threshold": "agree — histogram split is clean and reproducible",
+    "watershed": "agree — growth-plate boundary is reasonable after the seed replay",
+    "bone-assignment": "agree — femur=1 / tibia=2 is correct; the human-review flag on the first pass was warranted given the initial ambiguity"
+  }
+}
