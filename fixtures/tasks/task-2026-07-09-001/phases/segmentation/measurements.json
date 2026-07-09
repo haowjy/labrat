@@ -1,0 +1,13 @@
+{
+  "labels": { "femur": 1, "tibia": 2 },
+  "femurVoxels": 142789,
+  "tibiaVoxels": 128944,
+  "femurComponents": 4,
+  "tibiaComponents": 1,
+  "femurLength_mm": 2.41,
+  "tibiaLength_mm": 2.18,
+  "expectedRanges": {
+    "femurLength_mm": [2.0, 3.5],
+    "tibiaLength_mm": [1.8, 3.0]
+  }
+}

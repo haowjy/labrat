@@ -1,2 +1,8 @@
-/** TODO(wave-3): vanilla HTML/JS review-chain UI — static assets live here */
-export const STATIC_ROOT = new URL("./static/", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+/**
+ * Absolute path to the self-contained static assets (HTML/CSS/JS). No CDN, no
+ * external fonts — everything the review-chain UI needs ships in `assets/`.
+ * Resolved from this module's URL so it works whether run via tsx or compiled.
+ */
+export const STATIC_ROOT = fileURLToPath(new URL("./assets/", import.meta.url));
