@@ -5,7 +5,11 @@ export { enqueueTask, dequeueNext, updateTaskState } from "./queue/index.js";
 export { runTask } from "./orchestrator/index.js";
 export { loadProtocolFromFile } from "./protocol-loader/index.js";
 export { runWorkerPhase, runGateReview } from "./session/index.js";
-export { createLabratMcpServer } from "./tools/index.js";
+export {
+  allowedLabratTools,
+  createLabratToolServer,
+  createLabratMcpServer,
+} from "./tools/index.js";
 export { appendManifestEntry } from "./provenance/index.js";
 export { ensureRuntime } from "./runtime-setup/index.js";
 export { emit, subscribe } from "./events/index.js";
