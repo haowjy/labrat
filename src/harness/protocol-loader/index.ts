@@ -19,7 +19,6 @@ import {
 import {
   collectSkillRuntimeDeps,
   findProtocolSkillDir,
-  resolveClaudeScienceHome,
   resolveSkillRef,
   type ResolvedSkill,
 } from "./resolve.js";
@@ -48,14 +47,18 @@ export {
 } from "./prompt.js";
 export {
   findProtocolSkillDir,
-  resolveClaudeScienceHome,
   resolveSkillRef,
   type ResolvedSkill,
 } from "./resolve.js";
 
+/**
+ * `claudeScienceHome` is always the caller's resolved config value — there's
+ * no fallback here. Single source of truth is `LabratConfig.scienceHome`
+ * (src/config), loaded once at the run entrypoint and threaded down.
+ */
 export async function loadProtocolFromFile(
   protocolYamlPath: string,
-  claudeScienceHome?: string,
+  claudeScienceHome: string,
 ): Promise<ValidationResult<LoadedProtocol>> {
   const raw = await readFile(protocolYamlPath, "utf8");
   const parsed: unknown = parseYaml(raw);
@@ -63,26 +66,24 @@ export async function loadProtocolFromFile(
   if (!validated.ok) {
     return validated;
   }
-  const csHome = claudeScienceHome ?? resolveClaudeScienceHome();
   return {
     ok: true,
     value: {
       yaml: validated.value,
       skillDir: protocolYamlPath.replace(/\/protocol\.yaml$/, ""),
-      claudeScienceHome: csHome,
+      claudeScienceHome,
     },
   };
 }
 
 export async function loadProtocolByName(
   protocolName: string,
-  claudeScienceHome?: string,
+  claudeScienceHome: string,
 ): Promise<LoadedProtocol> {
-  const csHome = claudeScienceHome ?? resolveClaudeScienceHome();
-  const skillDir = await findProtocolSkillDir(protocolName, csHome);
+  const skillDir = await findProtocolSkillDir(protocolName, claudeScienceHome);
   const loaded = await loadProtocolFromFile(
     join(skillDir, "protocol.yaml"),
-    csHome,
+    claudeScienceHome,
   );
   if (!loaded.ok) {
     throw new Error(

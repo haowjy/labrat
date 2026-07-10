@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { LabratConfig } from "../../config/index.js";
 import {
   validateGateFile,
   validateVerdictJson,
@@ -42,6 +43,7 @@ export type GateContext = {
    * caller doesn't know it (e.g. the standalone `gate` CLI backfilling a
    * phase that already ran). */
   readonly startedAt?: string;
+  readonly config: LabratConfig;
 };
 
 export type RunGateResult =
@@ -232,6 +234,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
         protocol: ctx.protocol,
         loadedPhase,
         runtime: ctx.runtime,
+        runSettings: ctx.config,
       }),
   );
 

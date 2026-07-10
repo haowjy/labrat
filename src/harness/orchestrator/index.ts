@@ -1,9 +1,10 @@
 import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { loadConfig, type LabratConfig } from "../../config/index.js";
 import type { TaskJson } from "../../schema/index.js";
 import { validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
-import { notifyEvent } from "../events/index.js";
+import { configureEvents, notifyEvent } from "../events/index.js";
 import {
   loadProtocolByName,
   type LoadedProtocol,
@@ -24,13 +25,12 @@ export {
 } from "./invalidation.js";
 export { findRecordedWorkerSessionId } from "./session-lookup.js";
 
-const MAX_PHASE_ATTEMPTS = 2;
-
 export type OrchestratorConfig = {
   readonly taskId: string;
   readonly taskDir: string;
   readonly inputRel: string;
   readonly protocol: LoadedProtocol;
+  readonly config: LabratConfig;
 };
 
 export type PhaseRunResult = {
@@ -176,14 +176,16 @@ async function stageInput(
   return `input/${folderName}`;
 }
 
-export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult> {
-  const { resolveRuntimePaths } = await import("../runtime-setup/config.js");
-  const paths = resolveRuntimePaths();
-  process.env["PYTHONPATH"] = paths.microctSrcPath;
+export async function runTask(
+  orchestratorConfig: OrchestratorConfig,
+): Promise<RunTaskResult> {
+  const { config } = orchestratorConfig;
   process.env["MPLBACKEND"] = process.env["MPLBACKEND"] ?? "Agg";
 
-  const runtimeResult = await ensureRuntime(config.protocol.yaml, {
+  const runtimeResult = await ensureRuntime(orchestratorConfig.protocol.yaml, {
     skillRuntimeDeps: [],
+    claudeScienceHome: config.scienceHome,
+    microctSrcPath: config.microctSrc,
   });
   if (!runtimeResult.ok || !runtimeResult.handle) {
     throw new Error(
@@ -192,7 +194,7 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
   }
 
   const runtime = pythonRuntime();
-  const phaseIds = config.protocol.yaml.phases.map((p) => p.id);
+  const phaseIds = orchestratorConfig.protocol.yaml.phases.map((p) => p.id);
   const phaseResults: PhaseRunResult[] = [];
   const priorSummaries: Record<string, string> = {};
   const attemptByPhase = new Map<string, number>();
@@ -201,7 +203,9 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
   while (pointer < phaseIds.length) {
     const phaseId = phaseIds[pointer];
     if (!phaseId) break;
-    const loadedPhaseDef = config.protocol.yaml.phases.find((p) => p.id === phaseId);
+    const loadedPhaseDef = orchestratorConfig.protocol.yaml.phases.find(
+      (p) => p.id === phaseId,
+    );
     if (!loadedPhaseDef) {
       throw new Error(`Protocol missing phase definition: ${phaseId}`);
     }
@@ -209,25 +213,30 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
     const attempt = (attemptByPhase.get(phaseId) ?? 0) + 1;
     attemptByPhase.set(phaseId, attempt);
 
-    let task = await loadTaskJson(config.taskDir);
+    let task = await loadTaskJson(orchestratorConfig.taskDir);
     task = {
       ...task,
       state: "running",
       currentPhase: phaseId,
       updatedAt: new Date().toISOString(),
     };
-    await writeTaskJson(config.taskDir, task);
-    notifyEvent({ type: "phase-started", taskId: config.taskId, phase: phaseId });
+    await writeTaskJson(orchestratorConfig.taskDir, task);
+    notifyEvent({
+      type: "phase-started",
+      taskId: orchestratorConfig.taskId,
+      phase: phaseId,
+    });
 
     const startedAt = new Date().toISOString();
     const workerResult = await runWorkerPhase({
-      taskId: config.taskId,
-      taskDir: config.taskDir,
-      inputRel: config.inputRel,
-      protocol: config.protocol,
+      taskId: orchestratorConfig.taskId,
+      taskDir: orchestratorConfig.taskDir,
+      inputRel: orchestratorConfig.inputRel,
+      protocol: orchestratorConfig.protocol,
       phaseId,
       runtime,
       priorPhaseSummaries: priorSummaries,
+      runSettings: config,
     });
 
     if (workerResult.blockedReason) {
@@ -237,10 +246,10 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
         reason: workerResult.blockedReason,
         updatedAt: new Date().toISOString(),
       };
-      await writeTaskJson(config.taskDir, task);
+      await writeTaskJson(orchestratorConfig.taskDir, task);
       notifyEvent({
         type: "task-paused",
-        taskId: config.taskId,
+        taskId: orchestratorConfig.taskId,
         reason: workerResult.blockedReason,
       });
       throw new Error(`Task paused: ${workerResult.blockedReason}`);
@@ -250,19 +259,19 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
       task = {
         ...task,
         state: "failed",
-        reason: `Worker stalled on phase ${phaseId} after ${3} reminders without record_phase`,
+        reason: `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`,
         updatedAt: new Date().toISOString(),
       };
-      await writeTaskJson(config.taskDir, task);
+      await writeTaskJson(orchestratorConfig.taskDir, task);
       notifyEvent({
         type: "task-failed",
-        taskId: config.taskId,
+        taskId: orchestratorConfig.taskId,
         reason: task.reason ?? `Phase ${phaseId} did not complete`,
       });
       throw new Error(task.reason ?? `Phase ${phaseId} did not complete`);
     }
 
-    const summary = await readPhaseSummary(config.taskDir, phaseId);
+    const summary = await readPhaseSummary(orchestratorConfig.taskDir, phaseId);
     if (summary) {
       priorSummaries[phaseId] = summary;
     }
@@ -276,18 +285,23 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
       currentPhase: null,
       updatedAt: new Date().toISOString(),
     };
-    await writeTaskJson(config.taskDir, task);
-    notifyEvent({ type: "phase-complete", taskId: config.taskId, phase: phaseId });
+    await writeTaskJson(orchestratorConfig.taskDir, task);
+    notifyEvent({
+      type: "phase-complete",
+      taskId: orchestratorConfig.taskId,
+      phase: phaseId,
+    });
 
     const gate = await runGate({
-      taskId: config.taskId,
-      taskDir: config.taskDir,
-      protocol: config.protocol,
+      taskId: orchestratorConfig.taskId,
+      taskDir: orchestratorConfig.taskDir,
+      protocol: orchestratorConfig.protocol,
       phase: loadedPhaseDef,
       workerSessionId: workerResult.sessionId,
       runtime,
       attempt,
       startedAt,
+      config,
     });
 
     phaseResults.push({
@@ -302,17 +316,17 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
     }
 
     if (gate.kind === "fail") {
-      if (attempt >= MAX_PHASE_ATTEMPTS) {
+      if (attempt >= config.retries.phaseAttempts) {
         task = {
           ...task,
           state: "failed",
           reason: `Gate failed twice on phase ${phaseId}: ${gate.feedback ?? "no feedback"}`,
           updatedAt: new Date().toISOString(),
         };
-        await writeTaskJson(config.taskDir, task);
+        await writeTaskJson(orchestratorConfig.taskDir, task);
         notifyEvent({
           type: "task-failed",
-          taskId: config.taskId,
+          taskId: orchestratorConfig.taskId,
           reason: task.reason ?? `Phase ${phaseId} gate failed twice`,
         });
         throw new Error(task.reason ?? `Phase ${phaseId} gate failed twice`);
@@ -324,7 +338,7 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
         phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
         updatedAt: new Date().toISOString(),
       };
-      await writeTaskJson(config.taskDir, task);
+      await writeTaskJson(orchestratorConfig.taskDir, task);
       continue;
     }
 
@@ -346,45 +360,56 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
       ),
       updatedAt: new Date().toISOString(),
     };
-    await writeTaskJson(config.taskDir, task);
+    await writeTaskJson(orchestratorConfig.taskDir, task);
     pointer = rewindIdx;
   }
 
-  const finalTask = await loadTaskJson(config.taskDir);
+  const finalTask = await loadTaskJson(orchestratorConfig.taskDir);
   const doneTask: TaskJson = {
     ...finalTask,
     state: "done",
     updatedAt: new Date().toISOString(),
   };
-  await writeTaskJson(config.taskDir, doneTask);
-  notifyEvent({ type: "task-done", taskId: config.taskId });
+  await writeTaskJson(orchestratorConfig.taskDir, doneTask);
+  notifyEvent({ type: "task-done", taskId: orchestratorConfig.taskId });
 
   return { task: doneTask, phases: phaseResults };
 }
 
 export async function enqueueAndRun(
   inputAbsPath: string,
-  protocolName = "bonemorph-oa-mouse-knee",
+  protocolName?: string,
   tasksRoot?: string,
 ): Promise<RunTaskResult & { taskId: string; taskDir: string }> {
   const { resolve } = await import("node:path");
   const root =
     tasksRoot ?? join(resolve(process.cwd(), "tasks"));
 
-  const protocol = await loadProtocolByName(protocolName);
+  const config = loadConfig();
+  configureEvents(config.dashboard.url);
+  const resolvedProtocolName = protocolName ?? config.defaultProtocol;
+  if (!resolvedProtocolName) {
+    throw new Error(
+      "No protocol specified and no default configured. Pass a protocol name, " +
+        "or set defaultProtocol in labrat.config.json / LABRAT_PROTOCOL.",
+    );
+  }
+
+  const protocol = await loadProtocolByName(resolvedProtocolName, config.scienceHome);
   const { taskId, taskDir, inputRel } = await initTaskTree(
     root,
     inputAbsPath,
-    protocolName,
+    resolvedProtocolName,
     protocol.yaml.phases[0]?.id ?? null,
   );
-  notifyEvent({ type: "task-started", taskId, protocol: protocolName });
+  notifyEvent({ type: "task-started", taskId, protocol: resolvedProtocolName });
 
   const result = await runTask({
     taskId,
     taskDir,
     inputRel,
     protocol,
+    config,
   });
 
   return { ...result, taskId, taskDir };
@@ -426,6 +451,9 @@ export async function runStandaloneGate(
   const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
   const taskDir = join(root, taskId);
 
+  const config = loadConfig();
+  configureEvents(config.dashboard.url);
+
   const task = await loadTaskJson(taskDir);
   if (!task.phasesComplete.includes(phaseId)) {
     throw new Error(
@@ -433,18 +461,19 @@ export async function runStandaloneGate(
     );
   }
 
-  const protocol = await loadProtocolByName(task.protocol);
+  const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
   const phase = protocol.yaml.phases.find((p) => p.id === phaseId);
   if (!phase) {
     throw new Error(`Protocol "${task.protocol}" has no phase "${phaseId}"`);
   }
 
-  const { resolveRuntimePaths } = await import("../runtime-setup/config.js");
-  const paths = resolveRuntimePaths();
-  process.env["PYTHONPATH"] = paths.microctSrcPath;
   process.env["MPLBACKEND"] = process.env["MPLBACKEND"] ?? "Agg";
 
-  const runtimeResult = await ensureRuntime(protocol.yaml, { skillRuntimeDeps: [] });
+  const runtimeResult = await ensureRuntime(protocol.yaml, {
+    skillRuntimeDeps: [],
+    claudeScienceHome: config.scienceHome,
+    microctSrcPath: config.microctSrc,
+  });
   if (!runtimeResult.ok || !runtimeResult.handle) {
     throw new Error(`Runtime setup failed: ${runtimeResult.errors.join("; ")}`);
   }
@@ -468,6 +497,7 @@ export async function runStandaloneGate(
     workerSessionId,
     runtime,
     attempt,
+    config,
   });
 
   // PASS/pass-with-concerns: task.json already reflects this phase as
