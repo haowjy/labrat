@@ -37,3 +37,6 @@ Thumbs.db
 !fixtures/
 !fixtures/tasks/
 !fixtures/**
+
+# user settings (not committed)
+labrat.config.json
