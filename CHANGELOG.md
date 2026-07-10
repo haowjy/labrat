@@ -10,6 +10,7 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 - `toy-stats` demo protocol: stdlib-only (fake data → classify → OLS regression), independent reviewer recomputes and gates each phase. Runs on Haiku in seconds, no imaging deps.
 - Runs now reach `state: done` and emit a `task-done` event when all protocol phases pass.
 - `labrat.config.example.json` template; retry knobs via env (`LABRAT_WORKER_STALL_RETRIES`, `LABRAT_REVIEW_ATTEMPTS`, `LABRAT_PHASE_ATTEMPTS`).
+- Dashboard "Reviews" view: embeds a task's review site in `<iframe sandbox="allow-scripts allow-downloads">` (opaque origin, no `allow-same-origin`) at the Lane A URL shape `/api/tasks/:id/review-site/index.html`. A phase whose recorded outputs include `artifacts/review-site/` (`getTask`'s `hasReviewSite`) gets an "Open review site" link from both the review-chain and provenance views, so the review site is a first-class node in the chain. Mobile-first: no horizontal overflow at 375px, every nav/action tap target ≥44px, the frame fills the remaining viewport via flex instead of a vh guess.
 
 ### Changed
 - Runtime provisioning is now driven by a per-skill `environment.yml` (micromamba/conda env spec) instead of a hardcoded `microct_analysis` special-case (#2). `protocol.runtime.substrate` is required (no silent default); `protocol.runtime.deps` is declarative only.

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<title>Review site — minimal fixture</title>
+<link rel="stylesheet" href="assets/app.css" />
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <h1 id="sample-title">Review</h1>
+    <p id="sample-source" class="topbar-sub"></p>
+  </header>
+
+  <main class="rows-wrap">
+    <table class="values-table">
+      <thead>
+        <tr>
+          <th scope="col">Index</th>
+          <th scope="col">Value</th>
+          <th scope="col">Honesty flag</th>
+          <th scope="col">Verdict</th>
+        </tr>
+      </thead>
+      <tbody id="rows-body"></tbody>
+    </table>
+  </main>
+
+  <footer class="action-bar">
+    <p id="progress" class="progress" aria-live="polite"></p>
+    <button id="export-btn" type="button" disabled>Export verdict</button>
+  </footer>
+</div>
+
+<script src="data/manifest.js"></script>
+<script src="data/values.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

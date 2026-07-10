@@ -18,13 +18,14 @@
 
   <main class="main">
     <div class="topbar">
-      <div>
+      <div class="topbar-titles">
         <div class="title" id="topbar-id">—</div>
         <div class="subtitle" id="topbar-sub"></div>
       </div>
       <div class="spacer"></div>
       <button id="btn-chain" class="active-btn" data-view="chain">Review chain</button>
       <button id="btn-prov" data-view="provenance">Provenance</button>
+      <button id="btn-reviews" data-view="reviews">Reviews</button>
     </div>
 
     <div class="live-strip">
@@ -36,6 +37,7 @@
 
     <div class="content" id="view-chain"></div>
     <div class="content" id="view-provenance" style="display:none"></div>
+    <div class="content content-reviews" id="view-reviews" style="display:none"></div>
 
     <div class="log-strip" id="log-strip" style="display:none">
       <div class="log-head">ephemeral log — not part of the record</div>
@@ -49,6 +51,7 @@
   <div class="cap" id="lightbox-cap"></div>
 </div>
 
+<script src="./review-site.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
