@@ -2,9 +2,11 @@
  * Trust-boundary enforcement for the gate reviewer (design §10).
  *
  * The reviewer's independence is not just a prompt instruction — the harness
- * hashes `artifacts/` and `phases/{phase}/` before the reviewer session and
- * verifies nothing changed after. The reviewer may only write under
- * `review/verification/{phase}/`.
+ * hashes everything the reviewer must not touch (`artifacts/`, ALL of
+ * `phases/`, `task.json`, `review/gates/`, `provenance/manifest.yaml`)
+ * before the reviewer session and verifies nothing changed after. The
+ * reviewer may only write under `review/verification/{phase}/`, which is
+ * deliberately excluded from the snapshot.
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -21,6 +23,18 @@ export function hashFile(filePath: string): Promise<string> {
     stream.on("end", () => resolve(hash.digest("hex")));
     stream.on("error", reject);
   });
+}
+
+/** Hash a single file, or return undefined if it doesn't exist (yet). */
+async function hashFileIfExists(filePath: string): Promise<string | undefined> {
+  try {
+    return await hashFile(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+    throw err;
+  }
 }
 
 async function walk(
@@ -58,23 +72,35 @@ export async function hashDirectory(dir: string): Promise<FileHashMap> {
 
 export type TrustBoundarySnapshot = {
   readonly artifacts: FileHashMap;
-  readonly phase: FileHashMap;
+  /** ALL of phases/ — every phase dir, not just the one under gate. */
+  readonly phases: FileHashMap;
+  readonly reviewGates: FileHashMap;
+  readonly taskJson: string | undefined;
+  readonly provenanceManifest: string | undefined;
 };
 
-/** Snapshot artifacts/ + phases/{phase}/ immediately before a reviewer session. */
+/**
+ * Snapshot everything the reviewer must not touch, immediately before a
+ * reviewer session: `artifacts/`, ALL of `phases/`, `review/gates/`,
+ * `task.json`, `provenance/manifest.yaml`. Deliberately excludes
+ * `review/verification/{phase}/`, the reviewer's one legal write area.
+ */
 export async function snapshotTrustBoundary(
   taskDir: string,
-  phaseId: string,
 ): Promise<TrustBoundarySnapshot> {
-  const [artifacts, phase] = await Promise.all([
-    hashDirectory(join(taskDir, "artifacts")),
-    hashDirectory(join(taskDir, "phases", phaseId)),
-  ]);
-  return { artifacts, phase };
+  const [artifacts, phases, reviewGates, taskJson, provenanceManifest] =
+    await Promise.all([
+      hashDirectory(join(taskDir, "artifacts")),
+      hashDirectory(join(taskDir, "phases")),
+      hashDirectory(join(taskDir, "review", "gates")),
+      hashFileIfExists(join(taskDir, "task.json")),
+      hashFileIfExists(join(taskDir, "provenance", "manifest.yaml")),
+    ]);
+  return { artifacts, phases, reviewGates, taskJson, provenanceManifest };
 }
 
 export type TrustBoundaryViolation = {
-  readonly area: "artifacts" | "phase";
+  readonly area: "artifacts" | "phases" | "review-gates" | "task-json" | "provenance-manifest";
   readonly path: string;
   readonly kind: "added" | "removed" | "modified";
 };
@@ -106,14 +132,40 @@ function diffMaps(
   }
 }
 
-/** Compare pre/post snapshots — any diff under artifacts/ or phases/{phase}/ is a violation. */
+function diffSingleFile(
+  area: TrustBoundaryViolation["area"],
+  path: string,
+  before: string | undefined,
+  after: string | undefined,
+  out: TrustBoundaryViolation[],
+): void {
+  if (before === after) return;
+  if (before === undefined) {
+    out.push({ area, path, kind: "added" });
+  } else if (after === undefined) {
+    out.push({ area, path, kind: "removed" });
+  } else {
+    out.push({ area, path, kind: "modified" });
+  }
+}
+
+/** Compare pre/post snapshots — any diff outside review/verification/{phase}/ is a violation. */
 export function diffTrustBoundary(
   before: TrustBoundarySnapshot,
   after: TrustBoundarySnapshot,
 ): TrustBoundaryResult {
   const violations: TrustBoundaryViolation[] = [];
   diffMaps("artifacts", before.artifacts, after.artifacts, violations);
-  diffMaps("phase", before.phase, after.phase, violations);
+  diffMaps("phases", before.phases, after.phases, violations);
+  diffMaps("review-gates", before.reviewGates, after.reviewGates, violations);
+  diffSingleFile("task-json", "task.json", before.taskJson, after.taskJson, violations);
+  diffSingleFile(
+    "provenance-manifest",
+    "provenance/manifest.yaml",
+    before.provenanceManifest,
+    after.provenanceManifest,
+    violations,
+  );
   return {
     ok: violations.length === 0,
     violations,
@@ -124,11 +176,10 @@ export function diffTrustBoundary(
 /** Snapshot both boundaries, run `fn`, then diff — the single entry point runGate uses. */
 export async function enforceTrustBoundary<T>(
   taskDir: string,
-  phaseId: string,
   fn: () => Promise<T>,
 ): Promise<{ readonly result: T; readonly trustBoundary: TrustBoundaryResult }> {
-  const before = await snapshotTrustBoundary(taskDir, phaseId);
+  const before = await snapshotTrustBoundary(taskDir);
   const result = await fn();
-  const after = await snapshotTrustBoundary(taskDir, phaseId);
+  const after = await snapshotTrustBoundary(taskDir);
   return { result, trustBoundary: diffTrustBoundary(before, after) };
 }
