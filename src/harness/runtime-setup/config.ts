@@ -16,6 +16,9 @@ export type EnsureRuntimeOptions = {
   readonly skillRuntimeDeps?: readonly import("../../schema/index.js").RuntimeDep[];
   /** When false, fail instead of creating or pip-installing missing deps. Default true. */
   readonly createIfMissing?: boolean;
+  /** Skill dir (protocol.skillDir) — where `environment.yml` is looked up when
+   * provisioning a missing substrate env. */
+  readonly skillDir: string;
 };
 
 export type RuntimePaths = {
@@ -51,16 +54,3 @@ export function envPythonPath(
 ): string {
   return join(paths.condaRoot, "envs", substrate, "bin", "python");
 }
-
-/** Baseline pip specs for the microct_analysis substrate (proven recipe). */
-export const MICROCT_ANALYSIS_PIP_SPECS = [
-  "numpy",
-  "nibabel>=5",
-  "pydicom>=2.4",
-  "scikit-image>=0.22",
-  "scipy",
-  "SimpleITK>=2.3",
-  "pyyaml",
-  "openpyxl",
-  "matplotlib",
-] as const;
