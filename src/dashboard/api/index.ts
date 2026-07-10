@@ -7,12 +7,14 @@ import {
   latestMarksBySubphase,
   validateGateFile,
   validateProvenanceManifest,
+  validateReviewVerdictRecord,
   validateSubphasesJson,
   validateSuggestionsJson,
   validateTaskJson,
   type GateFile,
   type ProvenanceArtifactRef,
   type ProvenanceManifest,
+  type ReviewVerdictRecord,
   type SubphaseMark,
   type SubphaseConfidence,
   type SuggestionEntry,
@@ -27,7 +29,7 @@ import {
  */
 
 /** Reject path segments that could escape the task tree. */
-function isSafeSegment(seg: string): boolean {
+export function isSafeSegment(seg: string): boolean {
   return (
     seg.length > 0 &&
     !seg.includes("/") &&
@@ -87,6 +89,27 @@ async function readGateFile(
   );
   if (raw === null) return null;
   const res = validateGateFile(raw);
+  return res.ok ? res.value : null;
+}
+
+/**
+ * The persisted HUMAN review verdict for a phase (schema/review-verdict.ts —
+ * distinct from the harness-derived `review/verdict.json`; see that file's
+ * header comment for why). Written by `finishReview()`
+ * (dashboard/review/index.ts) via `POST /api/tasks/:id/review/finish`, read
+ * back here so the chain view shows agent confidence + human verdict on
+ * reload without a restart.
+ */
+async function readReviewVerdict(
+  tasksDir: string,
+  id: string,
+  phase: string,
+): Promise<ReviewVerdictRecord | null> {
+  const raw = await readJsonFile(
+    path.join(taskDir(tasksDir, id), "review", "verdict", `${phase}.json`),
+  );
+  if (raw === null) return null;
+  const res = validateReviewVerdictRecord(raw);
   return res.ok ? res.value : null;
 }
 
@@ -271,6 +294,13 @@ export type PhaseDetail = {
   readonly evidence: readonly string[];
   /** Reviewer verification filenames under review/verification/{phase}/. */
   readonly verification: readonly string[];
+  /**
+   * The persisted human review verdict for this phase
+   * (review/verdict/{phase}.json), or null when no human has finished
+   * reviewing it yet. This is what lets the chain view show the completed
+   * review (agent confidence + human verdict) on reload.
+   */
+  readonly humanVerdict: ReviewVerdictRecord | null;
 };
 
 /**
@@ -320,8 +350,19 @@ export async function getPhase(
   const verification = await listDir(
     path.join(dir, "review", "verification", phase),
   );
+  const humanVerdict = await readReviewVerdict(tasksDir, id, phase);
 
-  return { phase, summary, measurements, confidence, subphases, gate, evidence, verification };
+  return {
+    phase,
+    summary,
+    measurements,
+    confidence,
+    subphases,
+    gate,
+    evidence,
+    verification,
+    humanVerdict,
+  };
 }
 
 /** GET /api/tasks/:id/suggestions — the append-only suggestions log (design §17). */
