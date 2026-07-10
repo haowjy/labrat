@@ -15,27 +15,31 @@ function scrollMainToTop() {
   if (main) main.scrollTop = 0;
 }
 
-/** Read-only "where am I" trail (goal doc: "Dashboard / <sample> /
- * <sample> · <phase>") — replaces the old mode-switch buttons entirely;
- * navigation now lives only in the drawer (Sidebar.js). Plain text, no
- * links: getting back a level is the drawer's job (its "Dashboard" entry,
- * or re-selecting the active sample), not this trail's. */
-function Breadcrumb({ screen, currentId, selectedPhase }) {
+/** "Where am I" trail (goal doc: "Dashboard / <sample> /
+ * <sample> · <phase>") — replaces the old mode-switch buttons entirely.
+ * Ancestor crumbs are clickable shortcuts up a level (the same
+ * `goToDashboard`/`selectSample` navigations the drawer offers — no third
+ * navigation path, just closer to the pointer); the current level is plain
+ * text. The drawer (Sidebar.js) remains the full navigation surface. */
+function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample }) {
   if (screen === "dashboard") {
     return html`<div class="breadcrumb"><span class="crumb-current">Dashboard</span></div>`;
   }
   if (screen === "sample") {
     return html`
       <div class="breadcrumb">
-        <span class="crumb">Dashboard</span><span class="crumb-sep"> / </span
+        <button type="button" class="crumb crumb-link" onClick=${onDashboard}>Dashboard</button
+        ><span class="crumb-sep"> / </span
         ><span class="crumb-current">${currentId}</span>
       </div>
     `;
   }
   return html`
     <div class="breadcrumb">
-      <span class="crumb">Dashboard</span><span class="crumb-sep"> / </span
-      ><span class="crumb">${currentId}</span><span class="crumb-sep"> / </span
+      <button type="button" class="crumb crumb-link" onClick=${onDashboard}>Dashboard</button
+      ><span class="crumb-sep"> / </span
+      ><button type="button" class="crumb crumb-link" onClick=${onSample}>${currentId}</button
+      ><span class="crumb-sep"> / </span
       ><span class="crumb-current">${currentId} · ${selectedPhase}</span>
     </div>
   `;
@@ -223,7 +227,13 @@ export function App() {
           >
             <span></span><span></span><span></span>
           </button>
-          <${Breadcrumb} screen=${screen} currentId=${currentId} selectedPhase=${selectedPhase} />
+          <${Breadcrumb}
+            screen=${screen}
+            currentId=${currentId}
+            selectedPhase=${selectedPhase}
+            onDashboard=${goToDashboard}
+            onSample=${() => selectSample(currentId)}
+          />
         </div>
 
         <${LiveStrip} connected=${connected} lastEvent=${lastEvent} />
