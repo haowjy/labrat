@@ -1,0 +1,7 @@
+# Fixtures stay small and text-only in git. Real imaging fixtures (bonemorph
+# etc.) are captured/gitignored separately — never commit binaries here.
+*.nii.gz
+*.nii
+*.dcm
+*.dicom
+*.zip

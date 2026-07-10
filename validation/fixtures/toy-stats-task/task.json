@@ -1,0 +1,13 @@
+{
+  "id": "task-2026-07-10-002",
+  "protocol": "toy-stats",
+  "input": "input/toy-input",
+  "state": "done",
+  "currentPhase": null,
+  "phasesComplete": [
+    "classify",
+    "regression"
+  ],
+  "createdAt": "2026-07-10T01:58:27.424Z",
+  "updatedAt": "2026-07-10T06:13:10.098Z"
+}
