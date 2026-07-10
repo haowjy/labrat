@@ -3,16 +3,14 @@ import { getJSON } from "../lib/api.js";
 import { STATE_EVENTS, describeEvent } from "../lib/format.js";
 import { LiveStrip, LogStrip } from "./LiveStrip.js";
 import { MobileDrawer } from "./MobileDrawer.js";
-import { ProvenanceView } from "./ProvenanceView.js";
-import { ReviewChainView } from "./ReviewChainView.js";
-import { ReviewsView } from "./ReviewsView.js";
+import { PhaseOverview } from "./PhaseOverview.js";
+import { PhaseReviewView } from "./PhaseReviewView.js";
 import { Sidebar } from "./Sidebar.js";
 
 const LOG_CAP = 40;
-const VIEWS = [
-  { id: "chain", label: "Review chain" },
-  { id: "provenance", label: "Provenance" },
-  { id: "reviews", label: "Reviews" },
+const MODES = [
+  { id: "overview", label: "Overview" },
+  { id: "review", label: "Phase review" },
 ];
 
 function scrollMainToTop() {
@@ -21,24 +19,34 @@ function scrollMainToTop() {
 }
 
 /**
- * Root of the Preact trusted shell. Owns navigation (task selection, view
- * switch, mobile drawer), the SSE connection, and the one shared
- * `GET /api/tasks/:id` fetch every view but Reviews reads from (Reviews
- * derives its review-phase name from it but does not remount on its
- * refreshes — see ReviewsView/VerdictPanel: an SSE tick must never blow
- * away a reviewer's in-progress verdict).
+ * Root of the Preact trusted shell. Owns navigation (task selection, the
+ * Overview/Phase-review mode switch, which phase Phase review shows, the
+ * mobile drawer), the SSE connection, and the one shared
+ * `GET /api/tasks/:id` fetch every view reads from.
+ *
+ * Minimal two-mode shell (replaces the old three-tab Review Chain /
+ * Provenance / Reviews IA): Overview is a compact phase index
+ * (PhaseOverview.js); Phase review shows one phase's sandboxed review site
+ * with the trusted VerdictPanel floated on top (PhaseReviewView.js ->
+ * ReviewEmbed.js -> VerdictOverlay.js). Provenance has no home in this
+ * slice (dropped, not ported — see the task's scope notes).
  *
  * Data pattern preserved exactly from the vanilla shell (design §3, §13):
  * SSE is notification-only. Every state event re-fetches the task list and,
  * if it's about the currently-open task, bumps `refreshTick` so whichever
- * view is mounted re-fetches its own data — the same "always fresh on
- * entry/event" behavior renderCurrent() had, just via props instead of a
- * full innerHTML rebuild.
+ * view is mounted re-fetches its own data via new `taskDetail` props —
+ * never a remount, so a reviewer's in-progress verdict (held in
+ * ReviewEmbed's useReviewBridge) survives an SSE tick untouched. It's only
+ * reset by an actual navigation: switching phase or task changes
+ * ReviewEmbed's `key` (PhaseReviewView.js), and switching to Overview
+ * unmounts it entirely — exactly how the old three-tab shell's "Reviews"
+ * tab already behaved when a reviewer navigated away and back.
  */
 export function App() {
   const [tasks, setTasks] = useState([]);
   const [currentId, setCurrentId] = useState(null);
-  const [view, setViewState] = useState("chain");
+  const [mode, setModeState] = useState("overview");
+  const [selectedPhase, setSelectedPhase] = useState(null);
   const [taskDetail, setTaskDetail] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -63,8 +71,18 @@ export function App() {
     setDrawerOpen(false);
   }, []);
 
-  const setView = useCallback((v) => {
-    setViewState(v);
+  const setMode = useCallback((m) => {
+    setModeState(m);
+    scrollMainToTop();
+  }, []);
+
+  /** An Overview row click or a Phase-review tab click both mean the same
+   * thing — "show Phase review for this phase" — so one callback covers
+   * both entry points; setting mode to "review" again when already there
+   * is a harmless no-op. */
+  const openPhaseReview = useCallback((phase) => {
+    setSelectedPhase(phase);
+    setModeState("review");
     scrollMainToTop();
   }, []);
 
@@ -84,8 +102,7 @@ export function App() {
     // eslint-disable-next-line
   }, []);
 
-  // The shared task-detail fetch: every view but Reviews reads this
-  // (Reviews only needs it to learn the review phase's name).
+  // The shared task-detail fetch: every view reads this.
   useEffect(() => {
     if (!currentId) {
       setTaskDetail(null);
@@ -168,15 +185,15 @@ export function App() {
             <div class="subtitle">${subtitle}</div>
           </div>
           <div class="spacer"></div>
-          ${VIEWS.map(
-            (v) => html`
+          ${MODES.map(
+            (m) => html`
               <button
-                key=${v.id}
+                key=${m.id}
                 type="button"
-                class=${view === v.id ? "active-btn" : ""}
-                onClick=${() => setView(v.id)}
+                class=${mode === m.id ? "active-btn" : ""}
+                onClick=${() => setMode(m.id)}
               >
-                ${v.label}
+                ${m.label}
               </button>
             `,
           )}
@@ -184,27 +201,18 @@ export function App() {
 
         <${LiveStrip} connected=${connected} lastEvent=${lastEvent} />
 
-        <div class="content ${view === "reviews" ? "content-reviews" : ""}">
+        <div class="content ${mode === "review" ? "content-review" : ""}">
           ${!currentId
             ? html`<div class="empty">No tasks yet.</div>`
-            : view === "chain"
-              ? html`<${ReviewChainView}
+            : mode === "overview"
+              ? html`<${PhaseOverview} taskId=${currentId} taskDetail=${taskDetail} onSelectPhase=${openPhaseReview} />`
+              : html`<${PhaseReviewView}
                   taskId=${currentId}
                   taskDetail=${taskDetail}
-                  refreshTick=${refreshTick}
-                  onOpenReviews=${() => setView("reviews")}
-                />`
-              : view === "provenance"
-                ? html`<${ProvenanceView}
-                    taskId=${currentId}
-                    refreshTick=${refreshTick}
-                    onOpenReviews=${() => setView("reviews")}
-                  />`
-                : html`<${ReviewsView}
-                    taskId=${currentId}
-                    taskDetail=${taskDetail}
-                    onVerdictFinished=${refetchTaskDetail}
-                  />`}
+                  selectedPhase=${selectedPhase}
+                  onSelectPhase=${openPhaseReview}
+                  onVerdictFinished=${refetchTaskDetail}
+                />`}
         </div>
 
         <${LogStrip} lines=${logLines} />
