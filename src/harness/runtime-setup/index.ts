@@ -42,6 +42,12 @@ export function resetRuntimeHandle(): void {
 /**
  * Ensure the protocol's runtime substrate exists and all merged deps resolve.
  * Idempotent: verify-first; create/install only when missing.
+ *
+ * TODO(#2): make substrate deps protocol-driven — the microct_analysis
+ * substrate/pip-install recipe below is still hardcoded (out of scope for
+ * the config seam cleanup; a separate pass should drive this from
+ * protocol.yaml runtime.deps instead of DEFAULT_SUBSTRATE/MICROCT_ANALYSIS_PIP_SPECS).
+ * Tracked: https://github.com/haowjy/labrat/issues/2
  */
 export async function ensureRuntime(
   protocol: ProtocolYaml,
@@ -60,7 +66,7 @@ export async function ensureRuntime(
   logs.push(`python=${pythonPath}`);
   logs.push(`merged deps (${mergedDeps.length}): ${mergedDeps.map(depKey).join(", ")}`);
 
-  const subprocessEnv = buildSubprocessEnv(paths, substrate);
+  const subprocessEnv = buildSubprocessEnv(paths);
 
   const micromambaOk = await pathExists(paths.micromambaPath);
   if (!micromambaOk) {
@@ -166,12 +172,11 @@ export async function ensureRuntime(
   return { ok: true, errors: [], logs, handle };
 }
 
-function buildSubprocessEnv(
-  paths: { microctSrcPath: string },
-  _substrate: string,
-): Record<string, string> {
+function buildSubprocessEnv(paths: {
+  microctSrcPath: string | null;
+}): Record<string, string> {
   return {
-    PYTHONPATH: paths.microctSrcPath,
+    ...(paths.microctSrcPath !== null ? { PYTHONPATH: paths.microctSrcPath } : {}),
     MPLBACKEND: "Agg",
   };
 }

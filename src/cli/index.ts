@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { loadConfig } from "../config/index.js";
 import { enqueueAndRun, runStandaloneGate } from "../harness/orchestrator/index.js";
 
 function expandUserPath(p: string): string {
@@ -19,10 +20,19 @@ async function main(): Promise<void> {
     }
 
     const inputAbs = resolve(expandUserPath(inputPath));
-    const protocol = args[2] ?? "bonemorph-oa-mouse-knee";
+    const config = loadConfig();
+    const protocol = args[2] ?? config.defaultProtocol;
+    if (!protocol) {
+      console.error(
+        "Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]\n" +
+          "No protocol given and no defaultProtocol configured " +
+          "(labrat.config.json or LABRAT_PROTOCOL).",
+      );
+      process.exit(1);
+    }
 
     console.log(`enqueue ${inputAbs} protocol=${protocol}`);
-    const result = await enqueueAndRun(inputAbs, protocol);
+    const result = await enqueueAndRun(inputAbs, protocol, undefined, config);
 
     console.log(JSON.stringify({
       taskId: result.taskId,

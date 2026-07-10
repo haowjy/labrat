@@ -144,7 +144,7 @@ export function startServer(config: DashboardConfig): void {
     console.log(`[labrat] tasks dir: ${config.tasksDir}`);
     if (config.devReplay) {
       console.log("[labrat] dev SSE replay ON");
-      startDevReplay();
+      void startDevReplay(config.tasksDir);
     }
   });
 }

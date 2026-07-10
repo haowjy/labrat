@@ -1,10 +1,15 @@
 /**
- * Manual smoke: verify ensureRuntime against the proven microct_analysis env.
- * Run: npx tsx src/harness/runtime-setup/verify.ts
+ * Manual smoke — microct-only, not part of the generic harness.
+ *
+ * Verifies ensureRuntime() against the proven microct_analysis env used by
+ * the bonemorph protocol. Lives outside src/ because it is protocol-specific
+ * dev tooling, not shipped harness code.
+ *
+ * Run: npx tsx scripts/verify-microct-runtime.ts
  */
-import { ensureRuntime, pythonRuntime } from "./index.js";
-import { runCommand } from "./subprocess.js";
-import type { ProtocolYaml } from "../../schema/index.js";
+import { ensureRuntime, pythonRuntime } from "../src/harness/runtime-setup/index.js";
+import { runCommand } from "../src/harness/runtime-setup/subprocess.js";
+import type { ProtocolYaml } from "../src/schema/index.js";
 
 const minimalProtocol: ProtocolYaml = {
   kind: "protocol",

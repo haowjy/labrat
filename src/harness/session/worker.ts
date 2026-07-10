@@ -4,6 +4,7 @@ import {
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
   type AgentDefinition,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { LabratConfig } from "../../config/index.js";
 import type { ProtocolYaml } from "../../schema/index.js";
 import { notifyEvent } from "../events/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
@@ -30,6 +31,9 @@ export type WorkerSessionConfig = {
   readonly phaseId: string;
   readonly runtime: RuntimeHandle;
   readonly priorPhaseSummaries: Readonly<Record<string, string>>;
+  /** Resolved harness-wide config (src/config) — the base layer under
+   * protocol.yaml/agent-def precedence for model + permission mode. */
+  readonly runSettings: LabratConfig;
 };
 
 export type WorkerSessionResult = {
@@ -38,8 +42,6 @@ export type WorkerSessionResult = {
   readonly blockedReason: string | null;
   readonly stallExhausted: boolean;
 };
-
-const MAX_STALL_RETRIES = 3;
 
 function buildSdkAgents(
   protocol: ProtocolYaml,
@@ -117,14 +119,21 @@ async function runOneQuery(
 
   const sdkAgents = buildSdkAgents(config.protocol.yaml);
 
+  const model = config.protocol.yaml.agents.worker.model ?? config.runSettings.defaultModel;
+  const permissionMode =
+    config.protocol.yaml.agents.worker.permissions ??
+    config.runSettings.defaultPermissionMode;
+
   const q = query({
     prompt: userPrompt,
     options: {
-      model: "sonnet",
+      model,
       cwd: config.taskDir,
       env: buildSessionEnv(config.runtime),
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      permissionMode,
+      ...(permissionMode === "bypassPermissions"
+        ? { allowDangerouslySkipPermissions: true }
+        : {}),
       systemPrompt,
       allowedTools,
       mcpServers: { labrat: mcpServer },
@@ -186,8 +195,9 @@ export async function runWorkerPhase(
 
   let sessionId = "";
   let stallCount = 0;
+  const maxStallRetries = config.runSettings.retries.workerStall;
 
-  while (stallCount <= MAX_STALL_RETRIES) {
+  while (stallCount <= maxStallRetries) {
     const isReminder = stallCount > 0;
     const userPrompt = phaseUserPrompt(
       config.phaseId,
