@@ -1,0 +1,64 @@
+kind: protocol
+name: toy-stats
+version: 1
+
+expects:
+  domain: synthetic-stats-demo
+  input: [generated, provided]
+  min_rows: 50
+
+phases:
+  - id: classify
+    skills:
+      - resources/classify
+    inputs: [input/]
+    outputs:
+      - classify/data.csv
+      - classify/classification.json
+
+  - id: regression
+    skills:
+      - resources/regression
+    inputs:
+      - classify/data.csv
+    outputs:
+      - regression/regression.json
+
+runtime:
+  substrate: toy-stats
+  deps: []
+
+parent_skills: []
+
+agents:
+  worker:
+    tools:
+      - Bash
+      - Read
+      - Write
+      - Glob
+      - Grep
+      - record_phase
+      - mark_subphase
+      - blocked
+    model: haiku
+    writable:
+      - artifacts/
+
+  gate-reviewer:
+    tools:
+      - Bash
+      - Read
+      - Grep
+      - Glob
+      - submit_gate_decision
+    model: haiku
+    writable: [review/verification/]
+    max_findings: 5
+
+requires:
+  worker:
+    tools: [Bash, Read, Write, Glob, Grep]
+    runtime: []
+  reviewer:
+    runtime: []

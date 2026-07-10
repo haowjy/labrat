@@ -10,7 +10,9 @@ import {
   handleMarkSubphase,
   handleRecordPhase,
   handleSubmitGateDecision,
+  handleSubmitMonitorVerdict,
 } from "./handlers.js";
+import { MONITOR_VERDICTS } from "../../schema/index.js";
 
 const recordPhaseSchema = {
   phase: z.string().describe("Phase id to record"),
@@ -46,6 +48,17 @@ const submitGateDecisionSchema = {
 
 const blockedSchema = {
   reason: z.string().describe("Why the worker cannot proceed"),
+};
+
+const submitMonitorVerdictSchema = {
+  verdict: z
+    .enum(MONITOR_VERDICTS as unknown as [string, ...string[]])
+    .describe(
+      "ok | rubber_stamp | insufficient_evidence — the monitor's audit of the reviewer's independence",
+    ),
+  reasons: z
+    .array(z.string())
+    .describe("Short, concrete reasons citing what was found"),
 };
 
 function workerTools(ctx: LabratToolContext) {
@@ -86,13 +99,28 @@ function gateReviewerTools(ctx: LabratToolContext) {
   ];
 }
 
-/** In-process MCP server for worker or gate-reviewer role (design §11). */
+function monitorTools(ctx: LabratToolContext) {
+  return [
+    tool(
+      "submit_monitor_verdict",
+      "Submit the independent monitor's audit verdict of the gate reviewer's independence.",
+      submitMonitorVerdictSchema,
+      async (args) => handleSubmitMonitorVerdict(ctx, args),
+    ),
+  ];
+}
+
+/** In-process MCP server for worker, gate-reviewer, or monitor role (design §11). */
 export function createLabratToolServer(
   options: CreateLabratToolServerOptions,
 ): McpSdkServerConfigWithInstance {
   const { ctx, role } = options;
   const tools =
-    role === "worker" ? workerTools(ctx) : gateReviewerTools(ctx);
+    role === "worker"
+      ? workerTools(ctx)
+      : role === "monitor"
+        ? monitorTools(ctx)
+        : gateReviewerTools(ctx);
 
   return createSdkMcpServer({
     name: "labrat",
@@ -108,6 +136,10 @@ export function allowedLabratTools(
 ): string[] {
   if (role === "gate-reviewer") {
     return ["mcp__labrat__submit_gate_decision"];
+  }
+
+  if (role === "monitor") {
+    return ["mcp__labrat__submit_monitor_verdict"];
   }
 
   const names = ["mcp__labrat__record_phase", "mcp__labrat__blocked"];

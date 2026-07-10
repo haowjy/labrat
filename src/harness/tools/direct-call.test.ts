@@ -12,6 +12,7 @@ import {
   handleMarkSubphase,
   handleRecordPhase,
   handleSubmitGateDecision,
+  handleSubmitMonitorVerdict,
 } from "./handlers.js";
 import { allowedLabratTools, createLabratToolServer } from "./server.js";
 
@@ -131,14 +132,33 @@ async function main(): Promise<void> {
     assert.match(textOf(result), /rewind_to required/);
     console.log("OK submit_gate_decision rejects fail-upstream without rewind_to");
 
+    // submit_monitor_verdict — the monitor SIGNALS its verdict (F4).
+    const monitorCtx = makeCtx(taskDir);
+    const monResult = await handleSubmitMonitorVerdict(monitorCtx, {
+      verdict: "insufficient_evidence",
+      reasons: ["script never recomputes the reported accuracy"],
+    });
+    assert.match(textOf(monResult), /insufficient_evidence/);
+    assert.equal(monitorCtx.signals.monitorVerdict?.verdict, "insufficient_evidence");
+    console.log("OK submit_monitor_verdict captures verdict");
+
+    const monBad = await handleSubmitMonitorVerdict(monitorCtx, {
+      verdict: "totally-fine",
+      reasons: [],
+    });
+    assert.match(textOf(monBad), /Invalid submit_monitor_verdict/);
+    console.log("OK submit_monitor_verdict rejects an unknown verdict");
+
     // server factory — role-scoped tools
     const workerServer = createLabratToolServer({ ctx, role: "worker" });
     const reviewerServer = createLabratToolServer({
       ctx: gateCtx,
       role: "gate-reviewer",
     });
+    const monitorServer = createLabratToolServer({ ctx: monitorCtx, role: "monitor" });
     assert.equal(workerServer.name, "labrat");
     assert.equal(reviewerServer.name, "labrat");
+    assert.equal(monitorServer.name, "labrat");
 
     const workerAllowed = allowedLabratTools("worker", ctx.subphaseIds);
     assert.deepEqual(workerAllowed, [
@@ -148,6 +168,8 @@ async function main(): Promise<void> {
     ]);
     const reviewerAllowed = allowedLabratTools("gate-reviewer", []);
     assert.deepEqual(reviewerAllowed, ["mcp__labrat__submit_gate_decision"]);
+    const monitorAllowed = allowedLabratTools("monitor", []);
+    assert.deepEqual(monitorAllowed, ["mcp__labrat__submit_monitor_verdict"]);
     console.log("OK createLabratToolServer role-scoped tool lists");
 
     console.log("\nAll direct-call harness tool tests passed.");

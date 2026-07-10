@@ -1,0 +1,22 @@
+- phase: regression
+  attempt: 1
+  started: 2026-07-10T06:10:22.509Z
+  completed: 2026-07-10T06:12:16.487Z
+  skills_loaded:
+    - name: resources/regression
+      hash: 92e73407778f
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/classify/data.csv
+  outputs:
+    - path: artifacts/regression/regression.json
+      hash: 966d392ebc7f1c39b81fb9dc3b55f74b14cfbe9b656a9ea10da27d68f29f95eb
+  subphases: null
+  sessions:
+    worker: af653781-8c61-4db6-834d-fec636ae4c65
+    gate: 2d3c80a0-6e93-4ba1-a665-d01cece562c2
+  gate_decision: pass
+  verification:
+    code: review/verification/regression/
+    results: review/gates/regression.json

@@ -16,6 +16,7 @@ export {
   handleMarkSubphase,
   handleRecordPhase,
   handleSubmitGateDecision,
+  handleSubmitMonitorVerdict,
 } from "./handlers.js";
 
 /** @deprecated Use createLabratToolServer */

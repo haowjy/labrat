@@ -24,4 +24,5 @@ export {
   handleMarkSubphase,
   handleRecordPhase,
   handleSubmitGateDecision,
+  handleSubmitMonitorVerdict,
 } from "../tools/handlers.js";
