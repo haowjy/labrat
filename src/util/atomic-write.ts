@@ -1,7 +1,13 @@
 import { mkdir, open, rename } from "node:fs/promises";
 import path from "node:path";
 
-/** Write text atomically: temp file → fsync → rename (design §3). */
+/**
+ * Shared atomic-write helper (design §3): temp file → fsync → rename, so a
+ * crash mid-write never leaves a half-written status file on disk. Both
+ * process A (harness) and process B (dashboard) write files that the other
+ * side's readers trust, so this lives outside both — a shared dependency
+ * alongside schema, not owned by either process.
+ */
 export async function atomicWriteText(
   filePath: string,
   content: string,
