@@ -17,6 +17,7 @@ import {
   resolveArtifactRefs,
   appendManifestEntry,
 } from "../provenance/index.js";
+import { notifyEvent } from "../events/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
 import { runGateReview } from "../session/review.js";
 import {
@@ -228,6 +229,12 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
     review.defaulted,
     review.sessionId,
   );
+  notifyEvent({
+    type: "gate-result",
+    taskId: ctx.taskId,
+    phase: ctx.phase.id,
+    decision: decision.decision,
+  });
 
   if (decision.decision === "pass" || decision.decision === "pass-with-concerns") {
     await writeVerdict(ctx.taskDir, ctx.phase.id, decision);
