@@ -19,7 +19,7 @@ import {
  * site was built from. It knows nothing about bonemorph / 3D / Plotly, so it
  * gates any protocol's review site identically.
  *
- * TWO-LAYER BOUNDARY (read this — the linter is NOT redundant with the CSP).
+ * THE BOUNDARY IS NOT THE LINTER ALONE (read this — it is NOT redundant with the CSP).
  * The site is served into an opaque-origin sandboxed iframe under a strict CSP
  * (Lane A, `reviewSiteCsp()`). Because that sandbox refuses every external
  * subresource, the site ships as ONE inlined `index.html` and the CSP must

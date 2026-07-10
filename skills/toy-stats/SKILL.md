@@ -13,7 +13,7 @@ using trivial statistics so the whole run completes in seconds, on Haiku,
 with zero external dependencies (pure Python 3 stdlib: `random`, `csv`,
 `json`, `statistics`).
 
-## The two phases
+## The three phases
 
 1. **`classify`** — the worker generates a deterministic synthetic dataset
    (fixed seed), fits a trivial threshold classifier, and reports accuracy.
@@ -21,6 +21,10 @@ with zero external dependencies (pure Python 3 stdlib: `random`, `csv`,
 2. **`regression`** — the worker fits a closed-form OLS linear regression on
    the `classify` phase's data and reports slope/intercept/R².
    See `resources/regression.md`.
+3. **`review-artifact`** — the worker packages the vetted numbers into a single
+   self-contained, offline `review-site/index.html` a human can confirm on a
+   phone; the harness's deterministic review-site linter gates it.
+   See `resources/review-artifact.md`.
 
 Each phase is gated: after the worker finishes, an **independent**
 gate-reviewer agent re-reads the raw artifacts from disk, re-derives the

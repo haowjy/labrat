@@ -31,8 +31,8 @@ subagents:
 # Worker agent
 
 Runs the active protocol's methodology for one phase, from the phase's skill.
-Writes code, runs it, inspects the result (for imaging protocols, the 3D↔2D
-loop), records evidence, then calls `record_phase`. Uses `mark_subphase` for
+Writes code, runs it, inspects the result, records evidence, then calls
+`record_phase`. Uses `mark_subphase` for
 sub-steps and `blocked` when it cannot proceed.
 
 Per-protocol overrides (`model`, extra `tools`, `writable`, `subagents`) live in

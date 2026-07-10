@@ -86,6 +86,9 @@ landmarks); morphometry runs at full resolution on the cropped VOI.
 
 ## Composition
 `microct-3d-analysis` (methodology, load first) + this skill = the full
-protocol. Add `microct-review-artifact` to generate the interactive review site
-for human confirmation. This skill's operational rules and gates were produced
-by applying `paper-protocol-to-skill` to the source methods section.
+protocol. The `review-artifact` phase (`resources/review-artifact`) packages the
+vetted OA indices into a single self-contained, offline `index.html` review site
+a human confirms on a phone — a minimal inlined values table, no external
+subresources (see that resource for the contract). This skill's operational
+rules and gates were produced by applying `paper-protocol-to-skill` to the
+source methods section.
