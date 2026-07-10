@@ -298,7 +298,6 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
       reviewerDefaulted: review.defaulted,
       model: monitorProfile?.model ?? "haiku",
       permissionMode: monitorProfile?.permissions ?? ctx.config.defaultPermissionMode,
-      runtime: ctx.runtime,
     });
 
     if (monitorOverridesGate(decision.decision, monitor.verdict)) {
