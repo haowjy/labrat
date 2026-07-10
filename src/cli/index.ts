@@ -85,8 +85,9 @@ async function main(): Promise<void> {
   }
 
   if (command === "check-review-site") {
-    const code = await runCheckReviewSiteCli(args.slice(1));
-    process.exit(code);
+    // Set exitCode (not process.exit) so stdout flushes before the process ends.
+    process.exitCode = await runCheckReviewSiteCli(args.slice(1));
+    return;
   }
 
   if (command === "resume") {

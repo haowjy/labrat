@@ -29,6 +29,7 @@ import {
 } from "../session/trust-boundary.js";
 import { atomicWriteJson, atomicWriteText } from "../../util/atomic-write.js";
 import { archiveAndResetPhase, invalidateFromPhase } from "./invalidation.js";
+import { runReviewArtifactCheck, reviewSiteGateFailure } from "./review-artifact-check.js";
 
 export type GateContext = {
   readonly taskId: string;
@@ -253,6 +254,12 @@ export function monitorOverridesGate(
 export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   const loadedPhase = await loadPhase(ctx.protocol, ctx.phase.id);
 
+  // Lane C: for any phase producing artifacts/review-site/, the harness runs
+  // the deterministic review-site linter with authoritative inputs and writes
+  // review/verification/<phase>/check_review_site.json BEFORE the reviewer
+  // session starts, so the reviewer reads + gates on it (never hand-runs it).
+  const siteReport = await runReviewArtifactCheck(ctx.taskId, ctx.taskDir, ctx.phase);
+
   const { result: review, trustBoundary } = await enforceTrustBoundary(
     ctx.taskDir,
     () =>
@@ -286,6 +293,28 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   });
 
   if (decision.decision === "pass" || decision.decision === "pass-with-concerns") {
+    // Deterministic floor (Lane C): a produced review site whose linter report
+    // is not `ok` FAILs the gate regardless of the reviewer's decision — the
+    // harness enforces, so a rubber-stamped or ignored linter finding can't
+    // pass a broken/exfiltrating site. Runs before the monitor (cheap, exact).
+    const siteFailure = reviewSiteGateFailure(siteReport);
+    if (siteFailure !== null) {
+      notifyEvent({
+        type: "log",
+        taskId: ctx.taskId,
+        line: `review-site check FAILED gate for ${ctx.phase.id}: ${siteFailure}`,
+        ephemeral: true,
+      });
+      await archiveAndResetPhase(ctx.taskDir, ctx.protocol.yaml, ctx.phase.id);
+      return {
+        kind: "fail",
+        phase: ctx.phase.id,
+        sessionId: review.sessionId,
+        feedback: siteFailure,
+        attempt: ctx.attempt,
+      };
+    }
+
     // Independent monitor audits this PASS for rubber-stamping (Lane D2). It
     // runs OUTSIDE the reviewer's trust boundary, reads the reviewer's
     // verification + gate + report, and writes review/monitor/{phase}.json.

