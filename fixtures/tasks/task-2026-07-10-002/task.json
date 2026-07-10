@@ -1,0 +1,10 @@
+{
+  "id": "task-2026-07-10-002",
+  "protocol": "microct-oa-mouse-knee",
+  "input": "input/oa-knee-0007/",
+  "state": "done",
+  "currentPhase": null,
+  "phasesComplete": ["review-artifact"],
+  "createdAt": "2026-07-10T08:22:04Z",
+  "updatedAt": "2026-07-10T08:41:57Z"
+}

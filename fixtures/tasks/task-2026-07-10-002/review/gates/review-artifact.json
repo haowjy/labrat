@@ -1,0 +1,7 @@
+{
+  "phase": "review-artifact",
+  "decidedAt": "2026-07-10T08:41:57.000Z",
+  "decision": "pass",
+  "feedback": "Structural gate (design/review-template.md G1-G8) — packaging fidelity, not science; the W/L values were already gated upstream in `measurement`.\n\nG1 entry resolves — artifacts/review-site/index.html present, non-empty\nG2 self-contained — every href/src is relative and resolves inside the folder\nG3 data globals — data/manifest.js and data/values.js each assign a non-empty window.* global\nG4 JS statically valid — every element id assets/app.js references exists in index.html\nG5 no local fetch — no fetch()/XMLHttpRequest of a relative or .json path\nG6 origins within allowlist — no external <script>/<link> origins (cdn_allowlist: [])\nG7 verdict surface — #export-btn emits a review-verdict/1 payload\nG8 provenance fidelity — data/manifest.js sample_id and produced_from.measurement hash match this run\n\nAll checks pass.",
+  "subphase_assessments": {}
+}

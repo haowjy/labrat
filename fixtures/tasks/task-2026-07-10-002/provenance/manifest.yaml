@@ -1,0 +1,47 @@
+# Hand-authored demo fixture (Lane B dashboard verification) — NOT the output
+# of a real harness run. Lane C ("review-artifact" phase + check_review_site
+# linter, design/review-template.md §2) has not landed yet, so no task on
+# disk anywhere in this repo has produced a review site for real. This entry
+# exists solely to prove the dashboard renders the review site as a
+# first-class chain/provenance node once a phase's outputs DO include
+# artifacts/review-site/ — see src/dashboard/api/index.ts's hasReviewSite.
+#
+# Output hashes are real (sha256 of the artifacts/review-site/ files actually
+# committed alongside this fixture, copied from validation/fixtures/review-site/,
+# the Lane 0 contract fixture). Input paths are declared but not materialized
+# in this minimal fixture, so they carry no hash — matching how a real
+# harness records a referenced path that does not resolve on disk
+# (src/harness/provenance/index.ts resolveArtifactRef: no file => {path} only).
+- phase: review-artifact
+  attempt: 1
+  started: 2026-07-10T08:35:02.000Z
+  completed: 2026-07-10T08:41:57.000Z
+  skills_loaded:
+    - name: microct-review-artifact
+      hash: 3a9f6c1e08b4
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/measurements/results.json
+    - path: artifacts/measurements_final.json
+    - path: artifacts/landmarks/positions.json
+    - path: artifacts/segmentation/structure_assignments.json
+  outputs:
+    - path: artifacts/review-site/index.html
+      hash: 8eb7a7809118564ced837d87a6ff02ed7fb2eccb3cca631280041c8033a3cb45
+    - path: artifacts/review-site/data/manifest.js
+      hash: 2eb812216f9abcd9ac80e5f4d8654828023b2813e0979fd2187c73fb8a4a42ba
+    - path: artifacts/review-site/data/values.js
+      hash: 15f2608fc7baded56c991c67bd5cb2db5ee5c9f95501afdc7240b75d6c0ddc4f
+    - path: artifacts/review-site/assets/app.js
+      hash: 9a43d6ea931d02463e2155e5766d32e84e22731611c2d67f38f5e0e3608c9411
+    - path: artifacts/review-site/assets/app.css
+      hash: 575ac70650c6f71ed43582597e0e653d159ef7e1078b9253846c3ed9cdc6fb93
+  subphases: null
+  sessions:
+    worker: 05391a3f-cdf6-4155-9acf-feda731e5ec6
+    gate: 25cb691a-0f7f-4c96-aeba-e9ce79d766d3
+  gate_decision: pass
+  verification:
+    code: review/verification/review-artifact/
+    results: review/gates/review-artifact.json
