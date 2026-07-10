@@ -1,18 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { RuntimeDep, SkillRequires } from "../../schema/index.js";
-
-export function resolveClaudeScienceHome(
-  override?: string,
-): string {
-  return (
-    override ??
-    process.env["CLAUDE_SCIENCE_HOME"] ??
-    join(homedir(), ".claude-science")
-  );
-}
 
 async function pathExists(p: string): Promise<boolean> {
   try {

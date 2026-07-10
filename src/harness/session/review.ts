@@ -2,6 +2,7 @@ import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { LabratConfig } from "../../config/index.js";
 import type { SubmitGateDecisionInput } from "../../schema/index.js";
 import { notifyEvent } from "../events/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
@@ -27,6 +28,9 @@ export type ReviewSessionConfig = {
   readonly protocol: LoadedProtocol;
   readonly loadedPhase: LoadedPhase;
   readonly runtime: RuntimeHandle;
+  /** Resolved harness-wide config (src/config) — the base layer under
+   * protocol.yaml/agent-def precedence for model + permission mode. */
+  readonly runSettings: LabratConfig;
 };
 
 export type ReviewSessionResult = {
@@ -36,8 +40,6 @@ export type ReviewSessionResult = {
    * harness applied the design §12 default (pass-with-concerns, low). */
   readonly defaulted: boolean;
 };
-
-const MAX_ATTEMPTS = 2;
 
 const DEFAULT_DECISION: SubmitGateDecisionInput = {
   decision: "pass-with-concerns",
@@ -77,14 +79,22 @@ async function runOneReviewQuery(
     systemPromptParts[1] ?? "",
   ];
 
+  const model =
+    config.protocol.yaml.agents["gate-reviewer"].model ?? config.runSettings.defaultModel;
+  const permissionMode =
+    config.protocol.yaml.agents["gate-reviewer"].permissions ??
+    config.runSettings.defaultPermissionMode;
+
   const q = query({
     prompt: reviewerUserPrompt(config.loadedPhase.phase.id, config.taskId, isReminder),
     options: {
-      model: config.protocol.yaml.agents["gate-reviewer"].model ?? "sonnet",
+      model,
       cwd: config.taskDir,
       env: buildSessionEnv(config.runtime),
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      permissionMode,
+      ...(permissionMode === "bypassPermissions"
+        ? { allowDangerouslySkipPermissions: true }
+        : {}),
       systemPrompt,
       allowedTools,
       mcpServers: { labrat: mcpServer },
@@ -146,8 +156,9 @@ export async function runGateReview(
   };
 
   let sessionId = "";
+  const maxAttempts = config.runSettings.retries.reviewAttempts;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const isReminder = attempt > 1;
     const sid = await runOneReviewQuery(config, systemPromptParts, toolCtx, isReminder);
     if (sid) {
