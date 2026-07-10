@@ -54,6 +54,26 @@ export function dotClass(entry) {
   return "pending";
 }
 
+/** timeline entry -> [pill CSS class, label], same precedence as dotClass
+ * (gate decision wins, else the phase's own status) but as a labeled pill
+ * instead of a bare colored dot — what the Overview index's compact
+ * "status/gate pill" per phase renders. */
+export function phasePill(entry) {
+  if (entry.gate) return decisionPill(entry.gate.decision);
+  switch (entry.status) {
+    case "running":
+      return ["pill-running", "running"];
+    case "paused":
+      return ["pill-paused", "paused"];
+    case "failed":
+      return ["pill-fail", "failed"];
+    case "complete":
+      return ["pill-pass", "complete"];
+    default:
+      return ["pill-skip", "pending"];
+  }
+}
+
 export function fmtTime(iso) {
   if (!iso) return "";
   const d = new Date(iso);

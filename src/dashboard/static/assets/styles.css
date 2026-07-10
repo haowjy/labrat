@@ -68,7 +68,6 @@ a { color:var(--accent); }
 .pill-warn { background:var(--warn-soft); color:var(--warn); }
 .pill-running { background:var(--accent-soft); color:var(--accent); }
 .pill-paused { background:var(--warn-soft); color:var(--warn); }
-.pill-review { background:var(--warn-soft); color:var(--warn); }
 .pill-skip { background:var(--surface); color:var(--muted); }
 
 /* === TOPBAR === */
@@ -93,6 +92,7 @@ a { color:var(--accent); }
 .live-event { color:var(--ink); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .live-event .ev-type { color:var(--accent); }
 .live-time { color:var(--muted2); font-size:0.62rem; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }
 
 /* Ephemeral log strip — clearly NOT authoritative (design §13). */
 .log-strip { border-top:1px dashed var(--muted3); background:transparent; padding:0.5rem 1.25rem; font-family:var(--mono); font-size:0.66rem; color:var(--muted); max-height:120px; overflow-y:auto; }
@@ -100,8 +100,10 @@ a { color:var(--accent); }
 .log-line { opacity:0.85; padding:0.05rem 0; }
 .log-line .log-t { color:var(--muted3); margin-right:0.5rem; }
 
-/* === PHASE TABS (jump-nav over the chain's single-column timeline — see
-   PhaseTabs.js for why this isn't a mutually-exclusive panel switcher) === */
+/* === PHASE TABS — the Phase-review phase selector (PhaseReviewView.js).
+   Same pill-tab visual the old chain view's scroll-spy jump-nav used
+   (ported unchanged); only the click behavior differs now (switch content,
+   not scroll to it) — see that file for why. === */
 .phase-tabs { display:flex; gap:0.4rem; overflow-x:auto; padding:0.15rem 0 0.75rem; -webkit-overflow-scrolling:touch; }
 .phase-tab { display:inline-flex; align-items:center; gap:0.4rem; white-space:nowrap; flex-shrink:0; padding:0.4rem 0.7rem; border:1px solid var(--accent-line); border-radius:999px; background:var(--surface); color:var(--muted); font-family:var(--mono); font-size:0.7rem; cursor:pointer; }
 .phase-tab:hover { background:var(--accent-soft); color:var(--ink); }
@@ -114,95 +116,44 @@ a { color:var(--accent); }
 .phase-tab-dot.paused { background:var(--warn); }
 .phase-tab-review-mark { font-size:0.6rem; opacity:0.8; }
 
-/* === PHASE TIMELINE (review chain) === */
-.timeline { margin:0.5rem 0 1rem; }
-.phase-row { display:flex; gap:0; }
-.phase-dot-col { width:32px; display:flex; flex-direction:column; align-items:center; }
-.phase-dot { width:14px; height:14px; border-radius:50%; border:3px solid var(--paper); flex-shrink:0; z-index:1; margin-top:2px; }
-.phase-dot.pass { background:var(--pass); }
-.phase-dot.concerns { background:var(--warn); }
-.phase-dot.fail { background:var(--alert); }
-.phase-dot.running { background:var(--accent); animation:pulse 2s infinite; }
-.phase-dot.paused { background:var(--warn); }
-.phase-dot.pending { background:var(--muted3); }
-.phase-line { width:2px; flex:1; background:var(--accent-line); min-height:12px; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }
+/* === PHASE INDEX (Overview) — a compact, clickable list of the task's
+   phases (PhaseOverview.js). No per-phase detail here on purpose: that
+   richness now lives inside each phase's own review-site iframe, not the
+   shell. Each row is a full-width <button> so it's keyboard-reachable like
+   any other nav control in this app. === */
+.phase-index { display:flex; flex-direction:column; gap:0.4rem; margin:0.5rem 0 1rem; }
+.phase-index-row { display:flex; align-items:center; gap:0.75rem; width:100%; min-height:44px; padding:0.6rem 0.9rem; border:1px solid var(--accent-line); border-radius:6px; background:var(--surface); color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.phase-index-row:hover { background:var(--accent-soft); border-color:var(--accent); }
+.phase-index-row:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.phase-index-name { font-family:var(--mono); font-weight:700; font-size:0.8rem; }
+.attempt { font-size:0.65rem; color:var(--muted2); font-weight:400; margin-left:0.4rem; }
+.phase-index-pills { display:flex; align-items:center; gap:0.4rem; margin-left:auto; flex-wrap:wrap; justify-content:flex-end; }
 
-.phase-content { flex:1; padding:0 0 1.25rem 0.5rem; min-width:0; }
-.phase-name { font-family:var(--mono); font-weight:700; font-size:0.82rem; margin-bottom:0.2rem; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
-.phase-name .attempt { font-size:0.65rem; color:var(--muted2); font-weight:400; }
-.phase-time { font-family:var(--mono); font-size:0.65rem; color:var(--muted2); }
-.phase-summary { font-size:0.82rem; margin:0.35rem 0 0; max-width:60ch; color:var(--ink); }
-
-/* === GATE STRIP === */
-.gate { display:flex; align-items:flex-start; gap:0.5rem; padding:0.5rem 0.7rem; background:var(--surface); border-radius:4px; font-family:var(--mono); font-size:0.7rem; margin:0.5rem 0; border:1px solid var(--accent-line); border-left-width:3px; border-left-color:var(--accent-line); line-height:1.45; }
-.gate.pass { border-left-color:var(--pass); }
-.gate.fail, .gate.fail-upstream { border-left-color:var(--alert); }
-.gate.concerns { border-left-color:var(--warn); }
-.gate .gate-body { flex:1; color:var(--ink); }
-.gate .gate-feedback { margin-top:0.15rem; color:var(--muted); font-family:var(--sans); font-size:0.78rem; }
-
-/* Human verdict, read back from the persisted review/finish write (goal:
-   "shows the completed chain — agent confidence + human verdict"). Sits
-   beside the .gate block so agent and human verdicts read as a pair. */
-.human-verdict { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; padding:0.45rem 0.65rem; margin:0.5rem 0; background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:4px; font-family:var(--mono); font-size:0.7rem; }
-.human-verdict-time { color:var(--muted); font-size:0.64rem; }
-.human-verdict-notes { flex-basis:100%; color:var(--ink); font-family:var(--sans); font-size:0.78rem; margin-top:0.15rem; }
-
-/* Reviewer verification block — "the reviewer RAN code". */
-.verify { margin:0.4rem 0 0.2rem; }
-.verify-head { font-family:var(--mono); font-size:0.66rem; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:0.25rem; display:flex; align-items:center; gap:0.4rem; }
-.verify pre { background:var(--surface); border:1px solid var(--accent-line); border-radius:4px; padding:0.6rem 0.75rem; font-family:var(--mono); font-size:0.68rem; line-height:1.5; overflow-x:auto; margin:0.25rem 0; white-space:pre; color:var(--ink); }
-.verify .verify-files { display:flex; gap:0.5rem; flex-wrap:wrap; font-family:var(--mono); font-size:0.66rem; }
-.verify .verify-files a { text-decoration:none; }
-.verify .verify-files a:hover { text-decoration:underline; }
-
-/* === SUBPHASE MARKS === */
-.subphases { display:flex; flex-direction:column; gap:0.25rem; margin:0.5rem 0; }
-.sp { display:flex; align-items:center; gap:0.5rem; font-family:var(--mono); font-size:0.72rem; padding:0.3rem 0.5rem; background:var(--surface); border-radius:3px; }
-.sp .sp-name { font-weight:600; }
-.sp .sp-conf { color:var(--muted); font-size:0.66rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-/* === EVIDENCE === */
 .section-label { font-family:var(--mono); font-size:0.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin:0.6rem 0 0.3rem; }
-.evidence-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px,1fr)); gap:0.5rem; margin:0.3rem 0; }
-.evidence-thumb { display:flex; flex-direction:column; border:1px solid var(--accent-line); border-radius:4px; overflow:hidden; cursor:pointer; background:var(--surface); transition:border-color 0.1s; }
-.evidence-thumb:hover { border-color:var(--accent); }
-.evidence-thumb img { width:100%; aspect-ratio:1; object-fit:cover; display:block; background:#0d0f11; }
-.evidence-thumb .cap { font-family:var(--mono); font-size:0.58rem; color:var(--muted); padding:0.25rem 0.4rem; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-/* === MEASUREMENTS TABLE === */
-.measure { background:var(--surface); border:1px solid var(--accent-line); border-radius:4px; padding:0.4rem 0.6rem; margin:0.5rem 0; overflow-x:auto; }
-.measure table { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:0.72rem; }
-.measure td { padding:0.22rem 0.5rem; }
-.measure tr + tr td { border-top:1px solid var(--accent-line); }
-.measure .k { color:var(--muted); }
-.measure .v { font-variant-numeric:tabular-nums; }
-
-/* === PROVENANCE === */
-.prov-entry { border:1px solid var(--accent-line); border-radius:6px; padding:0.85rem 1rem; margin-bottom:0.85rem; background:var(--surface); }
-.prov-head { display:flex; align-items:center; gap:0.6rem; font-family:var(--mono); font-size:0.8rem; font-weight:700; margin-bottom:0.5rem; flex-wrap:wrap; }
-.prov-head .attempt { font-weight:400; font-size:0.66rem; color:var(--muted2); }
-.prov-grid { display:grid; grid-template-columns:120px 1fr; gap:0.2rem 0.75rem; font-family:var(--mono); font-size:0.7rem; }
-.prov-grid .pk { color:var(--muted); }
-.prov-grid .pv { color:var(--ink); word-break:break-word; }
-.prov-grid .pv ul { margin:0; padding-left:1rem; }
-.prov-grid .pv .hash { color:var(--muted2); }
-
-/* === REVIEWS (sandboxed review-site embed) ===
-   The frame fills whatever height .main has left (flex, not a vh guess) so
+/* === PHASE REVIEW (sandboxed review-site embed, ReviewEmbed.js) ===
+   The stage fills whatever height .main has left (flex, not a vh guess) so
    it genuinely fits one viewport regardless of how much room the sidebar /
-   topbar / live-strip take above it — a vh-based height can't know that,
-   since the sidebar becomes a variable-height horizontal strip at mobile
-   widths (see the responsive block). min-height:0 on every link in the
-   chain is required — without it a flex item won't shrink below its
-   content's natural size and the whole point of "fill, don't overflow" breaks. */
-.content-reviews { max-width:1100px; flex:1; display:flex; flex-direction:column; min-height:0; }
+   topbar / live-strip / phase selector take above it — a vh-based height
+   can't know that, since the sidebar becomes a variable-height horizontal
+   strip at mobile widths (see the responsive block). min-height:0 on every
+   link in the chain is required — without it a flex item won't shrink
+   below its content's natural size and the whole point of "fill, don't
+   overflow" breaks. */
+.content-review { max-width:1100px; flex:1; display:flex; flex-direction:column; min-height:0; }
+.phase-review { display:flex; flex-direction:column; gap:0.4rem; flex:1; min-height:0; }
 .review-embed { display:flex; flex-direction:column; gap:0.6rem; flex:1; min-height:0; }
 .review-embed-head { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem 1rem; flex-wrap:wrap; flex-shrink:0; }
 .quarantine-note { font-size:0.7rem; color:var(--muted); }
-.review-frame { width:100%; flex:1; min-height:280px; border:1px solid var(--accent-line); border-radius:6px; background:#fff; display:block; }
-.review-link { margin-top:0.6rem; }
+/* .review-stage is position:relative so the floated VerdictOverlay (below)
+   can sit ON TOP of the iframe via position:absolute + z-index, instead of
+   as a bar pushing it around in flow. The empty-placeholder variant (a
+   selected phase with no review site) reuses the same box so switching
+   between phases doesn't jump the layout. */
+.review-stage { position:relative; flex:1; min-height:280px; }
+.review-frame { position:absolute; inset:0; width:100%; height:100%; border:1px solid var(--accent-line); border-radius:6px; background:#fff; display:block; }
+.review-stage-empty { display:flex; align-items:center; justify-content:center; border:1px dashed var(--muted3); border-radius:6px; background:var(--surface); }
+.review-stage-empty .empty { padding:0; }
 
 /* === VERDICT PANEL (trusted receiver, design doc "what lives where": the
    verdict lives in the shell, never inside the sandboxed iframe) === */
@@ -229,7 +180,22 @@ a { color:var(--accent); }
 .verdict-finish-error { color:var(--alert); font-size:0.72rem; font-family:var(--mono); }
 .verdict-finish-done { color:var(--pass); font-size:0.78rem; font-family:var(--mono); font-weight:700; }
 
-/* === SUGGESTION BOX === */
+/* === VERDICT OVERLAY (VerdictOverlay.js) — floats the trusted VerdictPanel
+   above on TOP of the iframe (.review-stage is its positioned ancestor).
+   Only a wrapper: `.verdict-panel` itself is untouched, styled here purely
+   via a descendant selector so its own component/CSS stay byte-identical
+   to the non-floated original. width:min(...) keeps it from spanning edge-
+   to-edge even on a narrow phone viewport without a separate media query. */
+.verdict-overlay { position:absolute; top:0.6rem; right:0.6rem; z-index:20; width:min(340px, calc(100% - 1.2rem)); max-height:calc(100% - 1.2rem); overflow-y:auto; }
+.verdict-overlay .verdict-panel { box-shadow:0 8px 28px rgba(0,0,0,0.22); }
+.verdict-overlay-bar { display:flex; justify-content:flex-end; margin-bottom:0.3rem; }
+.verdict-collapse-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; border:1px solid var(--accent-line); border-radius:4px; background:var(--surface); color:var(--muted); font-family:var(--mono); font-size:0.85rem; line-height:1; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,0.18); }
+.verdict-collapse-btn:hover { background:var(--accent-soft); color:var(--ink); }
+.verdict-overlay-collapsed { width:auto; max-height:none; }
+.verdict-chip { display:flex; align-items:center; gap:0.4rem; padding:0.4rem 0.7rem; border:1px solid var(--accent-line); border-radius:999px; background:var(--surface); color:var(--ink); font-family:var(--mono); font-size:0.7rem; cursor:pointer; box-shadow:0 4px 18px rgba(0,0,0,0.2); }
+.verdict-chip:hover { background:var(--accent-soft); }
+
+/* === SUGGESTION BOX (moved to PhaseOverview.js, unchanged) === */
 .suggestion-box { margin-top:1.5rem; padding:1rem; background:var(--surface); border-radius:6px; border:1px solid var(--accent-line); }
 .suggestion-box h3 { font-family:var(--mono); font-size:0.72rem; font-weight:700; margin:0 0 0.5rem; color:var(--accent); }
 .suggestion-list { margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.4rem; }
@@ -249,7 +215,10 @@ a { color:var(--accent); }
 .btn-primary:hover { opacity:0.92; }
 .btn:disabled { opacity:0.5; cursor:default; }
 
-/* === LIGHTBOX === */
+/* === LIGHTBOX ===
+   Kept reused-unchanged per the rearrangement's scope (Lightbox.js itself
+   has no caller in this minimal shell — the evidence-grid UI that used to
+   open it was per-phase rich detail, out of scope here; see the report). */
 .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.72); z-index:100; align-items:center; justify-content:center; padding:2rem; }
 .lightbox.open { display:flex; flex-direction:column; }
 .lightbox img { max-width:90vw; max-height:82vh; border-radius:4px; box-shadow:0 8px 40px rgba(0,0,0,0.5); }
@@ -277,10 +246,14 @@ a { color:var(--accent); }
      §1 I6) — every tap target a mobile reviewer needs to reach the review
      site, not just the site's own UI, meets the 44px minimum (WCAG 2.5.8 /
      Apple HIG). Scoped to mobile widths so the denser desktop chrome is
-     unchanged. */
+     unchanged. (.phase-index-row already carries its own min-height:44px
+     unconditionally — it's the primary Overview->Phase-review nav control
+     at every width, not just mobile.) */
   .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
   .topbar button { min-height:44px; min-width:44px; padding:0.4rem 0.6rem; }
   .btn { min-height:44px; }
   .phase-tab { min-height:44px; }
-  .content, .content-reviews { padding:1rem; }
+  .verdict-collapse-btn { min-width:44px; min-height:44px; }
+  .verdict-chip { min-height:44px; }
+  .content, .content-review { padding:1rem; }
 }
