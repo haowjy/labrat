@@ -122,6 +122,15 @@ export type AgentProfile = {
   readonly permissions?: "default" | "acceptEdits" | "bypassPermissions" | "plan";
 };
 
+/**
+ * Runtime substrate declaration for a protocol.
+ *
+ * `deps` is declarative only — it documents what the protocol expects to be
+ * available and drives non-python dep validation (binary/conda/env) — it is
+ * NOT an install source. The authoritative install manifest for a substrate
+ * env is `<skillDir>/environment.yml` (conda/micromamba env spec), consumed
+ * by `ensureRuntime()` when a missing env is first created.
+ */
 export type ProtocolRuntime = {
   readonly substrate?: string;
   readonly deps: readonly RuntimeDep[];

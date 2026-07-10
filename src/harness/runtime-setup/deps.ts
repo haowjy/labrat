@@ -9,14 +9,6 @@ export type NormalizedRuntimeDep = {
   readonly name: string;
 };
 
-/** Map pip package names to import module names for validation probes. */
-export const PYTHON_IMPORT_MODULE: Readonly<Record<string, string>> = {
-  "scikit-image": "skimage",
-  pyyaml: "yaml",
-  SimpleITK: "SimpleITK",
-  simpleitk: "SimpleITK",
-};
-
 export function normalizeRuntimeDep(dep: RuntimeDep): NormalizedRuntimeDep {
   if (typeof dep === "string") {
     const colon = dep.indexOf(":");
@@ -66,12 +58,4 @@ export function mergeRuntimeDeps(
   }
 
   return [...seen.values()];
-}
-
-export function pythonImportModule(packageName: string): string {
-  return PYTHON_IMPORT_MODULE[packageName] ?? packageName;
-}
-
-export function pipSpecForPythonDep(name: string): string {
-  return name;
 }

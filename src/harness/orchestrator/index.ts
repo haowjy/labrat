@@ -186,6 +186,7 @@ export async function runTask(
     skillRuntimeDeps: [],
     claudeScienceHome: config.scienceHome,
     microctSrcPath: config.microctSrc,
+    skillDir: orchestratorConfig.protocol.skillDir,
   });
   if (!runtimeResult.ok || !runtimeResult.handle) {
     throw new Error(
@@ -473,6 +474,7 @@ export async function runStandaloneGate(
     skillRuntimeDeps: [],
     claudeScienceHome: config.scienceHome,
     microctSrcPath: config.microctSrc,
+    skillDir: protocol.skillDir,
   });
   if (!runtimeResult.ok || !runtimeResult.handle) {
     throw new Error(`Runtime setup failed: ${runtimeResult.errors.join("; ")}`);
