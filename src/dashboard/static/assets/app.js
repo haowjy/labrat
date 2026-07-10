@@ -4,6 +4,10 @@
  * renders the review chain. SSE (/events) carries notifications only — every
  * state event triggers a re-read of the API, never a direct data read from the
  * stream (design §3, §13).
+ *
+ * index.html loads review-site.js before this file — REVIEW_SANDBOX and
+ * reviewSiteSrc() below are that file's globals, not redeclared here (see
+ * review-site.js for why the sandboxed-iframe contract lives there).
  */
 
 const state = {
@@ -111,7 +115,8 @@ async function renderCurrent() {
   $("topbar-id").textContent = state.currentId;
   $("topbar-sub").textContent = t ? `${t.input ?? ""}${t.input ? " / " : ""}${t.protocol}` : "";
   if (state.view === "chain") await renderChain();
-  else await renderProvenance();
+  else if (state.view === "provenance") await renderProvenance();
+  else renderReviews();
 }
 
 /* ---- review chain ---- */
@@ -177,6 +182,13 @@ function fillPhaseSkeleton(entry) {
       `<span class="pill ${pc}">${esc(pl)}</span>${conf}` +
       `<div class="gate-body">${entry.gate.feedback ? `<div class="gate-feedback">${esc(entry.gate.feedback)}</div>` : ""}</div>`;
     node.appendChild(gate);
+  }
+
+  // The review site is a first-class node in the chain: a phase whose
+  // recorded outputs include artifacts/review-site/ (getTask's hasReviewSite,
+  // contract-based — see api/index.ts) gets a direct jump into the Reviews view.
+  if (entry.hasReviewSite) {
+    node.appendChild(reviewLinkButton());
   }
 }
 
@@ -346,6 +358,12 @@ async function renderProvenance() {
       row("sessions", `worker ${esc(e.sessions.worker)} · gate ${esc(e.sessions.gate)}`) +
       row("verification", `${esc(e.verification.code)} → ${esc(e.verification.results)}`) +
       `</div>`;
+    // Same "artifacts/review-site/" contract check as getTask's hasReviewSite
+    // (src/dashboard/api/index.ts) — done client-side here because this view
+    // renders the manifest's raw outputs directly, nothing pre-derived server-side.
+    if (e.outputs.some((o) => o.path.startsWith("artifacts/review-site/"))) {
+      card.appendChild(reviewLinkButton());
+    }
     root.appendChild(card);
   }
 }
@@ -353,13 +371,51 @@ function row(k, v) {
   return `<div class="pk">${k}</div><div class="pv">${v}</div>`;
 }
 
+/* ---- reviews ----
+ * The review site is quarantined content (design/review-template.md §3 point
+ * 3): it runs in a sandboxed iframe with NO allow-same-origin, so it is an
+ * opaque origin that cannot read the dashboard's cookies/storage/DOM or call
+ * /api/*. REVIEW_SANDBOX / reviewSiteSrc live in review-site.js, not here,
+ * so the trust-boundary-critical constant has exactly one definition,
+ * directly unit-tested (review-site.test.ts) — this function only renders it.
+ */
+function renderReviews() {
+  const root = $("view-reviews");
+  const id = state.currentId;
+  root.innerHTML =
+    `<div class="review-embed">` +
+    `<div class="review-embed-head">` +
+    `<span class="section-label">Review site</span>` +
+    `<span class="quarantine-note">Sandboxed frame — isolated from the dashboard, no shared login or storage</span>` +
+    `</div>` +
+    `<iframe class="review-frame" src="${esc(reviewSiteSrc(id))}" ` +
+    `sandbox="${esc(REVIEW_SANDBOX)}" title="Review site for ${esc(id)} (sandboxed)" loading="lazy"></iframe>` +
+    `</div>`;
+}
+
+/** "Open review site" call-to-action shared by the chain + provenance views. */
+function reviewLinkButton() {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn review-link";
+  btn.textContent = "Open review site";
+  btn.onclick = () => setView("reviews");
+  return btn;
+}
+
 /* ---- views ---- */
 function setView(view) {
   state.view = view;
   $("view-chain").style.display = view === "chain" ? "" : "none";
   $("view-provenance").style.display = view === "provenance" ? "" : "none";
+  $("view-reviews").style.display = view === "reviews" ? "" : "none";
   $("btn-chain").classList.toggle("active-btn", view === "chain");
   $("btn-prov").classList.toggle("active-btn", view === "provenance");
+  $("btn-reviews").classList.toggle("active-btn", view === "reviews");
+  // Every switch starts the new view at the top — otherwise a switch made
+  // while scrolled down on one view lands mid-scroll on unrelated content.
+  const main = document.querySelector(".main");
+  if (main) main.scrollTop = 0;
   renderCurrent();
 }
 
@@ -416,6 +472,7 @@ function connectSSE() {
 /* ---- boot ---- */
 $("btn-chain").onclick = () => setView("chain");
 $("btn-prov").onclick = () => setView("provenance");
+$("btn-reviews").onclick = () => setView("reviews");
 
 async function boot() {
   await loadTasks();
