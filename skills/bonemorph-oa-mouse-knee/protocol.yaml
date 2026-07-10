@@ -1,0 +1,154 @@
+kind: protocol
+name: bonemorph-oa-mouse-knee
+version: 1
+
+expects:
+  modality: CT
+  body_part: [knee, hindlimb]
+  species: [mouse, rat]
+  min_slices: 100
+
+phases:
+  - id: intake
+    skills:
+      - resources/intake
+    inputs: [input/]
+    outputs:
+      - intake/volume_metadata.json
+      - intake/orientation_report.md
+      - intake/stage_report.json
+      - spacing.json
+
+  - id: segmentation
+    skills:
+      - resources/threshold
+      - resources/watershed
+      - resources/bone-assignment
+      - resources/seed-review
+    inputs:
+      - input/
+      - intake/volume_metadata.json
+      - spacing.json
+    outputs:
+      - labels.nii.gz
+      - segmentation/filtered.nii.gz
+      - segmentation/structure_assignments.json
+      - segmentation/seeds.json
+      - segmentation/metadata.json
+      - segmentation/stage_report.json
+      - masks/
+      - bone_assignments.json
+    subphases:
+      - id: threshold
+      - id: watershed
+        depends_on: [threshold]
+      - id: bone-assignment
+        depends_on: [watershed]
+
+  - id: seed-review
+    skills:
+      - resources/seed-review
+    inputs:
+      - labels.nii.gz
+      - segmentation/seeds.json
+      - segmentation/structure_assignments.json
+      - segmentation/components.nii.gz
+    outputs:
+      - labels.nii.gz
+      - segmentation/seeds.json
+      - bone_assignments.json
+      - segmentation/structure_assignments.json
+
+  - id: landmarks
+    skills:
+      - resources/landmarks
+    inputs:
+      - labels.nii.gz
+      - masks/
+      - spacing.json
+      - segmentation/filtered.nii.gz
+    outputs:
+      - landmarks/positions.json
+      - landmarks/orientation_frame.json
+      - landmarks.json
+
+  - id: measurement
+    skills:
+      - resources/measurement
+    inputs:
+      - landmarks.json
+      - landmarks/positions.json
+      - spacing.json
+      - labels.nii.gz
+      - masks/
+    outputs:
+      - measurements/results.json
+      - measurements/qc_overlays.json
+      - measurements/summary.md
+      - measurements_final.json
+
+sanity_checks: assets/ground_truth.json
+
+runtime:
+  substrate: microct_analysis
+
+parent_skills:
+  - microct-3d-analysis
+  - microct-review-artifact
+
+agents:
+  worker:
+    tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Task
+      - record_phase
+      - mark_subphase
+      - blocked
+    subagents:
+      reviewer:
+        description: >-
+          Independent subphase verification — run quantitative checks from the
+          Verification section before marking a subphase pass.
+        tools: [Bash, Read, Write, Grep, Glob]
+        writable: [review/verification/]
+    writable:
+      - artifacts/
+      - phases/
+      - intake/
+      - segmentation/
+      - landmarks/
+      - measurements/
+      - masks/
+  gate-reviewer:
+    tools:
+      - Bash
+      - Read
+      - Write
+      - Grep
+      - Glob
+      - submit_gate_decision
+    writable: [review/verification/]
+    max_findings: 5
+
+requires:
+  worker:
+    tools: [Bash, Read, Write, Edit, Glob, Grep, Task]
+    runtime:
+      - python:nibabel
+      - python:pydicom
+      - python:scikit-image
+      - python:scipy
+      - python:matplotlib
+      - env:PYTHONPATH
+      - env:MPLBACKEND
+  reviewer:
+    runtime:
+      - python:nibabel
+      - python:numpy
+      - python:scipy
+      - env:PYTHONPATH

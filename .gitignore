@@ -40,3 +40,9 @@ Thumbs.db
 
 # user settings (not committed)
 labrat.config.json
+
+# Claude Science registry bookkeeping (not part of a skill)
+skills/**/.catalog_stamp
+skills/**/.sync-org
+# Published-paper reference figures — kept local, not redistributed (rights)
+skills/**/reference_figures/
