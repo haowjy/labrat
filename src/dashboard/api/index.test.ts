@@ -149,3 +149,54 @@ describe("getTask — hasReviewSite (design/review-template.md vocabulary)", () 
     });
   });
 });
+
+describe("getTask — humanVerdict (per-phase, mirrors getPhase's field)", () => {
+  it("attaches the persisted review/verdict/{phase}.json to its matching timeline entry", async () => {
+    await withTaskDir(async (tasksDir, id) => {
+      const dir = join(tasksDir, id);
+      await mkdir(join(dir, "provenance"), { recursive: true });
+      await mkdir(join(dir, "review", "verdict"), { recursive: true });
+      await writeFile(
+        join(dir, "task.json"),
+        JSON.stringify({
+          id,
+          protocol: "microct-oa-mouse-knee",
+          input: "input/x/",
+          state: "done",
+          currentPhase: null,
+          phasesComplete: ["measurement", "segmentation"],
+          createdAt: "2026-07-10T09:00:00.000Z",
+          updatedAt: "2026-07-10T10:05:00.000Z",
+        }),
+      );
+      await writeFile(
+        join(dir, "provenance", "manifest.yaml"),
+        stringify([
+          manifestEntry({ phase: "measurement", outputs: [] }),
+          manifestEntry({ phase: "segmentation", outputs: [] }),
+        ]),
+      );
+      await writeFile(
+        join(dir, "review", "verdict", "segmentation.json"),
+        JSON.stringify({
+          phase: "segmentation",
+          human_verdict: "pass",
+          corrected: true,
+          notes: "Adjusted the femur landmark.",
+          adjustments: [],
+          agent_confidence: null,
+          agent_gate_decision: null,
+          agent_gate_feedback: null,
+          reviewed_at: "2026-07-10T10:10:00.000Z",
+        }),
+      );
+
+      const detail = await getTask(tasksDir, id);
+      assert.ok(detail);
+      const byPhase = new Map(detail.timeline.map((e) => [e.phase, e]));
+      assert.equal(byPhase.get("measurement")?.humanVerdict, null);
+      assert.equal(byPhase.get("segmentation")?.humanVerdict?.human_verdict, "pass");
+      assert.equal(byPhase.get("segmentation")?.humanVerdict?.notes, "Adjusted the femur landmark.");
+    });
+  });
+});

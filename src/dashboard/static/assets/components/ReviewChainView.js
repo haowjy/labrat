@@ -98,7 +98,6 @@ export function ReviewChainView({ taskId, taskDetail, refreshTick, onOpenReviews
 
   if (!taskDetail) return html`<div class="empty">Loading…</div>`;
   const { task, timeline } = taskDetail;
-  const humanReview = taskDetail.humanReview ?? null;
 
   return html`
     <div>
@@ -121,7 +120,6 @@ export function ReviewChainView({ taskId, taskDetail, refreshTick, onOpenReviews
               entry=${entry}
               last=${i === timeline.length - 1}
               refreshTick=${refreshTick}
-              humanReview=${humanReview && humanReview.phase === entry.phase ? humanReview : null}
               onOpenLightbox=${(src, cap) => setLightbox({ src, cap })}
               onOpenReviews=${onOpenReviews}
             />

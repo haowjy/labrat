@@ -191,6 +191,14 @@ export type TimelineEntry = {
    * per-protocol wiring.
    */
   readonly hasReviewSite: boolean;
+  /**
+   * The persisted human review verdict for this phase
+   * (review/verdict/{phase}.json), or null when no human has finished
+   * reviewing it yet. Same field/shape as `PhaseDetail.humanVerdict` below —
+   * this is what lets the chain view render agent confidence + human
+   * verdict per phase without a second fetch.
+   */
+  readonly humanVerdict: ReviewVerdictRecord | null;
 };
 
 /** The one path prefix the dashboard treats as "this phase made a review site". */
@@ -253,6 +261,7 @@ export async function getTask(
     const isComplete = task.phasesComplete.includes(phase);
     const entry = latestManifestEntry(manifest, phase);
     const gate = await readGateFile(tasksDir, id, phase);
+    const humanVerdict = await readReviewVerdict(tasksDir, id, phase);
     timeline.push({
       phase,
       status: isComplete ? "complete" : currentPhaseStatus(task.state),
@@ -268,6 +277,7 @@ export async function getTask(
           }
         : null,
       hasReviewSite: producesReviewSite(entry?.outputs ?? []),
+      humanVerdict,
     });
   }
 
