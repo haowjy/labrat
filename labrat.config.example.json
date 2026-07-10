@@ -1,0 +1,6 @@
+{
+  "defaultModel": "sonnet",
+  "defaultProtocol": null,
+  "scienceHome": "~/.claude-science",
+  "dashboard": { "port": 4600 }
+}

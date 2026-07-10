@@ -1,3 +1,4 @@
+import { DEFAULT_DASHBOARD_URL } from "../../config/index.js";
 import type { SseEvent } from "../../schema/index.js";
 
 /**
@@ -12,15 +13,25 @@ import type { SseEvent } from "../../schema/index.js";
  * re-read disk on every state event. Fire-and-forget: if the dashboard is
  * unreachable, the notification is dropped (logged) and the harness keeps
  * running. Disk, not this channel, is the source of truth.
+ *
+ * `notifyEvent()` is called from deep inside worker/review/gate sessions, so
+ * rather than threading a URL through every call, the run entrypoint calls
+ * {@link configureEvents} once with the resolved `LabratConfig.dashboard.url`
+ * before any events fire.
  */
 
-const DASHBOARD_URL =
-  process.env["LABRAT_DASHBOARD_URL"] ?? "http://localhost:4600";
+let dashboardUrl = DEFAULT_DASHBOARD_URL;
+
+/** Set the dashboard base URL for this process. Call once, at the run entrypoint. */
+export function configureEvents(url: string): void {
+  dashboardUrl = url;
+}
+
 const NOTIFY_PATH = "/internal/events";
 
 /** POST an SSE event to the dashboard. Never throws. */
 export function notifyEvent(event: SseEvent): void {
-  const url = `${DASHBOARD_URL}${NOTIFY_PATH}`;
+  const url = `${dashboardUrl}${NOTIFY_PATH}`;
   fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
