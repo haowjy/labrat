@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -25,6 +26,9 @@ const { contentType } = createRequire(import.meta.url)("mime-types") as {
 const FIXTURE = fileURLToPath(
   new URL("../../validation/fixtures/review-site", import.meta.url),
 );
+const INJECTED_FIXTURE = fileURLToPath(
+  new URL("../../validation/fixtures/review-site-injected", import.meta.url),
+);
 const TASK_ID = "task-2026-07-09-001";
 
 /** Build a task tree whose artifacts/review-site/ holds the fixture's real files. */
@@ -33,6 +37,25 @@ async function makeTasksDir(): Promise<string> {
   const site = path.join(dir, TASK_ID, "artifacts", "review-site");
   await mkdir(site, { recursive: true });
   await cp(FIXTURE, site, { recursive: true });
+  return dir;
+}
+
+/**
+ * Build a task tree that uses serve-time injection: the placeholder template
+ * under artifacts/review-site/ and its declared artifact at
+ * artifacts/landmarks/geometry.json (the path produced_from/data_sources name).
+ */
+async function makeInjectedTasksDir(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), "labrat-review-site-inj-"));
+  const artifacts = path.join(dir, TASK_ID, "artifacts");
+  await mkdir(path.join(artifacts, "landmarks"), { recursive: true });
+  await cp(path.join(INJECTED_FIXTURE, "review-site"), path.join(artifacts, "review-site"), {
+    recursive: true,
+  });
+  await cp(
+    path.join(INJECTED_FIXTURE, "data", "geometry.json"),
+    path.join(artifacts, "landmarks", "geometry.json"),
+  );
   return dir;
 }
 
@@ -151,15 +174,17 @@ describe("review-site route (booted app over HTTP)", () => {
     for (const d of dirs) await rm(d, { recursive: true, force: true });
   });
 
-  async function boot(): Promise<{ base: string; server: http.Server }> {
-    const tasksDir = await makeTasksDir();
+  async function boot(
+    make: () => Promise<string> = makeTasksDir,
+  ): Promise<{ base: string; server: http.Server; tasksDir: string }> {
+    const tasksDir = await make();
     dirs.push(tasksDir);
     const app = createApp({ tasksDir, user: "tester", port: 0, devReplay: false });
     const server = await new Promise<http.Server>((resolve) => {
       const s = app.listen(0, () => resolve(s));
     });
     const port = (server.address() as AddressInfo).port;
-    return { base: `http://127.0.0.1:${port}`, server };
+    return { base: `http://127.0.0.1:${port}`, server, tasksDir };
   }
 
   function get(url: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
@@ -198,6 +223,158 @@ describe("review-site route (booted app over HTTP)", () => {
       await symlink("/etc/passwd", path.join(site, "evil.js"), "file");
       const res = await get(`${base}/api/tasks/${TASK_ID}/review-site/evil.js`);
       assert.ok(res.status >= 400 && res.status < 500, `expected 4xx, got ${res.status}`);
+      assert.doesNotMatch(res.body, /root:.*:0:0:/, "must not leak /etc/passwd contents");
+    } finally {
+      server.close();
+    }
+  });
+
+  // --- Serve-time review-data injection (design review-data-injection.md) ---
+
+  const INDEX = `/api/tasks/${TASK_ID}/review-site/index.html`;
+  const site = (tasksDir: string) =>
+    path.join(tasksDir, TASK_ID, "artifacts", "review-site", "index.html");
+
+  it("splices the hashed artifact over the sentinel and drops the placeholder", async () => {
+    const { base, server } = await boot(makeInjectedTasksDir);
+    try {
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.headers["content-type"], "text/html; charset=utf-8");
+      // Same quarantine CSP as the non-injected path — the boundary is unchanged.
+      assert.equal(res.headers["content-security-policy"], reviewSiteCsp());
+      // The sentinel string is gone; the real artifact bytes are inlined as a
+      // valid window.REVIEW_GEOMETRY = {…} assignment.
+      assert.doesNotMatch(res.body, /__REVIEW_INJECT:/);
+      assert.match(res.body, /window\.REVIEW_GEOMETRY = \{/);
+      assert.match(res.body, /"meshes"/);
+      assert.match(res.body, /"distal_femoral_medial"/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("backward-compat: a fully-inlined template (no sentinel) is byte-identical to sendFile", async () => {
+    const { base, server, tasksDir } = await boot();
+    try {
+      const onDisk = await readFile(site(tasksDir), "utf8");
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 200);
+      assert.equal(res.body, onDisk, "no-sentinel template must be served verbatim");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("hash mismatch → 500 with no partial serve", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // Mutate the artifact so its sha256 no longer matches produced_from.
+      const artifact = path.join(tasksDir, TASK_ID, "artifacts", "landmarks", "geometry.json");
+      await writeFile(artifact, await readFile(artifact, "utf8") + "\n/* tampered */\n");
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /hash/);
+      assert.doesNotMatch(res.body, /meshes/, "must not leak the tampered bytes");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("missing artifact → 500 with no partial serve", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      await rm(path.join(tasksDir, TASK_ID, "artifacts", "landmarks", "geometry.json"));
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /missing|does not resolve/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("a sentinel that appears twice → 500 (count guard)", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // Duplicate the placeholder assignment: two sentinels for one global.
+      const html = await readFile(site(tasksDir), "utf8");
+      const dupe = 'window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";';
+      await writeFile(site(tasksDir), html.replace(dupe, dupe + "\n" + dupe));
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /appears 2 time\(s\)/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("escapes `<` in the artifact so a </script> inside a JSON string cannot break out (F1)", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // An artifact whose string values carry the RAWTEXT terminator. Unescaped,
+      // the HTML parser would close the inline <script> at the first
+      // "</script>" and window.REVIEW_GEOMETRY would end up undefined.
+      const data = {
+        meshes: { note: "</script><script>alert(1)</script>", other: "a < b" },
+      };
+      const bytes = JSON.stringify(data);
+      const artifact = path.join(tasksDir, TASK_ID, "artifacts", "landmarks", "geometry.json");
+      await writeFile(artifact, bytes);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      const html = await readFile(site(tasksDir), "utf8");
+      await writeFile(
+        site(tasksDir),
+        html.replace(/landmarks\/geometry\.json@[0-9a-f]{64}/, `landmarks/geometry.json@${hash}`),
+      );
+
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 200);
+      // No raw "</script>" from the DATA leaked into the document: every raw
+      // occurrence is one of the template's own three block closers.
+      assert.equal((res.body.match(/<\/script>/g) ?? []).length, 3);
+      // The injected assignment survives as one statement whose parsed VALUE is
+      // exactly the artifact's — the \u003c escape is JSON-transparent.
+      const m = res.body.match(/window\.REVIEW_GEOMETRY = (.+);/);
+      assert.ok(m, "expected an intact single-line REVIEW_GEOMETRY assignment");
+      assert.deepEqual(JSON.parse(m![1]!), data);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("an undeclared sentinel (not in data_sources) → 500, never served live (F2)", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // A placeholder for a global data_sources never mentions: the loop would
+      // skip it and the document would ship a live sentinel string.
+      const html = await readFile(site(tasksDir), "utf8");
+      await writeFile(
+        site(tasksDir),
+        html.replace(
+          "</body>",
+          '<script>window.REVIEW_EXTRA = "__REVIEW_INJECT:REVIEW_EXTRA__";</script>\n</body>',
+        ),
+      );
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /unreplaced injection sentinel/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("a traversal artifact path → 500 (rejected by resolveTaskFile)", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // Point data_sources + produced_from at a path that escapes the tree.
+      const html = await readFile(site(tasksDir), "utf8");
+      await writeFile(
+        site(tasksDir),
+        html.replace(/landmarks\/geometry\.json/g, "../../../../etc/passwd"),
+      );
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /does not resolve inside the task tree/);
       assert.doesNotMatch(res.body, /root:.*:0:0:/, "must not leak /etc/passwd contents");
     } finally {
       server.close();

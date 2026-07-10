@@ -1,0 +1,12 @@
+{
+  "sample_id": "oa-knee-0008",
+  "items": [
+    {
+      "id": "distal_femoral_ratio",
+      "label": "Distal femoral W/L ratio",
+      "value": 1.42,
+      "unit": "ratio"
+    },
+    {
+      "id": "tb_bv_tv",
+      "label

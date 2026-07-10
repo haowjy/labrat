@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import express, { type Express } from "express";
 import { loadConfig, type DashboardConfig } from "./config.js";
 import { buildReviewSiteCsp } from "../review-site/csp.js";
+import { extractManifest } from "../review-site/parse.js";
 import {
   getManifest,
   getPhase,
@@ -60,6 +63,122 @@ export function resolveReviewSiteFile(
   segments: readonly string[],
 ): string | null {
   return resolveTaskFile(tasksDir, id, ["artifacts", "review-site", ...segments]);
+}
+
+/**
+ * Serve-time review-data injection (design review-data-injection.md).
+ *
+ * The review template may ship large run data (geometry, full measurement
+ * arrays) out-of-line: instead of the LLM transcribing megabytes of literals,
+ * it writes a sentinel `window.<NAME> = "__REVIEW_INJECT:<NAME>__";` and
+ * declares the source in `REVIEW_MANIFEST.data_sources`. This route reads the
+ * hashed artifact from disk, verifies its sha256 against `produced_from`, and
+ * splices its bytes over the sentinel before sending — so the browser still
+ * receives ONE self-contained document (same sandbox/CSP/linter boundary) and
+ * provenance is guaranteed by construction, not transcription.
+ *
+ * Backward-compat is mandatory: a fully-inlined template (no sentinel) returns
+ * null so the caller falls through to the unchanged `sendFile` path.
+ *
+ * Generic by contract: it reads a manifest, resolves paths (through the same
+ * traversal-guarded `resolveTaskFile` the route uses), checks hashes, and
+ * splices bytes. It knows nothing about any protocol or global's meaning.
+ *
+ * Fails closed: any missing artifact, hash mismatch, malformed manifest, or a
+ * sentinel that is not present exactly once THROWS — the caller 500s rather
+ * than serve a half-injected document.
+ */
+async function injectReviewData(
+  tasksDir: string,
+  id: string,
+  file: string,
+): Promise<string | null> {
+  const html = await readFile(file, "utf8");
+  // Fast string scan, not a parse: no sentinel → fully-inlined template.
+  if (!html.includes("__REVIEW_INJECT:")) return null;
+
+  const manifest = extractManifest(html);
+  if (manifest === null) {
+    throw new Error("review-site template has an injection sentinel but no static window.REVIEW_MANIFEST object literal");
+  }
+  const dataSources = manifest["data_sources"];
+  if (dataSources === null || typeof dataSources !== "object") {
+    throw new Error("review-site template has an injection sentinel but REVIEW_MANIFEST declares no data_sources");
+  }
+
+  // Map every declared source path → its declared sha256, read off
+  // produced_from (`{ [key]: "path@<sha256>" }`). Each data_sources artifact
+  // must have a matching hash here — that is the provenance the splice enforces.
+  const hashByPath = new Map<string, string>();
+  const producedFrom = manifest["produced_from"];
+  if (producedFrom !== null && typeof producedFrom === "object") {
+    for (const ref of Object.values(producedFrom as Record<string, unknown>)) {
+      if (typeof ref !== "string") continue;
+      const at = ref.lastIndexOf("@");
+      if (at === -1) continue;
+      hashByPath.set(ref.slice(0, at), ref.slice(at + 1));
+    }
+  }
+
+  let out = html;
+  for (const [name, entry] of Object.entries(dataSources as Record<string, unknown>)) {
+    if (entry === null || typeof entry !== "object") {
+      throw new Error(`data_sources.${name} is not an object`);
+    }
+    const { artifact, transform } = entry as { artifact?: unknown; transform?: unknown };
+    if (typeof artifact !== "string" || artifact.length === 0) {
+      throw new Error(`data_sources.${name}.artifact must be a non-empty string`);
+    }
+    if (transform !== undefined && transform !== "identity") {
+      throw new Error(`data_sources.${name}.transform "${String(transform)}" is unsupported (only "identity")`);
+    }
+
+    // Resolve under <taskDir>/artifacts/ through the SAME traversal guard the
+    // route uses — a "../" or absolute artifact path is rejected here.
+    const artifactFile = resolveTaskFile(tasksDir, id, ["artifacts", ...artifact.split("/")]);
+    if (artifactFile === null) {
+      throw new Error(`data_sources.${name}.artifact "${artifact}" does not resolve inside the task tree`);
+    }
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(artifactFile);
+    } catch {
+      throw new Error(`data_sources.${name}.artifact "${artifact}" is missing`);
+    }
+
+    const declaredHash = hashByPath.get(artifact);
+    if (declaredHash === undefined) {
+      throw new Error(`data_sources.${name}.artifact "${artifact}" has no matching produced_from hash`);
+    }
+    const actualHash = createHash("sha256").update(bytes).digest("hex");
+    if (actualHash !== declaredHash) {
+      throw new Error(
+        `data_sources.${name}.artifact "${artifact}" hash ${actualHash.slice(0, 12)}… ≠ declared ${declaredHash.slice(0, 12)}…`,
+      );
+    }
+
+    // The sentinel (INCLUDING its quotes) must appear exactly once, else a
+    // textual splice would corrupt the document or leave a live sentinel.
+    const sentinel = `"__REVIEW_INJECT:${name}__"`;
+    const count = out.split(sentinel).length - 1;
+    if (count !== 1) {
+      throw new Error(`sentinel ${sentinel} appears ${count} time(s) in the template; expected exactly 1`);
+    }
+    // Escape `<` as `\u003c` before splicing: the bytes land inside an inline
+    // <script> RAWTEXT block, where a `</script>` inside a JSON string value
+    // would terminate the element early and break the page. The escape is
+    // JSON/JS-transparent (the parsed value is identical), so the hash-verified
+    // data is unchanged as a VALUE while the document stays parseable.
+    out = out.replace(sentinel, () => bytes.toString("utf8").replaceAll("<", "\\u003c"));
+  }
+
+  // Fail closed on any sentinel the loop never touched (a global missing from
+  // data_sources — author typo, or a template edited after linting): serving
+  // it would hand the browser a live placeholder string instead of data.
+  if (out.includes("__REVIEW_INJECT:")) {
+    throw new Error("unreplaced injection sentinel(s) remain after processing all data_sources");
+  }
+  return out;
 }
 
 /**
@@ -128,7 +247,7 @@ export function createApp(config: DashboardConfig): Express {
   // skill-specific logic. Traversal is guarded solely by resolveTaskFile
   // (path-to-regexp already splits *path into decoded segments; ".." / empty /
   // absolute segments are rejected there, keeping serving inside the task tree).
-  app.get("/api/tasks/:id/review-site/*path", (req, res) => {
+  app.get("/api/tasks/:id/review-site/*path", async (req, res) => {
     const segments = req.params.path as string[];
     const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
     if (!file) {
@@ -136,6 +255,25 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.setHeader("Content-Security-Policy", reviewSiteCsp());
+
+    // index.html gains the serve-time injection path: if the template carries a
+    // data-injection sentinel, splice the hashed artifact bytes in and send the
+    // buffered result. No sentinel → null → fall through to the sendFile path
+    // below, byte-identical to a fully-inlined template (backward-compat).
+    if (segments[segments.length - 1] === "index.html") {
+      let injected: string | null;
+      try {
+        injected = await injectReviewData(tasksDir, req.params.id, file);
+      } catch (err) {
+        res.status(500).json({ error: err instanceof Error ? err.message : "review-data injection failed" });
+        return;
+      }
+      if (injected !== null) {
+        res.type("html").send(injected);
+        return;
+      }
+    }
+
     // sendFile sets Content-Type from the extension (.html/.js/.css/.json).
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();

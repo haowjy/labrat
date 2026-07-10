@@ -294,6 +294,33 @@ function isNavigationTarget(path: string): boolean {
 }
 
 /**
+ * Statically extract the value of `window.REVIEW_MANIFEST` from an HTML
+ * document, reading only literal AST nodes (never executing producer code).
+ * Aggregates the `window.*` assignments across every inline `<script>` block —
+ * the same static path `check.ts` G3 uses — and returns the manifest when it is
+ * assigned to a static object literal. Returns null when it is absent or is not
+ * a static object literal. The serve-time injector and G3 share this so a single
+ * extractor governs "what is the manifest" for both the linter and the server.
+ */
+export function extractManifest(html: string): Record<string, unknown> | null {
+  let value: unknown;
+  let found = false;
+  for (const el of parseHtml(html)) {
+    if (el.tag !== "script" || el.attrs.get("src") !== undefined || !el.rawText) continue;
+    const analysis = analyzeJs(el.rawText);
+    if (analysis.syntaxError) continue;
+    for (const g of analysis.windowGlobals) {
+      if (g.name === "REVIEW_MANIFEST" && g.value !== undefined) {
+        value = g.value;
+        found = true;
+      }
+    }
+  }
+  if (!found || value === null || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+/**
  * Parse JS to an AST and read off exactly what the gates need — never executing
  * it. Parsed as a classic script (the review-site contract inlines `.js` in
  * `<script>` blocks, not modules); a static `import`/`export` therefore

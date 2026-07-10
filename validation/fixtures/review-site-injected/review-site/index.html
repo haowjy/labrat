@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<title>Review site — injected-data fixture</title>
+<style>
+:root {
+  --ink: #14181c;
+  --paper: #ffffff;
+  --muted: #4b5563;
+  --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+*,
+*::before,
+*::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.45;
+}
+.topbar { padding: 1rem 1.1rem; border-bottom: 1px solid #dde1e4; }
+.topbar h1 { margin: 0; font-size: 1.05rem; }
+.topbar-sub { margin: 0.3rem 0 0; font-size: 0.8rem; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+.rows-wrap { padding: 1rem 1.1rem; }
+.mesh-row { font-family: var(--mono); font-size: 0.85rem; padding: 0.4rem 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <h1 id="sample-title">Review</h1>
+    <p id="sample-source" class="topbar-sub"></p>
+  </header>
+  <main class="rows-wrap">
+    <div id="mesh-list"></div>
+  </main>
+</div>
+
+<script>
+// Contract-level data block (review-template.md §1, invariant I3), extended with
+// data_sources (review-data-injection.md): REVIEW_GEOMETRY is NOT transcribed
+// into this template — it is a placeholder the dashboard fills at serve time
+// from the hashed artifact named in produced_from. The gate (G3/G8) validates
+// the template's structural contract; the server guarantees the fill.
+window.REVIEW_MANIFEST = {
+  sample_id: "oa-knee-0007",
+  produced_from: {
+    measurement:
+      "landmarks/geometry.json@f9ce4220e9f2981b838bccc11455e511018dc0782f8d34f0c32d2a9e1628ae21",
+  },
+  verdict_schema: "review-verdict/1",
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_GEOMETRY"],
+  data_sources: {
+    REVIEW_GEOMETRY: {
+      artifact: "landmarks/geometry.json",
+      transform: "identity",
+    },
+  },
+};
+</script>
+
+<script>
+// Serve-time injection placeholder. The dashboard replaces the sentinel string
+// (INCLUDING its quotes) with the artifact's bytes, yielding a valid
+// window.REVIEW_GEOMETRY = {…} assignment — identical to a fully-inlined
+// template as far as the app code below and the browser are concerned.
+window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";
+</script>
+
+<script>
+(function () {
+  "use strict";
+  var manifest = window.REVIEW_MANIFEST;
+  var geometry = window.REVIEW_GEOMETRY;
+  var meshes = (geometry && geometry.meshes) || {};
+
+  document.getElementById("sample-title").textContent = "Review " + manifest.sample_id;
+  document.getElementById("sample-source").textContent =
+    "from " + manifest.produced_from.measurement;
+
+  var list = document.getElementById("mesh-list");
+  Object.keys(meshes).forEach(function (name) {
+    var mesh = meshes[name];
+    var row = document.createElement("div");
+    row.className = "mesh-row";
+    row.textContent = name + ": " + (mesh.vertices.length / 3) + " verts, " + mesh.faces.length + " face indices";
+    list.appendChild(row);
+  });
+})();
+</script>
+</body>
+</html>
