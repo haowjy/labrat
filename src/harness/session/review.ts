@@ -80,7 +80,7 @@ async function runOneReviewQuery(
   const q = query({
     prompt: reviewerUserPrompt(config.loadedPhase.phase.id, config.taskId, isReminder),
     options: {
-      model: "sonnet",
+      model: config.protocol.yaml.agents["gate-reviewer"].model ?? "sonnet",
       cwd: config.taskDir,
       env: buildSessionEnv(config.runtime),
       permissionMode: "bypassPermissions",

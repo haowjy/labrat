@@ -24,7 +24,6 @@ export {
 } from "./invalidation.js";
 export { findRecordedWorkerSessionId } from "./session-lookup.js";
 
-const WORKER_SPINE_PHASES = ["intake", "segmentation"] as const;
 const MAX_PHASE_ATTEMPTS = 2;
 
 export type OrchestratorConfig = {
@@ -115,6 +114,7 @@ export async function initTaskTree(
   tasksRoot: string,
   inputAbsPath: string,
   protocolName: string,
+  firstPhaseId: string | null,
 ): Promise<{ taskId: string; taskDir: string; inputRel: string }> {
   await mkdir(tasksRoot, { recursive: true });
   const taskId = await allocateTaskId(tasksRoot);
@@ -127,7 +127,7 @@ export async function initTaskTree(
     protocol: protocolName,
     input: inputRel,
     state: "running",
-    currentPhase: WORKER_SPINE_PHASES[0] ?? null,
+    currentPhase: firstPhaseId,
     phasesComplete: [],
     createdAt: now,
     updatedAt: now,
@@ -192,17 +192,18 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
   }
 
   const runtime = pythonRuntime();
+  const phaseIds = config.protocol.yaml.phases.map((p) => p.id);
   const phaseResults: PhaseRunResult[] = [];
   const priorSummaries: Record<string, string> = {};
   const attemptByPhase = new Map<string, number>();
 
   let pointer = 0;
-  while (pointer < WORKER_SPINE_PHASES.length) {
-    const phaseId = WORKER_SPINE_PHASES[pointer];
+  while (pointer < phaseIds.length) {
+    const phaseId = phaseIds[pointer];
     if (!phaseId) break;
     const loadedPhaseDef = config.protocol.yaml.phases.find((p) => p.id === phaseId);
     if (!loadedPhaseDef) {
-      throw new Error(`Protocol missing worker-spine phase: ${phaseId}`);
+      throw new Error(`Protocol missing phase definition: ${phaseId}`);
     }
 
     const attempt = (attemptByPhase.get(phaseId) ?? 0) + 1;
@@ -328,22 +329,20 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
     }
 
     // fail-upstream: rewind. Target + downstream already archived by runGate.
-    const rewindIdx = WORKER_SPINE_PHASES.indexOf(
-      gate.rewindTo as (typeof WORKER_SPINE_PHASES)[number],
-    );
+    const rewindIdx = phaseIds.indexOf(gate.rewindTo);
     if (rewindIdx === -1) {
       throw new Error(
-        `Reviewer requested rewind to unknown worker-spine phase: ${gate.rewindTo}`,
+        `Reviewer requested rewind to unknown phase: ${gate.rewindTo}`,
       );
     }
-    for (const invalidated of WORKER_SPINE_PHASES.slice(rewindIdx)) {
+    for (const invalidated of phaseIds.slice(rewindIdx)) {
       delete priorSummaries[invalidated];
       attemptByPhase.delete(invalidated);
     }
     task = {
       ...task,
       phasesComplete: task.phasesComplete.filter(
-        (p) => !WORKER_SPINE_PHASES.slice(rewindIdx).includes(p as never),
+        (p) => !phaseIds.slice(rewindIdx).includes(p),
       ),
       updatedAt: new Date().toISOString(),
     };
@@ -354,15 +353,11 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
   const finalTask = await loadTaskJson(config.taskDir);
   const doneTask: TaskJson = {
     ...finalTask,
-    state: "running",
-    currentPhase: "seed-review",
+    state: "done",
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(config.taskDir, doneTask);
-  // NOTE: this build only runs the worker spine (intake, segmentation) and
-  // hands off to seed-review, which isn't implemented yet — task.state never
-  // reaches "done" here, so no code path can honestly emit "task-done" today.
-  // Wire it at whatever phase eventually closes out the protocol.
+  notifyEvent({ type: "task-done", taskId: config.taskId });
 
   return { task: doneTask, phases: phaseResults };
 }
@@ -381,6 +376,7 @@ export async function enqueueAndRun(
     root,
     inputAbsPath,
     protocolName,
+    protocol.yaml.phases[0]?.id ?? null,
   );
   notifyEvent({ type: "task-started", taskId, protocol: protocolName });
 

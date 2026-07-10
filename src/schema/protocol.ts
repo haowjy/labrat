@@ -21,6 +21,7 @@ export type RuntimeDep =
   | { readonly type: RuntimeDepType; readonly name: string };
 
 const RUNTIME_DEP_TYPES = ["python", "binary", "conda", "env"] as const;
+const AGENT_PROFILE_MODELS = ["sonnet", "opus", "haiku", "inherit"] as const;
 
 export function parseRuntimeDep(value: unknown): ValidationResult<RuntimeDep> {
   if (typeof value === "string") {
@@ -111,6 +112,7 @@ export type AgentProfile = {
   readonly subagents?: Readonly<Record<string, SubagentDefinition>>;
   readonly writable?: readonly string[];
   readonly max_findings?: number;
+  readonly model?: "sonnet" | "opus" | "haiku" | "inherit";
 };
 
 export type ProtocolRuntime = {
@@ -334,6 +336,11 @@ function validateAgentProfile(
   );
   if (!max_findings.ok) return max_findings;
 
+  const model = expectOptional(rec.value["model"], `${path}.model`, (v, p) =>
+    expectEnum(v, p, AGENT_PROFILE_MODELS),
+  );
+  if (!model.ok) return model;
+
   let subagents: Readonly<Record<string, SubagentDefinition>> | undefined;
   if (rec.value["subagents"] !== undefined) {
     const subRec = expectRecord(rec.value["subagents"], `${path}.subagents`);
@@ -353,6 +360,7 @@ function validateAgentProfile(
     ...(max_findings.value !== undefined
       ? { max_findings: max_findings.value }
       : {}),
+    ...(model.value !== undefined ? { model: model.value } : {}),
     ...(subagents !== undefined ? { subagents } : {}),
   });
 }
