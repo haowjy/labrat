@@ -136,16 +136,18 @@ rubber stamp the monitor will catch.)
 
 **The boundary is two layers — the linter is not redundant with the CSP.** The
 linter is best-effort **structural + self-containment** analysis (single
-inlined document, no external loads, faithful provenance). The runtime boundary
-is the opaque-origin sandbox + CSP (Lane A). They divide the work: the
-**sandbox + CSP** contain external subresource loads and network connections
-(`connect-src 'none'`); the **linter** contains navigation and inline-handler
-exfil (G5) — because the site needs `script-src 'unsafe-inline'` to render at
-all (R4), and under `'unsafe-inline'` the CSP no longer blocks inline handlers,
-and `connect-src` never blocked navigation (`window.location = evil`; no
-`navigate-to` directive). Neither layer alone is the boundary. The linter is a
-static pass, not a proof — it closes the known exfil classes, not every
-conceivable obfuscation.
+inlined document, no external loads, faithful provenance). The enforcing boundary
+is THREE cooperating parts. They divide the work: the **sandbox + CSP** (Lane A)
+contain external subresource loads and network connections (`connect-src
+'none'`); the **linter** contains the DIRECT navigation and inline-handler forms
+(G5) — because the site needs `script-src 'unsafe-inline'` to render at all
+(R4), and under `'unsafe-inline'` the CSP no longer blocks inline handlers, and
+`connect-src` never blocked navigation (`window.location = evil`; no
+`navigate-to` directive); and the **trusted-but-verified producer** (worker
+authors, gate reviewer re-checks) carries the residual. No layer alone is the
+boundary. The linter's JS exfil detection (G5) is explicitly BEST-EFFORT, not a
+proof — static analysis closes the direct literal forms of the known exfil
+classes, not every obfuscation (aliasing, computed non-literal dispatch).
 
 **Failure modes to flag:** any gate `ok: false` — e.g. `index.html` missing
 (G1), a separate-file `<script src>`/absolute/`..` path (G2), a missing data

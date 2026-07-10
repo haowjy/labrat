@@ -29,15 +29,21 @@ import {
  *     scripts, so the CSP no longer blocks inline-handler exfil; and
  *   - `connect-src 'none'` blocks fetch/XHR/beacon but NOT navigation
  *     (`window.location = evil`; there is no `navigate-to` directive).
- * So the sandbox + CSP contain external loads/connections, and THIS linter is
- * the only layer that catches navigation (G5) and inline-handler (G5) exfil.
- * The linter is best-effort structural analysis, not a proof: it closes the
- * known exfil/self-containment classes statically, before serve — separate-file
- * subresources (blank in the sandbox), external origins, runtime data loading,
- * navigation sinks, inline handlers, arbitrary-exec sources — but a determined
- * producer with `'unsafe-inline'` and enough obfuscation can still author code
- * a static pass cannot fully reason about (F7 aliasing, computed dispatch). The
- * two layers together are the boundary; neither alone is.
+ * So the enforcing boundary is THREE cooperating parts, not the linter alone:
+ *   1. the opaque-origin sandbox + CSP — external subresource loads and network
+ *      connections (`connect-src 'none'`: fetch/XHR/beacon/WebSocket);
+ *   2. THIS linter — the DIRECT navigation (G5) and inline-handler (G5) forms
+ *      the CSP structurally cannot block under `script-src 'unsafe-inline'`; and
+ *   3. the trusted-but-verified producer — the worker authors the site under
+ *      review, and the gate reviewer re-checks it.
+ * The linter's JS exfil detection (G5) is explicitly BEST-EFFORT, not a proof:
+ * it closes the DIRECT literal forms of the known exfil classes statically,
+ * before serve — separate-file subresources (blank in the sandbox), external
+ * origins, runtime data loading, navigation sinks, inline handlers,
+ * arbitrary-exec sources — but a static pass cannot enumerate every obfuscation
+ * (aliasing, computed non-literal dispatch, F7). A determined producer with
+ * `'unsafe-inline'` can still author JS a static pass cannot fully reason about;
+ * that residual is why the sandbox/CSP and the trusted producer carry the rest.
  *
  * SECURITY: producer code is parsed, NEVER executed. All markup/JS analysis is
  * a static parse (see `parse.ts`) — the reviewer runs this in its own process,

