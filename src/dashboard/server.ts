@@ -17,8 +17,10 @@ import { STATIC_ROOT } from "./static/index.js";
 /**
  * CDN origins the review page's <script> tags may load from. Empty by default
  * (design review-template §2/I4: `cdn_allowlist: []`, vendored) so the demo
- * emits `script-src 'self'` and the served CSP never exceeds what the G6 gate
- * verified (`origins ⊆ cdn_allowlist`). The design's per-phase `cdn_allowlist`
+ * emits `script-src 'self' 'unsafe-inline'` and the served CSP never exceeds
+ * what the G6 gate verified (`origins ⊆ cdn_allowlist`), beyond the fixed
+ * `'unsafe-inline'` the inlined single-document site requires (R4). The
+ * design's per-phase `cdn_allowlist`
  * field is forward-compat (Lane F): pass the phase's value to `reviewSiteCsp()`
  * at the call site instead of relying on this default.
  */
@@ -32,12 +34,26 @@ const REVIEW_SITE_CDN_ALLOWLIST = "";
  * blocks <base> rewriting; `form-action 'none'` (does NOT fall back to
  * default-src) blocks form POSTs to dashboard endpoints; `object-src 'none'`
  * blocks <object>/<embed>. The script-src directive is built by filtering empty
- * tokens, so an empty allowlist yields exactly `script-src 'self'` (no trailing
- * space). Decision point (C4): if/when a route serves a Plotly template, add
- * `'unsafe-eval'` to script-src here — Plotly's bundle evals.
+ * tokens, so an empty allowlist yields exactly `script-src 'self' 'unsafe-inline'`
+ * (no trailing space). Decision point (C4): if/when a route serves a Plotly
+ * template, add `'unsafe-eval'` to script-src here — Plotly's bundle evals.
+ *
+ * `'unsafe-inline'` on script-src is LOAD-BEARING (R4): the site ships as a
+ * single inlined index.html because an opaque-origin sandboxed iframe refuses
+ * every external `<script src>`/`<link href>` subresource, so the inline
+ * `<script>`/`<style>` blocks MUST be permitted or the page renders blank.
+ * The cost: `'unsafe-inline'` also permits inline event handlers (`onerror=`)
+ * and inline scripts, and `connect-src 'none'` does NOT block navigation
+ * (`window.location = evil`; no `navigate-to` directive exists). Those two
+ * exfil classes are caught not here but by the deterministic linter
+ * (`review-site/check.ts` G5) — the sandbox + CSP contain external
+ * loads/connections; the linter contains navigation + inline-handler exfil.
+ * The two layers together are the boundary.
  */
 export function reviewSiteCsp(cdnAllowlist: string = REVIEW_SITE_CDN_ALLOWLIST): string {
-  const scriptSrc = ["'self'", ...cdnAllowlist.split(/\s+/)].filter((t) => t !== "").join(" ");
+  const scriptSrc = ["'self'", "'unsafe-inline'", ...cdnAllowlist.split(/\s+/)]
+    .filter((t) => t !== "")
+    .join(" ");
   return [
     "default-src 'self'",
     `script-src ${scriptSrc}`,

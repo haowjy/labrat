@@ -5,7 +5,316 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light" />
 <title>Review site — minimal fixture</title>
-<link rel="stylesheet" href="assets/app.css" />
+<style>
+/* Minimal review-site fixture — mobile-first (review-template.md §1 I6).
+   Base rules target a phone viewport; the min-width query at the bottom
+   restores a conventional table layout for wider (tablet/desktop) authoring
+   windows. Self-contained: no external fonts, no CDN, system font stack. */
+
+:root {
+  --ink: #14181c;
+  --paper: #ffffff;
+  --surface: #f2f4f5;
+  --border: #dde1e4;
+  --muted: #4b5563;
+  --accent: #2d7d9a;
+  --accent-hover: #276a83;
+  --accent-ink: #ffffff;
+  --confirm: #2f8f5b;
+  --correct: #b8860b;
+  --reject: #c0402a;
+  --flag-soft: rgba(184, 134, 11, 0.14);
+  --flag-ink: #7a5b06;
+  --radius: 10px;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* The .shell owns scrolling internally (one-viewport panes); the page
+     itself never scrolls, so header/footer chrome stays put. */
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+/* === SHELL === */
+.shell {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  flex-shrink: 0;
+  padding: 1rem 1.1rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.topbar-sub {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.rows-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.85rem 1.1rem 1rem;
+}
+
+/* === TABLE (mobile: each row collapses into a card; see min-width query) === */
+.values-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.values-table thead {
+  display: none;
+}
+.values-table tbody tr {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.values-table tbody tr:last-child {
+  margin-bottom: 0;
+}
+.values-table td {
+  display: block;
+  padding: 0.35rem 0;
+}
+.values-table td[data-label]::before {
+  content: attr(data-label);
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.row-label {
+  font-weight: 600;
+}
+.row-id {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.row-value-num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+.row-value-unit {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-left: 0.35rem;
+}
+
+.flag-chip {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2em 0.6em;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.flag-chip[data-flag]:not([data-flag="clean"]) {
+  background: var(--flag-soft);
+  color: var(--flag-ink);
+  border-color: transparent;
+}
+.flag-detail {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* === VERDICT CONTROL (per row: confirm / correct / reject) === */
+.verdict-group {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+.verdict-btn {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    transform 80ms ease;
+}
+.verdict-btn:hover {
+  background: var(--surface);
+}
+.verdict-btn:active {
+  transform: scale(0.97);
+}
+.verdict-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.verdict-btn[data-verdict="confirm"][aria-pressed="true"] {
+  background: var(--confirm);
+  border-color: var(--confirm);
+  color: #fff;
+}
+.verdict-btn[data-verdict="correct"][aria-pressed="true"] {
+  background: var(--correct);
+  border-color: var(--correct);
+  color: #fff;
+}
+.verdict-btn[data-verdict="reject"][aria-pressed="true"] {
+  background: var(--reject);
+  border-color: var(--reject);
+  color: #fff;
+}
+
+/* === ACTION BAR (sticky footer: Export stays thumb-reachable) === */
+.action-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  background: var(--paper);
+  padding: 0.75rem 1.1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+.progress {
+  flex: 1;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.progress[data-ready="true"] {
+  color: var(--confirm);
+  font-weight: 600;
+}
+
+#export-btn {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 1.15rem;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease,
+    transform 80ms ease;
+}
+#export-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+#export-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+#export-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#export-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* === WIDER VIEWPORT: restore a conventional table === */
+@media (min-width: 640px) {
+  .rows-wrap {
+    max-width: 760px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 1.25rem;
+  }
+  .values-table thead {
+    display: table-header-group;
+  }
+  .values-table tbody {
+    display: table-row-group;
+  }
+  .values-table tr {
+    display: table-row;
+    background: transparent;
+    border: none;
+    margin: 0;
+    padding: 0;
+  }
+  .values-table tbody tr + tr td {
+    border-top: 1px solid var(--border);
+  }
+  .values-table td {
+    display: table-cell;
+    padding: 0.75rem 0.6rem;
+    vertical-align: top;
+  }
+  .values-table td[data-label]::before {
+    display: none;
+  }
+  .values-table th {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+  }
+  .verdict-group {
+    min-width: 230px;
+  }
+}
+</style>
 </head>
 <body>
 <div class="shell">
@@ -34,8 +343,268 @@
   </footer>
 </div>
 
-<script src="data/manifest.js"></script>
-<script src="data/values.js"></script>
-<script src="assets/app.js"></script>
+<script>
+// Contract-level data block (review-template.md §1, invariant I3).
+// The gate (G3/G8) reads this inline <script> to confirm the site describes
+// THIS run: sample_id + produced_from must match the measurements the site
+// was built from. Everything else in the data blocks is producer-specific.
+// Inlined (not a separate data/manifest.js): an opaque-origin sandboxed
+// iframe refuses every external subresource load, so the whole site ships as
+// one index.html (R4).
+window.REVIEW_MANIFEST = {
+  sample_id: "oa-knee-0007",
+  produced_from: {
+    measurement:
+      "measurements/results.json@3f179308d75117c096ff1ec771b54779a522b9da8d067c539a551a0ee355ad9d",
+  },
+  verdict_schema: "review-verdict/1",
+  // Every window.* global this site's data blocks assign (I3). The gate
+  // checks each name here resolves to a non-empty global.
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],
+};
+</script>
+
+<script>
+// Run data as a .js global (I3) — never fetched JSON. Declared in an inline
+// <script> before the app block runs. This is the minimal template's one
+// data block; the biggest template would add per-bone geometry/mesh/landmark
+// globals alongside this one.
+window.REVIEW_DATA = {
+  items: [
+    {
+      id: "distal_femoral_ratio",
+      label: "Distal femoral W/L ratio",
+      value: 1.42,
+      unit: "ratio",
+      honesty_flag: "clean",
+      honesty_detail: "",
+    },
+    {
+      id: "iioc_h_w",
+      label: "Tibial IIOC height/width",
+      value: 0.86,
+      unit: "ratio",
+      honesty_flag: "low-margin",
+      honesty_detail: "Femur/tibia identity call within a 4% margin.",
+    },
+    {
+      id: "tb_bv_tv",
+      label: "Trabecular BV/TV",
+      value: 0.31,
+      unit: "fraction",
+      honesty_flag: "clean",
+      honesty_detail: "",
+    },
+    {
+      id: "gp_thickness_mm",
+      label: "Growth-plate thickness",
+      value: 0.18,
+      unit: "mm",
+      honesty_flag: "criss-cross",
+      honesty_detail:
+        "Measurement lines cross between bones: a faithful sign of inter-bone rotational mismatch, not a rendering bug.",
+    },
+  ],
+};
+</script>
+
+<script>
+// Minimal review-site fixture (review-template.md §1, the "minimal" column).
+// Reads window.REVIEW_MANIFEST / window.REVIEW_DATA (assigned by the inline
+// data blocks above — I3: never fetched JSON). Verdict
+// state lives in memory only for this document's lifetime (Top risk / R2:
+// an opaque-origin sandboxed frame hard-throws on localStorage/sessionStorage,
+// and in-memory state does not survive cross-page navigation anyway, hence
+// single-document). Export is the only record.
+(function () {
+  "use strict";
+
+  var manifest = window.REVIEW_MANIFEST;
+  var data = window.REVIEW_DATA;
+  var items = (data && data.items) || [];
+
+  var VERDICTS = ["confirm", "correct", "reject"];
+  var VERDICT_LABEL = { confirm: "Confirm", correct: "Correct", reject: "Reject" };
+
+  // verdicts: item id -> "confirm" | "correct" | "reject". Absent = unset.
+  var state = { verdicts: Object.create(null) };
+
+  var els = {
+    title: document.getElementById("sample-title"),
+    source: document.getElementById("sample-source"),
+    tbody: document.getElementById("rows-body"),
+    progress: document.getElementById("progress"),
+    exportBtn: document.getElementById("export-btn"),
+  };
+
+  // --- small DOM helper (avoids repeating createElement/className/textContent) ---
+  function el(tag, opts) {
+    var node = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) node.className = opts.className;
+    if (opts.text !== undefined) node.textContent = opts.text;
+    if (opts.attrs) {
+      Object.keys(opts.attrs).forEach(function (key) {
+        node.setAttribute(key, opts.attrs[key]);
+      });
+    }
+    return node;
+  }
+
+  // --- pure: derive overall from per-item verdicts (reject > correct > confirm) ---
+  function computeOverall(rowVerdicts) {
+    if (rowVerdicts.indexOf("reject") !== -1) return "reject";
+    if (rowVerdicts.indexOf("correct") !== -1) return "correct";
+    return "confirm";
+  }
+
+  function reviewedCount() {
+    return items.reduce(function (count, item) {
+      return count + (state.verdicts[item.id] ? 1 : 0);
+    }, 0);
+  }
+
+  function updateProgress() {
+    var total = items.length;
+    var done = reviewedCount();
+    var ready = total > 0 && done === total;
+
+    if (total === 0) {
+      els.progress.textContent = "No indices to review.";
+    } else if (ready) {
+      els.progress.textContent = done + " of " + total + " reviewed. Ready to export.";
+    } else {
+      els.progress.textContent = done + " of " + total + " reviewed.";
+    }
+    els.progress.dataset.ready = String(ready);
+    els.exportBtn.disabled = !ready;
+  }
+
+  function syncRowButtons(tr, itemId) {
+    var picked = state.verdicts[itemId];
+    VERDICTS.forEach(function (verdict) {
+      var btn = tr.querySelector('[data-verdict="' + verdict + '"]');
+      btn.setAttribute("aria-pressed", String(picked === verdict));
+    });
+  }
+
+  function onVerdictClick(tr, item, verdict) {
+    var next = state.verdicts[item.id] === verdict ? null : verdict;
+    if (next) {
+      state.verdicts[item.id] = next;
+    } else {
+      delete state.verdicts[item.id];
+    }
+    syncRowButtons(tr, item.id);
+    updateProgress();
+  }
+
+  function buildRow(item) {
+    var tr = document.createElement("tr");
+    tr.dataset.itemId = item.id;
+
+    var indexCell = el("td", { attrs: { "data-label": "Index" } });
+    indexCell.appendChild(el("span", { className: "row-label", text: item.label }));
+    indexCell.appendChild(el("code", { className: "row-id", text: item.id }));
+    tr.appendChild(indexCell);
+
+    var valueCell = el("td", { attrs: { "data-label": "Value" } });
+    valueCell.appendChild(el("span", { className: "row-value-num", text: String(item.value) }));
+    if (item.unit) {
+      valueCell.appendChild(el("span", { className: "row-value-unit", text: item.unit }));
+    }
+    tr.appendChild(valueCell);
+
+    var flagCell = el("td", { attrs: { "data-label": "Honesty flag" } });
+    flagCell.appendChild(
+      el("span", {
+        className: "flag-chip",
+        text: item.honesty_flag,
+        attrs: { "data-flag": item.honesty_flag },
+      }),
+    );
+    if (item.honesty_detail) {
+      flagCell.appendChild(el("p", { className: "flag-detail", text: item.honesty_detail }));
+    }
+    tr.appendChild(flagCell);
+
+    var verdictCell = el("td", { attrs: { "data-label": "Verdict" } });
+    var group = el("div", {
+      className: "verdict-group",
+      attrs: { role: "group", "aria-label": "Verdict for " + item.label },
+    });
+    VERDICTS.forEach(function (verdict) {
+      var btn = el("button", {
+        className: "verdict-btn verdict-" + verdict,
+        text: VERDICT_LABEL[verdict],
+        attrs: { type: "button", "data-verdict": verdict, "aria-pressed": "false" },
+      });
+      btn.addEventListener("click", function () {
+        onVerdictClick(tr, item, verdict);
+      });
+      group.appendChild(btn);
+    });
+    verdictCell.appendChild(group);
+    tr.appendChild(verdictCell);
+
+    return tr;
+  }
+
+  // --- pure: the review-verdict/1 payload from current state ---
+  function buildVerdictPayload() {
+    return {
+      schema: manifest.verdict_schema,
+      sample_id: manifest.sample_id,
+      produced_from: manifest.produced_from,
+      overall: computeOverall(
+        items.map(function (item) {
+          return state.verdicts[item.id];
+        }),
+      ),
+      items: items.map(function (item) {
+        return {
+          id: item.id,
+          verdict: state.verdicts[item.id],
+          corrected_value: null,
+          note: "",
+        };
+      }),
+      exported_at: new Date().toISOString(),
+    };
+  }
+
+  function render() {
+    els.title.textContent = "Review " + manifest.sample_id;
+    els.source.textContent = "from " + manifest.produced_from.measurement;
+
+    items.forEach(function (item) {
+      els.tbody.appendChild(buildRow(item));
+    });
+
+    updateProgress();
+  }
+
+  // C2: the whole handler runs synchronously, start to finish, inside the
+  // click event, so a real tap/touch triggers the download directly (iOS
+  // Safari drops a download-anchor click deferred past an await/microtask).
+  // C3: data: URL, not blob: (Safari refuses blob: URLs created inside an
+  // opaque-origin sandboxed frame; a data: URL needs no origin at all).
+  els.exportBtn.addEventListener("click", function () {
+    if (els.exportBtn.disabled) return;
+
+    var json = JSON.stringify(buildVerdictPayload(), null, 2);
+    var dataUrl = "data:application/json;charset=utf-8," + encodeURIComponent(json);
+
+    var link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = "verdict.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+
+  render();
+})();
+</script>
 </body>
 </html>

@@ -21,14 +21,15 @@ const REVIEW_PHASE: ProtocolPhase = {
   id: "review-artifact",
   skills: [],
   inputs: ["regression/regression.json"],
-  outputs: ["review-site/index.html", "review-site/data/manifest.js"],
+  outputs: ["review-site/index.html"],
   cdn_allowlist: [],
 };
 
 /**
  * A task tree the harness gate would see: artifacts/review-site (copied from the
- * clean fixture) built from artifacts/regression/regression.json, with a
- * manifest that faithfully names the measurement + carries the run id.
+ * clean single-document fixture) built from artifacts/regression/regression.json,
+ * with the inline manifest patched to faithfully name the measurement + carry
+ * the run id.
  */
 async function makeTaskTree(): Promise<{ taskDir: string; hash: string; cleanup: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "review-artifact-gate-"));
@@ -41,9 +42,13 @@ async function makeTaskTree(): Promise<{ taskDir: string; hash: string; cleanup:
   await writeFile(join(taskDir, "artifacts", "regression", "regression.json"), measurementBytes);
   const hash = createHash("sha256").update(measurementBytes).digest("hex");
 
+  const indexPath = join(siteDir, "index.html");
+  const html = await readFile(indexPath, "utf8");
   await writeFile(
-    join(siteDir, "data", "manifest.js"),
-    `window.REVIEW_MANIFEST = {\n  sample_id: "${TASK_ID}",\n  produced_from: { measurement: "regression/regression.json@${hash}" },\n  verdict_schema: "review-verdict/1",\n  data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],\n};\n`,
+    indexPath,
+    html
+      .replace('sample_id: "oa-knee-0007"', `sample_id: "${TASK_ID}"`)
+      .replace(/"measurements\/results\.json@[0-9a-f]{64}"/, `"regression/regression.json@${hash}"`),
   );
 
   return { taskDir, hash, cleanup: () => rm(root, { recursive: true, force: true }) };
@@ -84,14 +89,14 @@ describe("harness-bound review-site gate (Lane C — the REAL gate path)", () =>
   it("a failing site is gated OUT: harness writes ok:false and the floor blocks the pass", async () => {
     const { taskDir, cleanup } = await makeTaskTree();
     try {
-      // Inject an external, non-allowlisted script src (a real exfil surface).
+      // Inject an external, non-allowlisted subresource (a real exfil surface).
       const indexPath = join(taskDir, "artifacts", "review-site", "index.html");
       const html = await readFile(indexPath, "utf8");
       await writeFile(
         indexPath,
         html.replace(
-          '<script src="assets/app.js"></script>',
-          '<script src="https://cdn.evil.example.com/x.js"></script>\n<script src="assets/app.js"></script>',
+          '<div class="shell">',
+          '<img src="https://cdn.evil.example.com/x.png" />\n<div class="shell">',
         ),
       );
 
@@ -114,9 +119,9 @@ describe("harness-bound review-site gate (Lane C — the REAL gate path)", () =>
   it("a stale manifest hash is gated OUT (G8 fidelity, harness-supplied measurement)", async () => {
     const { taskDir, cleanup } = await makeTaskTree();
     try {
-      const manifestPath = join(taskDir, "artifacts", "review-site", "data", "manifest.js");
-      const manifest = await readFile(manifestPath, "utf8");
-      await writeFile(manifestPath, manifest.replace(/@[0-9a-f]{64}/, `@${"0".repeat(64)}`));
+      const indexPath = join(taskDir, "artifacts", "review-site", "index.html");
+      const html = await readFile(indexPath, "utf8");
+      await writeFile(indexPath, html.replace(/@[0-9a-f]{64}/, `@${"0".repeat(64)}`));
 
       const report = await runReviewArtifactCheck(TASK_ID, taskDir, REVIEW_PHASE);
       assert.ok(report);
