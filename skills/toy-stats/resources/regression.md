@@ -9,12 +9,8 @@ predictor), using the closed-form formulas.
 
 **Exact steps for the worker:**
 
-Your working directory IS the task dir already — do not `cd` into `artifacts/`
-or any subdirectory first. All paths below are relative to that working
-directory exactly as written, with no extra leading `artifacts/`. Do NOT run
-`mkdir artifacts && cd artifacts`; if you `mkdir -p artifacts/regression`,
-stay in the task dir and write to `artifacts/regression/regression.json`
-(never `artifacts/artifacts/regression/regression.json`).
+Your working directory IS the task dir. All paths below are relative to it
+exactly as written — do not `cd` into a subdirectory first.
 
 1. Read `artifacts/classify/data.csv` (produced by the `classify` phase).
    Parse each row's `x1` (float) and `label` (int, used as the numeric target
@@ -47,9 +43,9 @@ stay in the task dir and write to `artifacts/regression/regression.json`
    ss_tot = sum((y - y_mean) ** 2 for y in ys)
    r_squared = 1 - (ss_res / ss_tot)
    ```
-4. Create `artifacts/regression/` if it does not exist (e.g.
-   `mkdir -p artifacts/regression` from the task dir — do not `cd` into it)
-   and write `artifacts/regression/regression.json`:
+4. Create `artifacts/regression/` if it does not exist
+   (`mkdir -p artifacts/regression`) and write
+   `artifacts/regression/regression.json`:
    ```json
    { "slope": 0.1234, "intercept": 0.4567, "r_squared": 0.55, "n": 200 }
    ```

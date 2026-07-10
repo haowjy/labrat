@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, type LabratConfig } from "../../config/index.js";
 import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
@@ -13,7 +13,7 @@ import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
 import { runGate } from "./gate.js";
 import type { GateContext, RunGateResult } from "./gate.js";
-import { downstreamPhaseIds } from "./invalidation.js";
+import { downstreamPhaseIds, invalidateFromPhase } from "./invalidation.js";
 import { findRecordedWorkerSessionId } from "./session-lookup.js";
 
 export { runGate };
@@ -380,6 +380,9 @@ export async function runTask(
       }
       // Retry: phases/{phase}/ + gate already archived by runGate; drop it
       // from phasesComplete and re-run the same pointer with a fresh agent.
+      // Drop this phase's own summary (mirrors the rewind cleanup below) so
+      // the retried worker doesn't inherit its failed attempt's summary (F6).
+      delete priorSummaries[phaseId];
       task = {
         ...task,
         phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
@@ -600,6 +603,39 @@ export type RunPhaseIsolatedResult = {
 };
 
 /**
+ * Fail fast (F7) if a phase's declared inputs are not on disk — run-phase runs
+ * ONE phase against the already-materialized upstream artifacts, so a missing
+ * input means an upstream phase never ran (or was reset). Resolves each
+ * declared input the same way provenance/invalidation do: `input/` is
+ * task-root-relative, everything else lives under `artifacts/`.
+ */
+async function assertUpstreamReady(
+  taskDir: string,
+  phaseIds: readonly string[],
+  phaseDef: { readonly inputs?: readonly string[] },
+  phaseId: string,
+): Promise<void> {
+  const missing: string[] = [];
+  for (const declared of phaseDef.inputs ?? []) {
+    const isTaskRoot = declared === "input/" || declared.startsWith("input/");
+    const abs = isTaskRoot
+      ? join(taskDir, declared)
+      : join(taskDir, "artifacts", declared.replace(/\/+$/, ""));
+    if (!(await existsAt(abs))) {
+      missing.push(isTaskRoot ? declared : `artifacts/${declared}`);
+    }
+  }
+  if (missing.length === 0) return;
+
+  const idx = phaseIds.indexOf(phaseId);
+  const upstream = idx > 0 ? phaseIds.slice(0, idx).join(", ") : "(none)";
+  throw new Error(
+    `Cannot run phase "${phaseId}" in isolation: declared inputs missing on disk: ` +
+      `${missing.join(", ")}. Run its upstream phase(s) first [${upstream}] before run-phase.`,
+  );
+}
+
+/**
  * `run-phase <task-id> <phase> [--gate]`: run ONE phase's worker via
  * `runWorkerPhase` against whatever upstream artifacts are already on disk
  * for `taskId` — no other phase is touched. `priorPhaseSummaries` is
@@ -628,6 +664,11 @@ export async function runPhaseInIsolation(
   if (!phaseDef) {
     throw new Error(`Protocol "${task.protocol}" has no phase "${phaseId}"`);
   }
+
+  // F7: run-phase runs ONE phase against whatever is already on disk — fail
+  // fast (before spinning up a runtime + worker) if its upstream context is
+  // missing, mirroring runStandaloneGate's "run the phase first" guard.
+  await assertUpstreamReady(taskDir, phaseIds, phaseDef, phaseId);
 
   process.env["MPLBACKEND"] = process.env["MPLBACKEND"] ?? "Agg";
 
@@ -692,12 +733,15 @@ export async function runPhaseInIsolation(
   const phasesComplete = task.phasesComplete.includes(phaseId)
     ? task.phasesComplete
     : [...task.phasesComplete, phaseId];
-  const allComplete = phaseIds.every((id) => phasesComplete.includes(id));
+  // NEVER promote to "done" here: the isolated run-phase tool has no authority
+  // to declare the task terminal — that requires the gated runTask/resume path
+  // (gate + monitor + provenance for every phase). Leave state "running";
+  // syncTaskAfterStandaloneGate owns any post-gate state change below (F3).
   task = {
     ...task,
     phasesComplete,
     currentPhase: null,
-    state: allComplete ? "done" : "running",
+    state: "running",
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(taskDir, task);
@@ -758,10 +802,18 @@ export async function resumeTask(
 /**
  * `reset-to <task-id> <phase>`: truncate `phasesComplete` to the phases
  * strictly before `<phase>`, point `currentPhase`/`state` at `<phase>`, and
- * delete `phases/<later>` + `artifacts/<later>` for `<phase>` and everything
- * downstream of it — so a subsequent `run-phase`/`resume` starts clean
- * there. Only ever touches phases at or after `<phase>`; never `<phase>`'s
- * upstream inputs.
+ * invalidate `<phase>` and everything downstream of it — so a subsequent
+ * `run-phase`/`resume` starts clean there. Only ever touches phases at or
+ * after `<phase>`; never `<phase>`'s upstream inputs.
+ *
+ * F1: invalidation goes through `invalidateFromPhase` (the same
+ * archive-phase + reset-DECLARED-OUTPUTS mechanism rewind/retry use), NOT a
+ * blind `rm artifacts/<phaseId>`. The real protocol scatters a phase's outputs
+ * across `artifacts/` (`spacing.json`, `labels.nii.gz`, `masks/`, …) under
+ * names that are NOT the phase id, so id-namespaced deletion left stale
+ * central artifacts behind for a downstream phase to read — cross-run
+ * contamination. Resolving each phase's *declared* outputs is the only correct
+ * way to clear them.
  */
 export async function resetTaskToPhase(
   taskId: string,
@@ -781,10 +833,7 @@ export async function resetTaskToPhase(
   }
 
   const downstream = downstreamPhaseIds(protocol.yaml, phaseId);
-  for (const id of downstream) {
-    await rm(join(taskDir, "phases", id), { recursive: true, force: true });
-    await rm(join(taskDir, "artifacts", id), { recursive: true, force: true });
-  }
+  await invalidateFromPhase(taskDir, protocol.yaml, phaseId);
 
   const { reason: _droppedReason, ...rest } = task;
   const updated: TaskJson = {

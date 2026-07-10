@@ -136,9 +136,18 @@ describe("scanVerificationEvidence — real evidence vs empty scratch", () => {
 });
 
 describe("monitorOverridesGate — enforcement wiring", () => {
-  it("overrides a PASS on rubber_stamp / insufficient_evidence", () => {
+  it("overrides a PASS only on the deterministic-floor rubber_stamp", () => {
     assert.equal(monitorOverridesGate("pass", "rubber_stamp"), true);
-    assert.equal(monitorOverridesGate("pass-with-concerns", "insufficient_evidence"), true);
+    assert.equal(monitorOverridesGate("pass-with-concerns", "rubber_stamp"), true);
+  });
+  it("does NOT override a PASS on advisory insufficient_evidence (F2)", () => {
+    // insufficient_evidence is the model's judgement on an evidence-present
+    // pass — advisory only, so a GENUINE phase is never failed by it.
+    assert.equal(monitorOverridesGate("pass", "insufficient_evidence"), false);
+    assert.equal(
+      monitorOverridesGate("pass-with-concerns", "insufficient_evidence"),
+      false,
+    );
   });
   it("does not override an ok verdict", () => {
     assert.equal(monitorOverridesGate("pass", "ok"), false);

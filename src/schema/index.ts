@@ -3,6 +3,7 @@ export * from "./task.js";
 export * from "./protocol.js";
 export * from "./subphases.js";
 export * from "./gate.js";
+export * from "./monitor.js";
 export * from "./provenance.js";
 export * from "./sse.js";
 export * from "./suggestions.js";

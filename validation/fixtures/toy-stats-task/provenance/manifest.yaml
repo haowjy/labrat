@@ -8,9 +8,9 @@
       source: local
   agent: worker
   inputs:
-    - path: artifacts/artifacts/classify/data.csv
+    - path: artifacts/classify/data.csv
   outputs:
-    - path: artifacts/artifacts/regression/regression.json
+    - path: artifacts/regression/regression.json
       hash: 966d392ebc7f1c39b81fb9dc3b55f74b14cfbe9b656a9ea10da27d68f29f95eb
   subphases: null
   sessions:

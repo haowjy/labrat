@@ -218,9 +218,15 @@ async function appendReviewerReport(taskDir: string, section: string): Promise<v
 }
 
 /**
- * Enforcement rule for the independent monitor (Lane D2): a monitor verdict of
- * `rubber_stamp`/`insufficient_evidence` overrides a reviewer PASS and FAILs
- * the gate. Only passing verdicts can be overridden — a reviewer that already
+ * Enforcement rule for the independent monitor (Lane D2): ONLY the
+ * deterministic-floor verdict `rubber_stamp` (empty/thin verification under a
+ * PASS, or a defaulted reviewer) overrides a reviewer PASS and FAILs the gate.
+ *
+ * `insufficient_evidence` is ADVISORY — it is the Haiku model's judgement on an
+ * evidence-PRESENT pass, and treating it as enforcing let the monitor fail
+ * GENUINE phases (the smoke run hit exactly this false positive). It is
+ * recorded in review/monitor/{phase}.json and surfaced, but never overrides the
+ * gate. Only passing verdicts can be overridden — a reviewer that already
  * failed/rewound has no rubber stamp to catch. Pure so the enforcement wiring
  * is testable without a live session.
  */
@@ -230,7 +236,7 @@ export function monitorOverridesGate(
 ): boolean {
   const passing =
     reviewerDecision === "pass" || reviewerDecision === "pass-with-concerns";
-  return passing && monitorVerdict !== "ok";
+  return passing && monitorVerdict === "rubber_stamp";
 }
 
 /**
@@ -314,6 +320,17 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
         feedback: `Independent monitor rejected the reviewer's "${decision.decision}" as ${monitor.verdict}: ${monitor.reasons.join(" ")}`,
         attempt: ctx.attempt,
       };
+    }
+
+    if (monitor.verdict !== "ok") {
+      // Advisory (e.g. insufficient_evidence): recorded in
+      // review/monitor/{phase}.json and surfaced, but does NOT fail the gate.
+      notifyEvent({
+        type: "log",
+        taskId: ctx.taskId,
+        line: `monitor ADVISORY for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""} (does not fail the gate)`,
+        ephemeral: true,
+      });
     }
 
     await writeVerdict(ctx.taskDir);
