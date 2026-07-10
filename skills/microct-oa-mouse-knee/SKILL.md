@@ -1,9 +1,9 @@
 ---
-name: bonemorph-oa-mouse-knee
+name: microct-oa-mouse-knee
 description: Use for the Tang et al. mouse-knee osteoarthritis micro-CT protocol — computing the distal-femur width/length osteophyte ratio, tibial subchondral IIOC height/width, growth-plate segmentation, and trabecular morphometry from a Scanco VivaCT DICOM stack via the bonemorph package. Reach for it whenever the task names mouse OA, MMS/PTOA/AROA knee, femoral W/L ratio, tibial IIOC, or osteophyte quantification from µCT.
 ---
 
-# bonemorph — mouse-knee OA geometric indices
+# microct-oa-mouse-knee — mouse-knee OA geometric indices
 
 This is the concrete protocol for **one specific study**: Tang et al.'s CT
 geometric indices for osteoarthritis in mice (distal-femur width/length ratio =

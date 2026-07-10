@@ -6,7 +6,7 @@ every reviewer who can't tell the paper's method from an ad-hoc hack, every
 result nobody can reproduce. These principles adapt the general engineering
 values (consistency, deep modules, deletion; see the linked `dev-principles`
 skill) to scientific code, and are illustrated by the `bonemorph` package that
-`bonemorph-oa-mouse-knee` ships as a worked example.
+`microct-oa-mouse-knee` ships as a worked example.
 
 ## Core beliefs (general)
 1. **Code is cheap; bad code is expensive.** The drag is on every later change.

@@ -31,7 +31,7 @@ JSON blindly — that boundary is the entire point of this demo.
 
 ## Why this exists
 
-Real LabRat protocols (e.g. `bonemorph-oa-mouse-knee`) run heavy imaging
+Real LabRat protocols (e.g. `microct-oa-mouse-knee`) run heavy imaging
 pipelines in conda substrates and cost real compute per run. `toy-stats` lets
 anyone validate a LabRat harness change — prompt assembly, phase sequencing,
 the record_phase/mark_subphase/submit_gate_decision tool loop, provenance
