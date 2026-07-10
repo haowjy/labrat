@@ -7,9 +7,14 @@
  *
  * Run: npx tsx scripts/verify-microct-runtime.ts
  */
+import { loadConfig } from "../src/config/index.js";
+import { findProtocolSkillDir } from "../src/harness/protocol-loader/index.js";
 import { ensureRuntime, pythonRuntime } from "../src/harness/runtime-setup/index.js";
 import { runCommand } from "../src/harness/runtime-setup/subprocess.js";
 import type { ProtocolYaml } from "../src/schema/index.js";
+
+/** The registry skill whose environment.yml provisions microct_analysis. */
+const BONEMORPH_PROTOCOL = "bonemorph-oa-mouse-knee";
 
 const minimalProtocol: ProtocolYaml = {
   kind: "protocol",
@@ -34,7 +39,14 @@ const minimalProtocol: ProtocolYaml = {
 
 async function main(): Promise<void> {
   console.log("=== ensureRuntime (verify-first, no reinstall expected) ===\n");
-  const result = await ensureRuntime(minimalProtocol);
+  const config = loadConfig();
+  const skillDir = await findProtocolSkillDir(BONEMORPH_PROTOCOL, config.scienceHome);
+  const result = await ensureRuntime(minimalProtocol, {
+    skillDir,
+    skillRuntimeDeps: [],
+    claudeScienceHome: config.scienceHome,
+    microctSrcPath: config.microctSrc,
+  });
   for (const line of result.logs) {
     console.log(`  ${line}`);
   }

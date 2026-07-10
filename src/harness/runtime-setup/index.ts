@@ -85,6 +85,20 @@ export async function ensureRuntime(
     if (!created) {
       return fail(errors, logs);
     }
+    // A bare env (no environment.yml) satisfies zero python deps only. If the
+    // protocol declares python deps, warn: they are neither installed here nor
+    // validated (see validateDep's "python" no-op) — the first ImportError in a
+    // worker session is the only signal. Fix by shipping an environment.yml.
+    if (!(await pathExists(join(opts.skillDir, "environment.yml")))) {
+      const pythonDeps = mergedDeps.filter((d) => d.type === "python");
+      if (pythonDeps.length > 0) {
+        logs.push(
+          `warning: ${pythonDeps.length} python dep(s) declared (${pythonDeps
+            .map(depKey)
+            .join(", ")}) but no environment.yml at ${opts.skillDir} — they are not installed or validated`,
+        );
+      }
+    }
   } else {
     logs.push(`substrate env present: ${pythonPath}`);
   }
