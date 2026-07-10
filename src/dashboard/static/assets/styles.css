@@ -43,6 +43,24 @@ a { color:var(--accent); }
 .task-item .task-meta { display:flex; align-items:center; gap:0.5rem; margin-top:0.3rem; }
 .task-item .task-sub { font-size:0.65rem; color:var(--muted); font-family:var(--mono); }
 
+/* Streaming-card update pulse: a brief ring, not a background flash (which
+   would fight .task-item.active's own steady background) — fires whenever
+   SSE causes this card's live status to change (Sidebar.js's
+   usePulseOnChange), never a new data source, just a highlight on data that
+   already changed via the existing notification -> re-fetch pattern. */
+@keyframes card-pulse { 0%{box-shadow:0 0 0 2px var(--accent);} 100%{box-shadow:0 0 0 2px transparent;} }
+.task-item-pulse { animation:card-pulse 0.9s ease-out; }
+
+/* === MOBILE DRAWER (sidebar off-canvas below the ~700px breakpoint) ===
+   Desktop: a no-op wrapper — .drawer-body is display:contents so .sidebar
+   is a direct flex child of .app exactly as if MobileDrawer didn't exist.
+   Mobile: see the RESPONSIVE block, which turns it into a real drawer. */
+.hamburger-btn { display:none; flex-direction:column; justify-content:center; align-items:center; gap:4px; width:44px; height:44px; border:1px solid var(--accent-line); border-radius:4px; background:var(--surface); cursor:pointer; flex-shrink:0; }
+.hamburger-btn span { display:block; width:18px; height:2px; background:var(--ink); border-radius:1px; }
+.hamburger-btn:hover { background:var(--accent-soft); }
+.drawer-backdrop { display:none; }
+.drawer-body { display:contents; }
+
 /* === PILLS === */
 .pill { display:inline-flex; align-items:center; font-family:var(--mono); font-size:0.6rem; font-weight:700; padding:0.15em 0.5em; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
 .pill-pass { background:var(--pass-soft); color:var(--pass); }
@@ -82,6 +100,20 @@ a { color:var(--accent); }
 .log-line { opacity:0.85; padding:0.05rem 0; }
 .log-line .log-t { color:var(--muted3); margin-right:0.5rem; }
 
+/* === PHASE TABS (jump-nav over the chain's single-column timeline — see
+   PhaseTabs.js for why this isn't a mutually-exclusive panel switcher) === */
+.phase-tabs { display:flex; gap:0.4rem; overflow-x:auto; padding:0.15rem 0 0.75rem; -webkit-overflow-scrolling:touch; }
+.phase-tab { display:inline-flex; align-items:center; gap:0.4rem; white-space:nowrap; flex-shrink:0; padding:0.4rem 0.7rem; border:1px solid var(--accent-line); border-radius:999px; background:var(--surface); color:var(--muted); font-family:var(--mono); font-size:0.7rem; cursor:pointer; }
+.phase-tab:hover { background:var(--accent-soft); color:var(--ink); }
+.phase-tab-active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.phase-tab-dot { width:7px; height:7px; border-radius:50%; background:var(--muted3); flex-shrink:0; }
+.phase-tab-dot.pass { background:var(--pass); }
+.phase-tab-dot.concerns { background:var(--warn); }
+.phase-tab-dot.fail { background:var(--alert); }
+.phase-tab-dot.running { background:var(--accent); }
+.phase-tab-dot.paused { background:var(--warn); }
+.phase-tab-review-mark { font-size:0.6rem; opacity:0.8; }
+
 /* === PHASE TIMELINE (review chain) === */
 .timeline { margin:0.5rem 0 1rem; }
 .phase-row { display:flex; gap:0; }
@@ -109,6 +141,13 @@ a { color:var(--accent); }
 .gate.concerns { border-left-color:var(--warn); }
 .gate .gate-body { flex:1; color:var(--ink); }
 .gate .gate-feedback { margin-top:0.15rem; color:var(--muted); font-family:var(--sans); font-size:0.78rem; }
+
+/* Human verdict, read back from the persisted review/finish write (goal:
+   "shows the completed chain — agent confidence + human verdict"). Sits
+   beside the .gate block so agent and human verdicts read as a pair. */
+.human-verdict { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; padding:0.45rem 0.65rem; margin:0.5rem 0; background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:4px; font-family:var(--mono); font-size:0.7rem; }
+.human-verdict-time { color:var(--muted); font-size:0.64rem; }
+.human-verdict-notes { flex-basis:100%; color:var(--ink); font-family:var(--sans); font-size:0.78rem; margin-top:0.15rem; }
 
 /* Reviewer verification block — "the reviewer RAN code". */
 .verify { margin:0.4rem 0 0.2rem; }
@@ -171,13 +210,24 @@ a { color:var(--accent); }
 .verdict-panel-head { display:flex; align-items:center; justify-content:space-between; gap:0.6rem; margin-bottom:0.4rem; }
 .verdict-hint { margin:0 0 0.75rem; font-size:0.72rem; color:var(--muted); max-width:60ch; }
 .verdict-actions { display:flex; gap:0.5rem; margin-bottom:0.6rem; flex-wrap:wrap; }
-.verdict-log { display:flex; flex-direction:column-reverse; gap:0.25rem; max-height:130px; overflow-y:auto; margin-bottom:0.6rem; }
+.btn-selected { background:var(--accent); color:#fff; border-color:var(--accent); }
+.verdict-adjustments { margin:0.1rem 0 0.6rem; }
+.verdict-adjustments-chips { display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.3rem; }
+.chip { font-family:var(--mono); font-size:0.65rem; background:var(--paper); border:1px solid var(--accent-line); border-radius:4px; padding:0.15rem 0.45rem; color:var(--ink); }
+/* Newest-first (App renders verdict.log reversed) in a plain top-to-bottom
+   column — see VerdictPanel.js for why this dropped the vanilla shell's
+   column-reverse+prepend trick along with the imperative DOM it existed for. */
+.verdict-log { display:flex; flex-direction:column; gap:0.25rem; max-height:130px; overflow-y:auto; margin-bottom:0.6rem; }
 .verdict-log:empty { display:none; }
 .verdict-log-line { font-family:var(--mono); font-size:0.68rem; color:var(--ink); background:var(--paper); border:1px solid var(--accent-line); border-radius:4px; padding:0.3rem 0.5rem; }
 .verdict-log-time { color:var(--muted2); margin-right:0.5rem; }
 .verdict-note-label { display:block; font-family:var(--mono); font-size:0.66rem; color:var(--muted); margin-bottom:0.3rem; }
 #verdict-note { width:100%; min-height:60px; resize:vertical; border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:0.82rem; padding:0.4rem 0.5rem; }
 #verdict-note:focus { outline:none; border-color:var(--accent); }
+#verdict-note:disabled { opacity:0.6; }
+.verdict-finish-row { display:flex; align-items:center; justify-content:flex-end; gap:0.75rem; margin-top:0.7rem; flex-wrap:wrap; }
+.verdict-finish-error { color:var(--alert); font-size:0.72rem; font-family:var(--mono); }
+.verdict-finish-done { color:var(--pass); font-size:0.78rem; font-family:var(--mono); font-weight:700; }
 
 /* === SUGGESTION BOX === */
 .suggestion-box { margin-top:1.5rem; padding:1rem; background:var(--surface); border-radius:6px; border:1px solid var(--accent-line); }
@@ -212,8 +262,16 @@ a { color:var(--accent); }
 
 /* === RESPONSIVE === */
 @media (max-width:700px) {
-  .app { flex-direction:column; }
-  .sidebar { width:100%; height:auto; max-height:200px; border-right:none; border-bottom:1px solid var(--accent-line); }
+  /* Sidebar becomes a true off-canvas drawer (design/review-architecture-
+     decision.md mockup: "mobile hamburger drawer") instead of the squashed
+     in-flow strip this replaced. .app stays row-direction — .main fills the
+     full viewport; the drawer overlays it rather than pushing it down. */
+  .drawer-backdrop { display:block; position:fixed; inset:0; background:rgba(10,12,14,0.45); opacity:0; pointer-events:none; transition:opacity 0.18s ease; z-index:40; }
+  .drawer-backdrop-open { opacity:1; pointer-events:auto; }
+  .drawer-body { display:block; position:fixed; top:0; left:0; bottom:0; width:min(85vw, 320px); overflow:hidden; transform:translateX(-100%); transition:transform 0.2s ease; z-index:41; box-shadow:2px 0 16px rgba(0,0,0,0.2); }
+  .drawer-body-open { transform:translateX(0); }
+  .hamburger-btn { display:flex; }
+  .sidebar { width:100%; height:100%; max-height:none; border-right:none; }
 
   /* "review on a phone" is a product requirement (design/review-template.md
      §1 I6) — every tap target a mobile reviewer needs to reach the review
@@ -223,5 +281,6 @@ a { color:var(--accent); }
   .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
   .topbar button { min-height:44px; min-width:44px; padding:0.4rem 0.6rem; }
   .btn { min-height:44px; }
+  .phase-tab { min-height:44px; }
   .content, .content-reviews { padding:1rem; }
 }
