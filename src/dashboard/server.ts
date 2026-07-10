@@ -8,7 +8,8 @@ import {
   listTasks,
   resolveTaskFile,
 } from "./api/index.js";
-import { handleSse } from "./sse/index.js";
+import type { SseEvent } from "../schema/index.js";
+import { handleSse, publishEvent } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
 import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
@@ -116,6 +117,16 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.status(201).json(entry);
+  });
+
+  // Cross-process notify seam (design §4, §13): the harness (Process A)
+  // POSTs here after an atomic write lands; we forward to publishEvent(),
+  // which validates and fans out to connected /events clients. This is the
+  // only coupling from the dashboard back to the harness — a notification,
+  // never primary data (clients still re-read disk).
+  app.post("/internal/events", (req, res) => {
+    publishEvent(req.body as SseEvent);
+    res.status(204).end();
   });
 
   app.get("/events", handleSse);

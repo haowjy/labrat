@@ -1,9 +1,9 @@
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
-  type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SubmitGateDecisionInput } from "../../schema/index.js";
+import { notifyEvent } from "../events/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
 import {
   assembleReviewerPrompt,
@@ -19,6 +19,7 @@ import {
   createOrchestratorSignals,
   type LabratToolContext,
 } from "./signals.js";
+import { extractAssistantText, extractSessionId } from "./sdk-messages.js";
 
 export type ReviewSessionConfig = {
   readonly taskId: string;
@@ -43,18 +44,6 @@ const DEFAULT_DECISION: SubmitGateDecisionInput = {
   feedback:
     "Reviewer did not call submit_gate_decision after 2 attempts — harness default per design §12.",
 };
-
-function extractSessionId(msg: SDKMessage): string | undefined {
-  if (
-    typeof msg === "object" &&
-    msg !== null &&
-    "session_id" in msg &&
-    typeof (msg as { session_id?: unknown }).session_id === "string"
-  ) {
-    return (msg as { session_id: string }).session_id;
-  }
-  return undefined;
-}
 
 function reviewerUserPrompt(phaseId: string, taskId: string, isReminder: boolean): string {
   const reminder = isReminder
@@ -108,6 +97,15 @@ async function runOneReviewQuery(
     const sid = extractSessionId(msg);
     if (sid) {
       sessionId = sid;
+    }
+    const text = extractAssistantText(msg);
+    if (text) {
+      notifyEvent({
+        type: "log",
+        taskId: config.taskId,
+        line: text.slice(0, 300),
+        ephemeral: true,
+      });
     }
     if (toolCtx.signals.gateDecision) {
       break;

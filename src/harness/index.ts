@@ -19,4 +19,4 @@ export {
   type RuntimeSetupResult,
   type EnsureRuntimeOptions,
 } from "./runtime-setup/index.js";
-export { emit, subscribe } from "./events/index.js";
+export { notifyEvent } from "./events/index.js";

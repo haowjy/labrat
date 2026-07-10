@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { TaskJson } from "../../schema/index.js";
 import { validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
+import { notifyEvent } from "../events/index.js";
 import {
   loadProtocolByName,
   type LoadedProtocol,
@@ -214,6 +215,7 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(config.taskDir, task);
+    notifyEvent({ type: "phase-started", taskId: config.taskId, phase: phaseId });
 
     const startedAt = new Date().toISOString();
     const workerResult = await runWorkerPhase({
@@ -234,6 +236,11 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(config.taskDir, task);
+      notifyEvent({
+        type: "task-paused",
+        taskId: config.taskId,
+        reason: workerResult.blockedReason,
+      });
       throw new Error(`Task paused: ${workerResult.blockedReason}`);
     }
 
@@ -245,6 +252,11 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(config.taskDir, task);
+      notifyEvent({
+        type: "task-failed",
+        taskId: config.taskId,
+        reason: task.reason ?? `Phase ${phaseId} did not complete`,
+      });
       throw new Error(task.reason ?? `Phase ${phaseId} did not complete`);
     }
 
@@ -263,6 +275,7 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(config.taskDir, task);
+    notifyEvent({ type: "phase-complete", taskId: config.taskId, phase: phaseId });
 
     const gate = await runGate({
       taskId: config.taskId,
@@ -295,6 +308,11 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
           updatedAt: new Date().toISOString(),
         };
         await writeTaskJson(config.taskDir, task);
+        notifyEvent({
+          type: "task-failed",
+          taskId: config.taskId,
+          reason: task.reason ?? `Phase ${phaseId} gate failed twice`,
+        });
         throw new Error(task.reason ?? `Phase ${phaseId} gate failed twice`);
       }
       // Retry: phases/{phase}/ + gate already archived by runGate; drop it
@@ -340,6 +358,10 @@ export async function runTask(config: OrchestratorConfig): Promise<RunTaskResult
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(config.taskDir, doneTask);
+  // NOTE: this build only runs the worker spine (intake, segmentation) and
+  // hands off to seed-review, which isn't implemented yet — task.state never
+  // reaches "done" here, so no code path can honestly emit "task-done" today.
+  // Wire it at whatever phase eventually closes out the protocol.
 
   return { task: doneTask, phases: phaseResults };
 }
@@ -359,6 +381,7 @@ export async function enqueueAndRun(
     inputAbsPath,
     protocolName,
   );
+  notifyEvent({ type: "task-started", taskId, protocol: protocolName });
 
   const result = await runTask({
     taskId,
