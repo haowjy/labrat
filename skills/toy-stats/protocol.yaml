@@ -32,10 +32,9 @@ phases:
       - classify/classification.json
     outputs:
       - review-site/index.html
-      - review-site/data/manifest.js
-    # New optional phase field (design review-template.md §2). Protocol-scoped
-    # external-origin policy the gate reads for G6. Empty = fully offline,
-    # only 'self' — this minimal site vendors nothing external.
+    # Protocol-scoped external-origin policy the gate reads for G6 (design
+    # review-template.md §2). Empty = fully offline, only 'self' — this minimal
+    # inlined values-review-site vendors nothing external.
     cdn_allowlist: []
 
 runtime:

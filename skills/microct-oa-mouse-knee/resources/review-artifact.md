@@ -102,20 +102,16 @@ rebuilding it from THIS run's real numbers.
    handlers, or a `<meta refresh>` — the linter fails those (G5), and under
    `'unsafe-inline'` they are the exfil channels the CSP can't block. Mirror the
    fixture's app script.
-8. **Match the fixture and self-check.** Before you `record_phase`, run the
-   linter yourself:
-   ```
-   labrat check-review-site artifacts/review-site \
-     --results artifacts/measurements/results.json \
-     --sample-id "<the task id from your prompt>" \
-     --cdn-allowlist ""
-   ```
-   Fix anything it reports (it prints the failing `Gx` + detail), then
-   `record_phase`. Keep the site a **single inlined `index.html`** (no separate
-   `<script src>`/`<link href>`, no `..`/absolute/`data:`/`blob:`/`javascript:`
-   sources, no external origins beyond `cdn_allowlist`), ship data as inline
-   `.js` globals (never `fetch`), no navigation/`on*`-handler/`<meta refresh>`,
-   and keep the export button + `schema` string.
+8. **Match the fixture and re-read your file.** The gate is run by the harness,
+   not by you: after you `record_phase`, the harness runs the deterministic
+   `check_review_site` linter (G1-G8) with its own authoritative inputs and the
+   reviewer gates on the result. If a gate fails, the gate feedback names the
+   failing `Gx` and its detail — fix exactly that and the phase re-runs. Keep
+   the site a **single inlined `index.html`** (no separate `<script src>`/`<link
+   href>`, no `..`/absolute/`data:`/`blob:`/`javascript:` sources, no external
+   origins beyond `cdn_allowlist`), ship data as inline `.js` globals (never
+   `fetch`), no navigation/`on*`-handler/`<meta refresh>`, and keep the export
+   button + `schema` string.
 9. Call `record_phase` with phase `review-artifact` and a short summary.
 
 ## Expected outputs / how to verify
@@ -165,19 +161,23 @@ of the eight findings is `"ok": true`. If the file is missing or `"ok": false`,
 FAIL and quote the failing findings' `detail` in your `submit_gate_decision`
 feedback. (Note: the harness also enforces this as a deterministic floor — a
 non-`ok` report fails the gate regardless — so passing a non-`ok` report is a
-rubber stamp the monitor will catch.)
+rubber stamp the harness's review-site floor catches directly, before the
+monitor runs.)
 
-**The boundary is two layers — the linter is not redundant with the CSP.** The
-site needs `script-src 'unsafe-inline'` to render at all (R4), and under
-`'unsafe-inline'` the CSP no longer blocks inline handlers, and `connect-src`
-never blocked navigation (`window.location = evil`; no `navigate-to`
-directive). So the enforcing boundary is THREE cooperating parts: the
-**sandbox + CSP** (Lane A) contain external subresource loads and network
-connections (`connect-src 'none'`); the **linter** (G5) contains the DIRECT
-navigation and inline-handler forms; and the **trusted-but-verified producer**
-(worker authors, gate reviewer re-checks) carries the residual. The linter's JS
-exfil detection (G5) is explicitly BEST-EFFORT — static analysis closes the
-direct literal forms of the known exfil classes, not every obfuscation.
+**The boundary is not the linter alone — the linter is not redundant with the
+CSP.** The linter is best-effort **structural + self-containment** analysis
+(single inlined document, no external loads, faithful provenance). The enforcing
+boundary is THREE cooperating parts. They divide the work: the **sandbox + CSP**
+(Lane A) contain external subresource loads and network connections
+(`connect-src 'none'`); the **linter** contains the DIRECT navigation and
+inline-handler forms (G5) — because the site needs `script-src 'unsafe-inline'`
+to render at all (R4), and under `'unsafe-inline'` the CSP no longer blocks
+inline handlers, and `connect-src` never blocked navigation (`window.location =
+evil`; no `navigate-to` directive); and the **trusted-but-verified producer**
+(worker authors, gate reviewer re-checks) carries the residual. No layer alone
+is the boundary. The linter's JS exfil detection (G5) is explicitly BEST-EFFORT,
+not a proof — static analysis closes the direct literal forms of the known exfil
+classes, not every obfuscation (aliasing, computed non-literal dispatch).
 
 **Failure modes to flag:** any gate `ok: false` — e.g. `index.html` missing
 (G1), a separate-file `<script src>`/absolute/`..` path (G2), a missing data

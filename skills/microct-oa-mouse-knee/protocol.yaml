@@ -108,7 +108,6 @@ runtime:
 
 parent_skills:
   - microct-3d-analysis
-  - microct-review-artifact
 
 agents:
   worker:

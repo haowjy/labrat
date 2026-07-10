@@ -44,14 +44,14 @@ still had concerns is legitimate and passes. Rubber-stamping is a PASS with no
 such evidence — an empty/thin verification directory, or the harness default
 emitted when the reviewer never called `submit_gate_decision`.
 
-The deterministic evidence scan (`src/harness/session/monitor.ts`) is the
+The deterministic evidence scan is the
 authoritative floor — an empty verification dir under a passing verdict is a
 rubber stamp regardless of the model's judgment. The Haiku session adds nuance
 on top (it may escalate a scored-ok phase to `insufficient_evidence`) but cannot
 clear the floor, which keeps enforcement robust and false positives off genuine,
 well-verified runs.
 
-**Enforcement (F2):** ONLY the deterministic-floor `rubber_stamp` FAILS the
+**Enforcement:** ONLY the deterministic-floor `rubber_stamp` FAILS the
 gate. `insufficient_evidence` is ADVISORY — recorded and surfaced, but it never
 overrides the gate, because it is the model's judgement on an evidence-present
 pass and enforcing it failed genuine phases. Note the byte floor is a COARSE

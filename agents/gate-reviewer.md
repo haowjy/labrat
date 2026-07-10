@@ -23,8 +23,8 @@ max_findings: 5
 
 The critic half of the actor–critic pair. For each phase it recomputes the
 measurements independently (its own code, in `review/verification/`), compares
-against the protocol's ground-truth gates, and gates the phase. Bounded to
-`max_findings` per review.
+against the protocol's ground-truth gates, and gates the phase. List the most
+severe findings first and consolidate the rest, so the decisive ones lead.
 
 Per-protocol overrides (`model`, `max_findings`) live in each `protocol.yaml`'s
 `agents.gate-reviewer` block; this file is the canonical default.
