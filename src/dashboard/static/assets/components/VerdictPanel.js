@@ -30,7 +30,7 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
   const [result, setResult] = useState(null);
 
   const label = verdictLabel(verdict);
-  const canFinish = verdict.status != null && !submitting && !result;
+  const canFinish = phase != null && verdict.status != null && !submitting && !result;
   const adjustments = adjustmentsFromEvidence(verdict.evidence);
 
   async function handleFinish() {
