@@ -4,6 +4,7 @@ import { loadConfig, type LabratConfig } from "../../config/index.js";
 import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
 import { validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
+import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 import { configureEvents, notifyEvent } from "../events/index.js";
 import {
   loadProtocolByName,
@@ -617,12 +618,9 @@ async function assertUpstreamReady(
 ): Promise<void> {
   const missing: string[] = [];
   for (const declared of phaseDef.inputs ?? []) {
-    const isTaskRoot = declared === "input/" || declared.startsWith("input/");
-    const abs = isTaskRoot
-      ? join(taskDir, declared)
-      : join(taskDir, "artifacts", declared.replace(/\/+$/, ""));
-    if (!(await existsAt(abs))) {
-      missing.push(isTaskRoot ? declared : `artifacts/${declared}`);
+    const { absPath, manifestPath } = resolveDeclaredArtifactPath(taskDir, declared);
+    if (!(await existsAt(absPath))) {
+      missing.push(manifestPath);
     }
   }
   if (missing.length === 0) return;

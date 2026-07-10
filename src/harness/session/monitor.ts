@@ -4,10 +4,21 @@
  * The gate reviewer is LabRat's validation layer. This monitor validates the
  * validator: a fresh, small-model (Haiku) session that runs OUTSIDE the
  * reviewer's trust boundary and audits whether the reviewer actually did
- * independent verification before passing a phase, or rubber-stamped it. It is
- * read-only w.r.t. everything the worker and reviewer produced — its ONLY
- * writable scope is `review/monitor/`. Its verdict can FAIL the gate
- * (enforcement wired in orchestrator/gate.ts).
+ * independent verification before passing a phase, or rubber-stamped it. The
+ * model session is strictly read-only: `tools: ["Read", "Grep", "Glob"]`
+ * means Write/Edit/NotebookEdit/Bash are not merely unapproved, they are
+ * unavailable to the model at all, AND `strictMcpConfig: true` +
+ * `settingSources: []` (below) mean the session loads NO ambient MCP
+ * servers, filesystem settings, or hooks from the deployment environment —
+ * only the `labrat` server this module wires in. That combination is what
+ * makes "no residual write path" true: `tools` alone only removes built-in
+ * write tools, and the monitor reads untrusted `artifacts/` content by
+ * design, so an ambient writable/exec MCP server or hook would otherwise be
+ * a live indirect-prompt-injection vector. Its only action is to signal a
+ * verdict via the submit_monitor_verdict MCP tool ("model signals, harness
+ * writes"); the harness alone writes the authoritative
+ * `review/monitor/{phase}.json`. Its verdict can FAIL the gate (enforcement
+ * wired in orchestrator/gate.ts).
  *
  * ── DISCRIMINATOR (the one load-bearing decision, stated explicitly) ─────────
  * A reviewer PASS is credited only when it rests on REAL, INDEPENDENT
@@ -31,7 +42,7 @@
  * floor, which keeps enforcement robust against a lenient/flaky small model
  * and keeps false positives off genuine, well-verified runs.
  */
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { readdir, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import {
@@ -39,10 +50,8 @@ import {
   type MonitorVerdict,
   type SubmitMonitorVerdictInput,
 } from "../../schema/index.js";
-import type { RuntimeHandle } from "../runtime-setup/types.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 import { notifyEvent } from "../events/index.js";
-import { buildSessionEnv } from "./worker.js";
 import {
   allowedLabratTools,
   createLabratToolServer,
@@ -262,9 +271,6 @@ export type MonitorSessionConfig = {
     | "acceptEdits"
     | "bypassPermissions"
     | "plan";
-  /** When present, the reviewer's python env is exposed so the monitor could
-   * independently recompute; the monitor otherwise only reads/inspects. */
-  readonly runtime?: RuntimeHandle;
 };
 
 function monitorSystemPrompt(phaseId: string): string {
@@ -366,6 +372,74 @@ export async function runMonitor(
  * monitor has NO write tools — "model signals, harness writes" — so it cannot
  * touch the task tree; the harness owns review/monitor/{phase}.json.
  */
+/** The ONLY built-in tools the monitor model may even see. Read-only by
+ * construction — Write/Edit/NotebookEdit/Bash are absent, not just
+ * unapproved. Exported so the read-only guarantee is testable without a live
+ * session (F8). */
+export const MONITOR_BUILTIN_TOOLS: readonly string[] = ["Read", "Grep", "Glob"];
+
+/** Tools that must never appear in {@link MONITOR_BUILTIN_TOOLS} — the
+ * write-capable surface a rogue/injected monitor session would need. */
+export const MONITOR_FORBIDDEN_TOOLS: readonly string[] = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+];
+
+/**
+ * Build the SDK query options for the monitor session. Pure w.r.t. the SDK —
+ * exported so F8 (the monitor cannot write the task tree) is a deterministic,
+ * hermetic unit test rather than something only provable by observing live
+ * model behavior (which a well-behaved model could pass by simply declining
+ * to try, proving nothing about whether the tool was actually available).
+ *
+ * `tools` restricts AVAILABILITY (unlike `allowedTools`, which only
+ * auto-approves without narrowing what's callable — see SDK
+ * AgentQueryOptions). This is what makes the monitor's read-only guarantee
+ * real: Write/Edit/Bash are not merely unapproved, they are not present in
+ * the model's tool set at all. The MCP submit_monitor_verdict tool arrives
+ * via `mcpServers`, a separate channel unaffected by this restriction.
+ *
+ * `tools` alone is NOT sufficient for hermetic isolation: even under a
+ * built-in allowlist, the SDK by default still loads AMBIENT MCP servers
+ * (project `.mcp.json`, user settings, plugins) and filesystem
+ * settings/hooks — none of which `tools` gates. Since the monitor reads
+ * untrusted `artifacts/` content BY DESIGN (indirect-prompt-injection
+ * surface), any ambient writable/exec MCP server or PostToolUse hook in the
+ * deployment environment is a residual write/exec path. `strictMcpConfig:
+ * true` + `settingSources: []` close that: the session loads ONLY the
+ * `labrat` server passed here, nothing ambient — hermetic and
+ * environment-independent, not merely "no built-in write tool".
+ */
+export function buildMonitorQueryOptions(
+  config: MonitorSessionConfig,
+  mcpServer: ReturnType<typeof createLabratToolServer>,
+): Options {
+  return {
+    model: config.model,
+    cwd: config.taskDir,
+    env: { ...process.env } as Record<string, string>,
+    permissionMode: config.permissionMode,
+    ...(config.permissionMode === "bypassPermissions"
+      ? { allowDangerouslySkipPermissions: true }
+      : {}),
+    systemPrompt: monitorSystemPrompt(config.phaseId),
+    tools: [...MONITOR_BUILTIN_TOOLS],
+    allowedTools: [
+      ...MONITOR_BUILTIN_TOOLS,
+      ...allowedLabratTools("monitor", []),
+    ],
+    mcpServers: { labrat: mcpServer },
+    // Hermetic isolation: no ambient .mcp.json/user-settings/plugin MCP
+    // servers, and no filesystem settings/hooks (e.g. PostToolUse). Without
+    // these, `tools` only removes BUILT-IN write tools — an ambient
+    // writable/exec MCP server or hook is a residual write path around it.
+    strictMcpConfig: true,
+    settingSources: [],
+  };
+}
+
 async function runMonitorQuery(
   config: MonitorSessionConfig,
   evidence: VerificationEvidence,
@@ -382,23 +456,7 @@ async function runMonitorQuery(
 
   const q = query({
     prompt: monitorUserPrompt(config, evidence),
-    options: {
-      model: config.model,
-      cwd: config.taskDir,
-      env: config.runtime ? buildSessionEnv(config.runtime) : { ...process.env } as Record<string, string>,
-      permissionMode: config.permissionMode,
-      ...(config.permissionMode === "bypassPermissions"
-        ? { allowDangerouslySkipPermissions: true }
-        : {}),
-      systemPrompt: monitorSystemPrompt(config.phaseId),
-      allowedTools: [
-        "Read",
-        "Grep",
-        "Glob",
-        ...allowedLabratTools("monitor", []),
-      ],
-      mcpServers: { labrat: mcpServer },
-    },
+    options: buildMonitorQueryOptions(config, mcpServer),
   });
 
   for await (const msg of q) {

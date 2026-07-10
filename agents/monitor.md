@@ -61,7 +61,9 @@ evidence actually re-derives the phase's numbers is a pending follow-up.
 ## Independence
 
 The monitor is NOT a worker or reviewer continuation. It has its own session, no
-access to their transcripts, read-only tools, and a single writable scope
-(`review/monitor/`). Per-protocol overrides (`model`) live in each
-`protocol.yaml`'s optional `agents.monitor` block; this file is the canonical
-default.
+access to their transcripts, and strictly read-only tools (`writable: []` above
+— Write/Edit/NotebookEdit/Bash are unavailable to the model, not merely
+unapproved). It has no residual write path: `review/monitor/{phase}.json` is
+written by the harness after the model signals its verdict, never by the model
+itself. Per-protocol overrides (`model`) live in each `protocol.yaml`'s
+optional `agents.monitor` block; this file is the canonical default.
