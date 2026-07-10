@@ -4,9 +4,13 @@
  * The gate reviewer is LabRat's validation layer. This monitor validates the
  * validator: a fresh, small-model (Haiku) session that runs OUTSIDE the
  * reviewer's trust boundary and audits whether the reviewer actually did
- * independent verification before passing a phase, or rubber-stamped it. It is
- * read-only w.r.t. everything the worker and reviewer produced — its ONLY
- * writable scope is `review/monitor/`. Its verdict can FAIL the gate
+ * independent verification before passing a phase, or rubber-stamped it. The
+ * model session is strictly read-only: `tools: ["Read", "Grep", "Glob"]`
+ * (below) means Write/Edit/NotebookEdit/Bash are not merely unapproved, they
+ * are unavailable to the model at all — no residual write path. Its only
+ * action is to signal a verdict via the submit_monitor_verdict MCP tool
+ * ("model signals, harness writes"); the harness alone writes the
+ * authoritative `review/monitor/{phase}.json`. Its verdict can FAIL the gate
  * (enforcement wired in orchestrator/gate.ts).
  *
  * ── DISCRIMINATOR (the one load-bearing decision, stated explicitly) ─────────
@@ -31,7 +35,7 @@
  * floor, which keeps enforcement robust against a lenient/flaky small model
  * and keeps false positives off genuine, well-verified runs.
  */
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { readdir, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import {
@@ -366,6 +370,58 @@ export async function runMonitor(
  * monitor has NO write tools — "model signals, harness writes" — so it cannot
  * touch the task tree; the harness owns review/monitor/{phase}.json.
  */
+/** The ONLY built-in tools the monitor model may even see. Read-only by
+ * construction — Write/Edit/NotebookEdit/Bash are absent, not just
+ * unapproved. Exported so the read-only guarantee is testable without a live
+ * session (F8). */
+export const MONITOR_BUILTIN_TOOLS: readonly string[] = ["Read", "Grep", "Glob"];
+
+/** Tools that must never appear in {@link MONITOR_BUILTIN_TOOLS} — the
+ * write-capable surface a rogue/injected monitor session would need. */
+export const MONITOR_FORBIDDEN_TOOLS: readonly string[] = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+];
+
+/**
+ * Build the SDK query options for the monitor session. Pure w.r.t. the SDK —
+ * exported so F8 (the monitor cannot write the task tree) is a deterministic,
+ * hermetic unit test rather than something only provable by observing live
+ * model behavior (which a well-behaved model could pass by simply declining
+ * to try, proving nothing about whether the tool was actually available).
+ *
+ * `tools` restricts AVAILABILITY (unlike `allowedTools`, which only
+ * auto-approves without narrowing what's callable — see SDK
+ * AgentQueryOptions). This is what makes the monitor's read-only guarantee
+ * real: Write/Edit/Bash are not merely unapproved, they are not present in
+ * the model's tool set at all. The MCP submit_monitor_verdict tool arrives
+ * via `mcpServers`, a separate channel unaffected by this restriction.
+ */
+export function buildMonitorQueryOptions(
+  config: MonitorSessionConfig,
+  evidence: VerificationEvidence,
+  mcpServer: ReturnType<typeof createLabratToolServer>,
+): Options {
+  return {
+    model: config.model,
+    cwd: config.taskDir,
+    env: config.runtime ? buildSessionEnv(config.runtime) : { ...process.env } as Record<string, string>,
+    permissionMode: config.permissionMode,
+    ...(config.permissionMode === "bypassPermissions"
+      ? { allowDangerouslySkipPermissions: true }
+      : {}),
+    systemPrompt: monitorSystemPrompt(config.phaseId),
+    tools: [...MONITOR_BUILTIN_TOOLS],
+    allowedTools: [
+      ...MONITOR_BUILTIN_TOOLS,
+      ...allowedLabratTools("monitor", []),
+    ],
+    mcpServers: { labrat: mcpServer },
+  };
+}
+
 async function runMonitorQuery(
   config: MonitorSessionConfig,
   evidence: VerificationEvidence,
@@ -382,23 +438,7 @@ async function runMonitorQuery(
 
   const q = query({
     prompt: monitorUserPrompt(config, evidence),
-    options: {
-      model: config.model,
-      cwd: config.taskDir,
-      env: config.runtime ? buildSessionEnv(config.runtime) : { ...process.env } as Record<string, string>,
-      permissionMode: config.permissionMode,
-      ...(config.permissionMode === "bypassPermissions"
-        ? { allowDangerouslySkipPermissions: true }
-        : {}),
-      systemPrompt: monitorSystemPrompt(config.phaseId),
-      allowedTools: [
-        "Read",
-        "Grep",
-        "Glob",
-        ...allowedLabratTools("monitor", []),
-      ],
-      mcpServers: { labrat: mcpServer },
-    },
+    options: buildMonitorQueryOptions(config, evidence, mcpServer),
   });
 
   for await (const msg of q) {

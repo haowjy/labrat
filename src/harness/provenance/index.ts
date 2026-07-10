@@ -14,6 +14,7 @@ import {
 } from "../../schema/index.js";
 import type { ResolvedSkill } from "../protocol-loader/index.js";
 import { atomicWriteText } from "../../util/atomic-write.js";
+import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 import { hashDirectory, hashFile } from "../session/trust-boundary.js";
 
 const MANIFEST_REL = join("provenance", "manifest.yaml");
@@ -48,24 +49,20 @@ async function resolveArtifactRef(
   taskDir: string,
   declared: string,
 ): Promise<ProvenanceArtifactRef> {
-  const isTaskRootRelative = declared === "input/" || declared.startsWith("input/");
-  const relForManifest = isTaskRootRelative ? declared : `artifacts/${declared}`;
-  const absPath = isTaskRootRelative
-    ? join(taskDir, declared)
-    : join(taskDir, "artifacts", declared.replace(/\/+$/, ""));
+  const { absPath, manifestPath } = resolveDeclaredArtifactPath(taskDir, declared);
 
   if (!(await existsAt(absPath))) {
-    return { path: relForManifest };
+    return { path: manifestPath };
   }
 
   const info = await stat(absPath);
   if (info.isDirectory()) {
     const files = await hashDirectory(absPath);
-    return { path: relForManifest, fileCount: files.size };
+    return { path: manifestPath, fileCount: files.size };
   }
 
   const hash = await hashFile(absPath);
-  return { path: relForManifest, hash };
+  return { path: manifestPath, hash };
 }
 
 export async function resolveArtifactRefs(
