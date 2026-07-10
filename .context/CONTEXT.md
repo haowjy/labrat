@@ -33,5 +33,8 @@ seam.
 - `npm run typecheck` · `npm test` (node:test) — before finishing any change.
 - `npm run dev -- enqueue <dicom-path-or-zip> [protocol-name]` — run a protocol
   (prefix `CLAUDE_SCIENCE_HOME=~/.claude-science` if non-default).
+- `scripts/export-skills-to-claude-science.sh [--dry-run]` — install the repo's
+  vendored `skills/` into the Claude Science registry (where the harness reads
+  them). The bridge between repo-as-source-of-truth and the runtime load path.
 - Dashboard binds `localhost:4600`. This sandbox SIGTERMs listening sockets —
   verify dashboard logic via its loaders, not by hosting it.
