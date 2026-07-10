@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   isValidTaskId,
@@ -7,6 +7,7 @@ import {
   validateTaskJson,
   type SuggestionEntry,
 } from "../../schema/index.js";
+import { atomicWriteJson } from "../../util/atomic-write.js";
 import { taskDir } from "../api/index.js";
 
 /**
@@ -40,19 +41,6 @@ function nextId(existing: readonly SuggestionEntry[]): string {
     if (m && m[1]) max = Math.max(max, Number.parseInt(m[1], 10));
   }
   return `sg-${String(max + 1).padStart(3, "0")}`;
-}
-
-async function atomicWriteJson(file: string, data: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  const handle = await open(tmp, "w");
-  try {
-    await handle.writeFile(`${JSON.stringify(data, null, 2)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(tmp, file);
 }
 
 /**

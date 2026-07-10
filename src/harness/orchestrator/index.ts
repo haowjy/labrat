@@ -2,7 +2,7 @@ import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { TaskJson } from "../../schema/index.js";
 import { validateTaskJson } from "../../schema/index.js";
-import { atomicWriteJson } from "../util/atomic-write.js";
+import { atomicWriteJson } from "../../util/atomic-write.js";
 import {
   loadProtocolByName,
   type LoadedProtocol,

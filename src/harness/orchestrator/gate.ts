@@ -23,7 +23,7 @@ import {
   enforceTrustBoundary,
   type TrustBoundaryResult,
 } from "../session/trust-boundary.js";
-import { atomicWriteJson, atomicWriteText } from "../util/atomic-write.js";
+import { atomicWriteJson, atomicWriteText } from "../../util/atomic-write.js";
 import { archiveAndResetPhase, invalidateFromPhase } from "./invalidation.js";
 
 export type GateContext = {

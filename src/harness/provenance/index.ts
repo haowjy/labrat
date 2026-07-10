@@ -13,7 +13,7 @@ import {
   type SkillLoaded,
 } from "../../schema/index.js";
 import type { ResolvedSkill } from "../protocol-loader/index.js";
-import { atomicWriteText } from "../util/atomic-write.js";
+import { atomicWriteText } from "../../util/atomic-write.js";
 import { hashDirectory, hashFile } from "../session/trust-boundary.js";
 
 const MANIFEST_REL = join("provenance", "manifest.yaml");

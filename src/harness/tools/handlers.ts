@@ -12,7 +12,7 @@ import {
   type SubphaseMarkEntry,
   type SubphasesJson,
 } from "../../schema/index.js";
-import { atomicWriteJson } from "../util/atomic-write.js";
+import { atomicWriteJson } from "../../util/atomic-write.js";
 import type { LabratToolContext } from "./context.js";
 
 function formatValidationErrors(errors: readonly ValidationError[]): string {
