@@ -202,11 +202,7 @@ describe("buildMonitorQueryOptions — F8: read-only enforced by tool AVAILABILI
   // options object `runMonitorQuery` hands to the SDK, so it can't drift from
   // runtime behavior the way a config-shape-only assertion could.
   it("restricts the model's built-in tool set to Read/Grep/Glob — no Write/Edit/NotebookEdit/Bash", () => {
-    const options = buildMonitorQueryOptions(
-      sessionConfig(),
-      evidence({ hasRealEvidence: true, scriptBytes: 500 }),
-      mcpServer(),
-    );
+    const options = buildMonitorQueryOptions(sessionConfig(), mcpServer());
 
     // `tools` (not just `allowedTools`) must be set — this is the field that
     // actually restricts availability.
@@ -220,12 +216,20 @@ describe("buildMonitorQueryOptions — F8: read-only enforced by tool AVAILABILI
     assert.deepEqual([...(options.tools as string[])].sort(), ["Glob", "Grep", "Read"]);
   });
 
+  // Regression contract: `tools` alone only removes BUILT-IN write tools. The
+  // SDK still loads ambient .mcp.json / user-settings / plugin MCP servers
+  // and filesystem hooks by default — none of which `tools` gates. Since the
+  // monitor reads untrusted artifacts/ by design, an ambient writable/exec
+  // MCP server (or a PostToolUse hook) is a residual write/exec path unless
+  // the session is hermetically isolated.
+  it("isolates the session from ambient MCP servers and settings/hooks (strictMcpConfig + settingSources: [])", () => {
+    const options = buildMonitorQueryOptions(sessionConfig(), mcpServer());
+    assert.equal(options.strictMcpConfig, true, "strictMcpConfig must be true — load ONLY the mcpServers passed here, no ambient .mcp.json/plugin servers");
+    assert.deepEqual(options.settingSources, [], "settingSources must be [] — no filesystem settings/hooks from the deployment environment");
+  });
+
   it("still allows the MCP submit_monitor_verdict tool through mcpServers, unaffected by the tools restriction", () => {
-    const options = buildMonitorQueryOptions(
-      sessionConfig(),
-      evidence({ hasRealEvidence: true, scriptBytes: 500 }),
-      mcpServer(),
-    );
+    const options = buildMonitorQueryOptions(sessionConfig(), mcpServer());
     assert.ok(options.mcpServers && "labrat" in options.mcpServers, "the labrat MCP server (carrying submit_monitor_verdict) must still be wired");
     assert.ok(
       (options.allowedTools ?? []).includes("mcp__labrat__submit_monitor_verdict"),
@@ -236,7 +240,6 @@ describe("buildMonitorQueryOptions — F8: read-only enforced by tool AVAILABILI
   it("works under bypassPermissions too — the real path when protocol.yaml declares no monitor agent (gate.ts fallback)", () => {
     const options = buildMonitorQueryOptions(
       sessionConfig({ permissionMode: "bypassPermissions" }),
-      evidence(),
       mcpServer(),
     );
     assert.equal(options.permissionMode, "bypassPermissions");
