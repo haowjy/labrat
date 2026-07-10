@@ -72,28 +72,35 @@ describe("reviewSiteSrc (Lane A URL shape, fixture README)", () => {
 });
 
 /*
- * The tests above protect the constant. They would NOT catch app.js
+ * The tests above protect the constant. They would NOT catch the shell
  * hardcoding its own sandbox string instead of using REVIEW_SANDBOX (e.g. a
  * future edit that "helpfully" inlines the value and typos in
- * allow-same-origin). Read the real, committed app.js source and check the
- * rendered <iframe> markup directly — the closest thing to a DOM assertion
- * available without adding a jsdom dependency for two lines of template.
+ * allow-same-origin). Read the real, committed source of the component that
+ * renders the <iframe> — components/ReviewsView.js, since the Preact shell
+ * (goal doc: "replace the plain-JS dashboard with a Preact trusted shell")
+ * — and check the rendered markup directly. This is the same guard app.js
+ * had when it built the tag itself via string concatenation; only the file
+ * and the htm-template syntax changed, not what's being protected.
  */
-describe("app.js renderReviews() markup (source-level regression guard)", () => {
-  const appJsPath = join(dirname(fileURLToPath(import.meta.url)), "app.js");
-  const appJs = readFileSync(appJsPath, "utf8");
-  const iframeTag = appJs.match(/<iframe[^>]*>/)?.[0];
+describe("ReviewsView.js <iframe> markup (source-level regression guard)", () => {
+  const reviewsViewPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "components",
+    "ReviewsView.js",
+  );
+  const reviewsView = readFileSync(reviewsViewPath, "utf8");
+  const iframeTag = reviewsView.match(/<iframe[\s\S]*?><\/iframe>/)?.[0];
 
-  it("app.js defines exactly one <iframe> tag, for the review site", () => {
-    assert.ok(iframeTag, "expected app.js to contain an <iframe ...> template");
+  it("ReviewsView.js defines exactly one <iframe> tag, for the review site", () => {
+    assert.ok(iframeTag, "expected ReviewsView.js to contain an <iframe ...> template");
   });
 
-  it("that <iframe> sets sandbox from REVIEW_SANDBOX, not a hardcoded string", () => {
-    assert.match(iframeTag ?? "", /sandbox="\$\{esc\(REVIEW_SANDBOX\)\}"/);
+  it("that <iframe> sets sandbox from window.REVIEW_SANDBOX, not a hardcoded string", () => {
+    assert.match(iframeTag ?? "", /sandbox=\$\{window\.REVIEW_SANDBOX\}/);
   });
 
-  it("no literal sandbox=\"...\" attribute in app.js ever includes allow-same-origin", () => {
-    const literalSandboxAttrs = appJs.match(/sandbox\s*=\s*"[^"]*"/g) ?? [];
+  it("no literal sandbox=\"...\" attribute in ReviewsView.js ever includes allow-same-origin", () => {
+    const literalSandboxAttrs = reviewsView.match(/sandbox\s*=\s*"[^"]*"/g) ?? [];
     for (const attr of literalSandboxAttrs) {
       assert.ok(
         !attr.includes("allow-same-origin"),
@@ -102,7 +109,8 @@ describe("app.js renderReviews() markup (source-level regression guard)", () => 
     }
   });
 
-  it("the <iframe> src is built from reviewSiteSrc(), not a hardcoded path", () => {
-    assert.match(iframeTag ?? "", /src="\$\{esc\(reviewSiteSrc\(id\)\)\}"/);
+  it("the <iframe> src is built from window.reviewSiteSrc(), not a hardcoded path", () => {
+    assert.match(iframeTag ?? "", /src=\$\{src\}/);
+    assert.match(reviewsView, /const src = window\.reviewSiteSrc\(taskId\);/);
   });
 });
