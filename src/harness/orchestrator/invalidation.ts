@@ -13,6 +13,7 @@
 import { readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProtocolYaml } from "../../schema/index.js";
+import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 
 async function existsAt(p: string): Promise<boolean> {
   try {
@@ -21,13 +22,6 @@ async function existsAt(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function resolveDeclaredOutputPath(taskDir: string, declared: string): string {
-  if (declared === "input/" || declared.startsWith("input/")) {
-    return join(taskDir, declared);
-  }
-  return join(taskDir, "artifacts", declared.replace(/\/+$/, ""));
 }
 
 async function nextAttemptSuffix(
@@ -85,8 +79,8 @@ export async function archiveAndResetPhase(
   await rm(verificationDir, { recursive: true, force: true });
 
   for (const output of phase?.outputs ?? []) {
-    const abs = resolveDeclaredOutputPath(taskDir, output);
-    await rm(abs, { recursive: true, force: true });
+    const { absPath } = resolveDeclaredArtifactPath(taskDir, output);
+    await rm(absPath, { recursive: true, force: true });
   }
 
   return { attempt };
