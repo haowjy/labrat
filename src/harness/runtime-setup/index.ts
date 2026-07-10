@@ -43,10 +43,11 @@ export function resetRuntimeHandle(): void {
  * Ensure the protocol's runtime substrate exists and all merged deps resolve.
  * Idempotent: verify-first; create/install only when missing.
  *
- * TODO: make substrate deps protocol-driven — the microct_analysis
+ * TODO(#2): make substrate deps protocol-driven — the microct_analysis
  * substrate/pip-install recipe below is still hardcoded (out of scope for
  * the config seam cleanup; a separate pass should drive this from
  * protocol.yaml runtime.deps instead of DEFAULT_SUBSTRATE/MICROCT_ANALYSIS_PIP_SPECS).
+ * Tracked: https://github.com/haowjy/labrat/issues/2
  */
 export async function ensureRuntime(
   protocol: ProtocolYaml,
