@@ -18,7 +18,7 @@ verdict.
 ## Load the methodology
 Pair with `microct-3d-analysis` (the review loop that produces the geometry
 this site displays) and the concrete protocol skill (e.g.
-`bonemorph-oa-mouse-knee`, whose `build_review_site()` emits this artifact).
+`microct-oa-mouse-knee`, whose `build_review_site()` emits this artifact).
 
 ## What the site must contain
 - **Read-only 3D scene** — bone surfaces (translucent), landmark points

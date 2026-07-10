@@ -18,7 +18,7 @@ description: >-
 This skill is the *method*, not a specific pipeline. It applies to any
 volumetric bone/joint scan. For the packaged mouse-knee osteoarthritis
 pipeline that implements this method end-to-end, see the companion skill
-`bonemorph-oa-mouse-knee`.
+`microct-oa-mouse-knee`.
 
 ## The one principle that matters: this is an AGENTIC loop, not a pipeline
 
@@ -111,7 +111,7 @@ matplotlib only — no GPU, no model weights):
   renders to a vision model and get a per-line critique + PASS/NEEDS-CORRECTION.
 
 Call `help(fn)` in the kernel for signatures. These are deliberately generic;
-the OA-specific landmark logic lives in `bonemorph-oa-mouse-knee`.
+the OA-specific landmark logic lives in `microct-oa-mouse-knee`.
 
 ## What about foundation segmentation models (MedSAM, SAM, nnU-Net, TotalSegmentator)?
 

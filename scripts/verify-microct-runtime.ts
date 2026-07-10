@@ -2,7 +2,7 @@
  * Manual smoke — microct-only, not part of the generic harness.
  *
  * Verifies ensureRuntime() against the proven microct_analysis env used by
- * the bonemorph protocol. Lives outside src/ because it is protocol-specific
+ * the microct-oa-mouse-knee protocol. Lives outside src/ because it is protocol-specific
  * dev tooling, not shipped harness code.
  *
  * Run: npx tsx scripts/verify-microct-runtime.ts
@@ -14,7 +14,7 @@ import { runCommand } from "../src/harness/runtime-setup/subprocess.js";
 import type { ProtocolYaml } from "../src/schema/index.js";
 
 /** The registry skill whose environment.yml provisions microct_analysis. */
-const BONEMORPH_PROTOCOL = "bonemorph-oa-mouse-knee";
+const MICROCT_OA_PROTOCOL = "microct-oa-mouse-knee";
 
 const minimalProtocol: ProtocolYaml = {
   kind: "protocol",
@@ -40,7 +40,7 @@ const minimalProtocol: ProtocolYaml = {
 async function main(): Promise<void> {
   console.log("=== ensureRuntime (verify-first, no reinstall expected) ===\n");
   const config = loadConfig();
-  const skillDir = await findProtocolSkillDir(BONEMORPH_PROTOCOL, config.scienceHome);
+  const skillDir = await findProtocolSkillDir(MICROCT_OA_PROTOCOL, config.scienceHome);
   const result = await ensureRuntime(minimalProtocol, {
     skillDir,
     skillRuntimeDeps: [],

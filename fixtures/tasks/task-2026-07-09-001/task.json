@@ -1,6 +1,6 @@
 {
   "id": "task-2026-07-09-001",
-  "protocol": "bonemorph-oa-mouse-knee",
+  "protocol": "microct-oa-mouse-knee",
   "input": "input/OA6-1RK/",
   "state": "running",
   "currentPhase": "seed-review",

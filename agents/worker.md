@@ -21,10 +21,10 @@ tools:
 writable:
   - artifacts/
   - phases/
-  # protocols extend writable with their own output dirs (e.g. bonemorph adds
+  # protocols extend writable with their own output dirs (e.g. microct-oa-mouse-knee adds
   # intake/ segmentation/ landmarks/ measurements/ masks/)
 subagents:
-  # protocols may declare subphase reviewers, e.g. bonemorph's `reviewer`:
+  # protocols may declare subphase reviewers, e.g. microct-oa-mouse-knee's `reviewer`:
   # independent subphase verification (quantitative checks before mark_subphase).
 ---
 

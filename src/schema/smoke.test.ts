@@ -24,7 +24,7 @@ describe("schema validators round-trip", () => {
   it("task.json valid + invalid", () => {
     const valid = {
       id: "task-2026-07-09-001",
-      protocol: "bonemorph-oa-mouse-knee",
+      protocol: "microct-oa-mouse-knee",
       input: "input/OA6-1RK/",
       state: "running",
       currentPhase: "segmentation",
@@ -45,7 +45,7 @@ describe("schema validators round-trip", () => {
   it("protocol.yaml valid + invalid", () => {
     const valid = {
       kind: "protocol",
-      name: "bonemorph-oa-mouse-knee",
+      name: "microct-oa-mouse-knee",
       version: 1,
       expects: {
         modality: "CT",
@@ -264,7 +264,7 @@ describe("schema validators round-trip", () => {
   it("SSE events — all 8 types", () => {
     const taskId = "task-2026-07-09-001";
     const events = [
-      { type: "task-started", taskId, protocol: "bonemorph-oa-mouse-knee" },
+      { type: "task-started", taskId, protocol: "microct-oa-mouse-knee" },
       { type: "phase-started", taskId, phase: "intake" },
       { type: "phase-complete", taskId, phase: "intake" },
       {
@@ -292,7 +292,7 @@ describe("schema validators round-trip", () => {
     const entry = {
       id: "sg-001",
       taskId: "task-2026-07-09-001",
-      protocol: "bonemorph-oa-mouse-knee",
+      protocol: "microct-oa-mouse-knee",
       phase: "landmarks",
       text: "Growth plate boundary looks too deep.",
       createdAt: "2026-07-09T12:00:00.000Z",

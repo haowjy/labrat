@@ -54,7 +54,7 @@ Decision rule: **is there an intensity edge at the boundary you want?**
   intensity-*gap* heuristic can help. Note: unmineralized structures often show
   up as **low-density gaps between mineralized regions** — you can frequently
   segment them by locating the gap (see how the growth plate is found in
-  `bonemorph-oa-mouse-knee`) without any learned model.
+  `microct-oa-mouse-knee`) without any learned model.
 
 Foundation segmentation models are **not preinstalled** in this environment, and
 most need a GPU plus a weights download (this box is CPU-only, 16 GB). If a

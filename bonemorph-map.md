@@ -5,7 +5,7 @@
 **Sources explored:**
 - Python package: `/home/jimyao/gitrepos/prompts/microct-analysis/src/microct_analysis/`
 - Claude-science skill resources: `/home/jimyao/.claude-science/orgs/1ba877d1-4bed-4233-b543-1e5977b5b263/skills/microct-3d-analysis/resources/`
-- Ground truth (identical copies): `microct-3d-analysis/resources/ground_truth.json` and `bonemorph-oa-mouse-knee/assets/ground_truth.json`
+- Ground truth (identical copies): `microct-3d-analysis/resources/ground_truth.json` and `microct-oa-mouse-knee/assets/ground_truth.json`
 - Canonical workflow fixture: `tests/fixtures/workflows/mouse-knee-oa-geometric-indices/workflow.md`
 
 **AGENTS.md note:** The repo's target architecture is agent-generated analysis with provenance; `src/microct_analysis/` is preserved as test-covered reference runtime, not the sole execution path. LabTask must bridge both the Python stage drivers and the claude-science agentic loop.
