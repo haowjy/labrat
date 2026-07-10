@@ -69,7 +69,7 @@ function buildSdkAgents(
   };
 }
 
-function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> {
+export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> {
   const pythonBinDir = dirname(runtime.pythonPath);
   const pathKey = process.env["PATH"] ?? "";
   const mergedPath = pathKey.includes(pythonBinDir)

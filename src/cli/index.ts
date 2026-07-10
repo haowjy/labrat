@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { enqueueAndRun } from "../harness/orchestrator/index.js";
+import { enqueueAndRun, runStandaloneGate } from "../harness/orchestrator/index.js";
 
 function expandUserPath(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -38,8 +38,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "gate") {
+    const taskId = args[1];
+    const phaseId = args[2];
+    if (!taskId || !phaseId) {
+      console.error("Usage: labrat gate <task-id> <phase>");
+      process.exit(1);
+    }
+
+    console.log(`gate ${taskId} phase=${phaseId}`);
+    const result = await runStandaloneGate(taskId, phaseId);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   console.error(`Unknown command: ${command}`);
   console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
+  console.error("       labrat gate <task-id> <phase>");
   process.exit(1);
 }
 
