@@ -1,0 +1,15 @@
+name: microct_analysis
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - numpy
+      - nibabel>=5
+      - pydicom>=2.4
+      - scikit-image>=0.22
+      - scipy
+      - SimpleITK>=2.3
+      - pyyaml
+      - openpyxl
+      - matplotlib
