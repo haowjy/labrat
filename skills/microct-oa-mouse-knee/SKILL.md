@@ -65,7 +65,7 @@ vol = bm.load_volume(dicom_zip_or_dir)
 seg = bm.segment_knee(vol.hu, vol.voxel_mm, threshold_hu=2500, downsample=2,
                       femur_end="auto")          # auto femur/tibia identity
 res = bm.run_sample(path, sample_id, do_morphometry=True)  # full pipeline
-bm.build_review_site(seg, fem, tib, out_dir="review_site") # see microct-review-artifact
+bm.build_review_site(seg, fem, tib, out_dir="review_site") # see review-artifact-builder
 bm.analyze(df, group_col="group")                # cohort stats + plots
 ```
 Run at 2× downsample for segmentation/geometry (21 µm, far finer than the mm
