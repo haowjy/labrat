@@ -87,6 +87,20 @@ phases:
       - measurements/summary.md
       - measurements_final.json
 
+  - id: review-artifact
+    skills:
+      - resources/review-artifact
+    inputs:
+      - measurements/results.json
+      - measurements_final.json
+      - landmarks/positions.json
+    outputs:
+      - review-site/index.html
+    # Protocol-scoped external-origin policy the gate reads for G6 (design
+    # review-template.md §2). Empty = fully offline, only 'self' — this minimal
+    # inlined values-review-site vendors nothing external.
+    cdn_allowlist: []
+
 sanity_checks: assets/ground_truth.json
 
 runtime:
@@ -138,6 +152,13 @@ agents:
     max_findings: 5
   monitor:
     model: opus
+    permissions: bypassPermissions
+    tools:
+      - Read
+      - Grep
+      - Glob
+      - submit_monitor_verdict
+    writable: []
 
 requires:
   worker:
