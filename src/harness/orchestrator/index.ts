@@ -12,6 +12,7 @@ import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
 import { runGate } from "./gate.js";
 import type { GateContext, RunGateResult } from "./gate.js";
+import { downstreamPhaseIds } from "./invalidation.js";
 import { findRecordedWorkerSessionId } from "./session-lookup.js";
 
 export { runGate };
@@ -463,7 +464,7 @@ export async function runStandaloneGate(
 
   const attempt = await nextGateAttempt(taskDir, phaseId);
 
-  return runGate({
+  const gate = await runGate({
     taskId,
     taskDir,
     protocol,
@@ -472,4 +473,33 @@ export async function runStandaloneGate(
     runtime,
     attempt,
   });
+
+  // PASS/pass-with-concerns: task.json already reflects this phase as
+  // complete from whatever ran it. FAIL paths: runGate's invalidation
+  // already archived phases + reset outputs on disk — bring task.json's
+  // phasesComplete/currentPhase back in sync with that so disk stays
+  // consistent (the normal runTask loop does this bookkeeping itself, but
+  // the standalone `gate` CLI backfills a phase outside that loop).
+  if (gate.kind === "fail") {
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      phasesComplete: refreshed.phasesComplete.filter((p) => p !== phaseId),
+      currentPhase: phaseId,
+      updatedAt: new Date().toISOString(),
+    });
+  } else if (gate.kind === "fail-upstream") {
+    const invalidatedIds = downstreamPhaseIds(protocol.yaml, gate.rewindTo);
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      phasesComplete: refreshed.phasesComplete.filter(
+        (p) => !invalidatedIds.includes(p),
+      ),
+      currentPhase: gate.rewindTo,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return gate;
 }
