@@ -1,0 +1,8 @@
+{
+  "name": "labrat",
+  "description": "Autonomous execution harness and skills for repeatable scientific protocols. Ships the micro-CT 3D bone-imaging / mouse-knee OA protocol (Tang et al. geometric indices): a worker agent executes phase-by-phase, an independent reviewer verifies each phase against ground-truth gates, and every run produces a provenance trail and review chain.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jimmy Yao"
+  }
+}

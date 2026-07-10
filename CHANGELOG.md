@@ -18,7 +18,7 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 - Reviewer sessions only skip permissions when the resolved mode is `bypassPermissions`.
 
 ### Removed
-- Machine-specific defaults: personal PYTHONPATH, the `jimmy@voluma.bio` default author (now OS username), duplicated `4600`/`~/.claude-science` literals, and the silent `bonemorph-oa-mouse-knee` default protocol (now errors clearly when no protocol is given).
+- Machine-specific defaults: personal PYTHONPATH, the `jimmy@voluma.bio` default author (now OS username), duplicated `4600`/`~/.claude-science` literals, and the silent `microct-oa-mouse-knee` default protocol (now errors clearly when no protocol is given).
 - `runtime-setup/verify.ts` moved out of shipped `src/` to `scripts/` (microct-only manual smoke script).
 - Hardcoded `microct_analysis` pip-install recipe (`MICROCT_ANALYSIS_PIP_SPECS`, `DEFAULT_SUBSTRATE`) and the fragile per-package import probe (`probePythonImports`) — `micromamba create -f environment.yml` now fails loudly on unresolved packages, so a create success is the guarantee.
 

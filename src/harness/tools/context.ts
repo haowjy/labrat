@@ -1,10 +1,14 @@
-import type { SubmitGateDecisionInput } from "../../schema/index.js";
+import type {
+  SubmitGateDecisionInput,
+  SubmitMonitorVerdictInput,
+} from "../../schema/index.js";
 
 /** Mutable signals the orchestrator reads after each worker/reviewer query loop. */
 export type OrchestratorSignals = {
   phaseComplete: boolean;
   blockedReason: string | null;
   gateDecision: SubmitGateDecisionInput | null;
+  monitorVerdict: SubmitMonitorVerdictInput | null;
 };
 
 export function createOrchestratorSignals(): OrchestratorSignals {
@@ -12,10 +16,11 @@ export function createOrchestratorSignals(): OrchestratorSignals {
     phaseComplete: false,
     blockedReason: null,
     gateDecision: null,
+    monitorVerdict: null,
   };
 }
 
-export type LabratToolRole = "worker" | "gate-reviewer";
+export type LabratToolRole = "worker" | "gate-reviewer" | "monitor";
 
 /** Context passed to createLabratToolServer — closure over task dir + phase scope. */
 export type LabratToolContext = {

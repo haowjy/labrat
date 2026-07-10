@@ -9,6 +9,7 @@ import {
   validateRecordPhaseInput,
   validateSubphasesJson,
   validateSubmitGateDecisionInput,
+  validateSubmitMonitorVerdictInput,
   type SubphaseMarkEntry,
   type SubphasesJson,
 } from "../../schema/index.js";
@@ -213,6 +214,22 @@ export async function handleSubmitGateDecision(
 
   ctx.signals.gateDecision = validated.value;
   return textResult(`Gate decision recorded: ${validated.value.decision}.`);
+}
+
+export async function handleSubmitMonitorVerdict(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateSubmitMonitorVerdictInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid submit_monitor_verdict input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  ctx.signals.monitorVerdict = validated.value;
+  return textResult(`Monitor verdict recorded: ${validated.value.verdict}.`);
 }
 
 export async function handleBlocked(

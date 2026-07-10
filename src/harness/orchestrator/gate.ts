@@ -22,6 +22,7 @@ import {
 import { notifyEvent } from "../events/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
 import { runGateReview } from "../session/review.js";
+import { runMonitor, type MonitorVerdict } from "../session/monitor.js";
 import {
   enforceTrustBoundary,
   type TrustBoundaryResult,
@@ -217,10 +218,37 @@ async function appendReviewerReport(taskDir: string, section: string): Promise<v
 }
 
 /**
+ * Enforcement rule for the independent monitor (Lane D2): ONLY the
+ * deterministic-floor verdict `rubber_stamp` (empty/thin verification under a
+ * PASS, or a defaulted reviewer) overrides a reviewer PASS and FAILs the gate.
+ *
+ * `insufficient_evidence` is ADVISORY — it is the Haiku model's judgement on an
+ * evidence-PRESENT pass, and treating it as enforcing let the monitor fail
+ * GENUINE phases (the smoke run hit exactly this false positive). It is
+ * recorded in review/monitor/{phase}.json and surfaced, but never overrides the
+ * gate. Only passing verdicts can be overridden — a reviewer that already
+ * failed/rewound has no rubber stamp to catch. Pure so the enforcement wiring
+ * is testable without a live session.
+ */
+export function monitorOverridesGate(
+  reviewerDecision: SubmitGateDecisionInput["decision"],
+  monitorVerdict: MonitorVerdict,
+): boolean {
+  const passing =
+    reviewerDecision === "pass" || reviewerDecision === "pass-with-concerns";
+  return passing && monitorVerdict === "rubber_stamp";
+}
+
+/**
  * Gate one completed phase (design §6, §10, §12): run a fresh, disk-only
  * reviewer session inside the trust boundary, write the gate/verdict/report
  * files, append provenance on pass paths, and perform the retry/rewind
  * invalidation on fail paths.
+ *
+ * Lane D2: on a reviewer PASS, an INDEPENDENT small-model monitor (outside the
+ * reviewer's trust boundary) audits the review for rubber-stamping before the
+ * pass is committed. A monitor rejection converts the result to a FAIL so
+ * runTask's existing retry/pause path handles it.
  */
 export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   const loadedPhase = await loadPhase(ctx.protocol, ctx.phase.id);
@@ -258,6 +286,53 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   });
 
   if (decision.decision === "pass" || decision.decision === "pass-with-concerns") {
+    // Independent monitor audits this PASS for rubber-stamping (Lane D2). It
+    // runs OUTSIDE the reviewer's trust boundary, reads the reviewer's
+    // verification + gate + report, and writes review/monitor/{phase}.json.
+    const monitorProfile = ctx.protocol.yaml.agents["monitor"];
+    const monitor = await runMonitor({
+      taskId: ctx.taskId,
+      taskDir: ctx.taskDir,
+      phaseId: ctx.phase.id,
+      gateDecision: decision.decision,
+      reviewerDefaulted: review.defaulted,
+      model: monitorProfile?.model ?? "haiku",
+      permissionMode: monitorProfile?.permissions ?? ctx.config.defaultPermissionMode,
+      runtime: ctx.runtime,
+    });
+
+    if (monitorOverridesGate(decision.decision, monitor.verdict)) {
+      // Treat as a reviewer FAIL: archive the phase + gate (dropping the
+      // now-void pass), skip verdict/provenance, and let runTask retry with a
+      // fresh worker + reviewer. The monitor's finding persists in
+      // review/monitor/{phase}.json.
+      notifyEvent({
+        type: "log",
+        taskId: ctx.taskId,
+        line: `monitor FAILED gate for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""}`,
+        ephemeral: true,
+      });
+      await archiveAndResetPhase(ctx.taskDir, ctx.protocol.yaml, ctx.phase.id);
+      return {
+        kind: "fail",
+        phase: ctx.phase.id,
+        sessionId: review.sessionId,
+        feedback: `Independent monitor rejected the reviewer's "${decision.decision}" as ${monitor.verdict}: ${monitor.reasons.join(" ")}`,
+        attempt: ctx.attempt,
+      };
+    }
+
+    if (monitor.verdict !== "ok") {
+      // Advisory (e.g. insufficient_evidence): recorded in
+      // review/monitor/{phase}.json and surfaced, but does NOT fail the gate.
+      notifyEvent({
+        type: "log",
+        taskId: ctx.taskId,
+        line: `monitor ADVISORY for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""} (does not fail the gate)`,
+        ephemeral: true,
+      });
+    }
+
     await writeVerdict(ctx.taskDir);
 
     const { started, completed } = ctx.startedAt

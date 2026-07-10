@@ -2,7 +2,13 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadConfig } from "../config/index.js";
-import { enqueueAndRun, runStandaloneGate } from "../harness/orchestrator/index.js";
+import {
+  enqueueAndRun,
+  resetTaskToPhase,
+  resumeTask,
+  runPhaseInIsolation,
+  runStandaloneGate,
+} from "../harness/orchestrator/index.js";
 
 function expandUserPath(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -62,9 +68,63 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "run-phase") {
+    const taskId = args[1];
+    const phaseId = args[2];
+    const withGate = args.includes("--gate");
+    if (!taskId || !phaseId) {
+      console.error("Usage: labrat run-phase <task-id> <phase> [--gate]");
+      process.exit(1);
+    }
+
+    console.log(`run-phase ${taskId} phase=${phaseId} gate=${withGate}`);
+    const result = await runPhaseInIsolation(taskId, phaseId, withGate);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === "resume") {
+    const taskId = args[1];
+    if (!taskId) {
+      console.error("Usage: labrat resume <task-id>");
+      process.exit(1);
+    }
+
+    console.log(`resume ${taskId}`);
+    const result = await resumeTask(taskId);
+    console.log(JSON.stringify({
+      taskId,
+      state: result.task.state,
+      phasesComplete: result.task.phasesComplete,
+      workerSessions: result.phases.map((p) => ({
+        phase: p.phase,
+        sessionId: p.workerSessionId,
+        gate: p.gate,
+      })),
+    }, null, 2));
+    return;
+  }
+
+  if (command === "reset-to") {
+    const taskId = args[1];
+    const phaseId = args[2];
+    if (!taskId || !phaseId) {
+      console.error("Usage: labrat reset-to <task-id> <phase>");
+      process.exit(1);
+    }
+
+    console.log(`reset-to ${taskId} phase=${phaseId}`);
+    const task = await resetTaskToPhase(taskId, phaseId);
+    console.log(JSON.stringify(task, null, 2));
+    return;
+  }
+
   console.error(`Unknown command: ${command}`);
   console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
   console.error("       labrat gate <task-id> <phase>");
+  console.error("       labrat run-phase <task-id> <phase> [--gate]");
+  console.error("       labrat resume <task-id>");
+  console.error("       labrat reset-to <task-id> <phase>");
   process.exit(1);
 }
 
