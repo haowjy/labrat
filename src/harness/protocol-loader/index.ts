@@ -10,8 +10,10 @@ import {
 } from "../../schema/index.js";
 import { mergeRuntimeDeps } from "../runtime-setup/deps.js";
 import {
+  buildReviewerSystemPrompt,
   buildWorkerSystemPrompt,
   mergeWorkerAllowedTools,
+  type ReviewerPromptContext,
   type TaskPromptContext,
 } from "./prompt.js";
 import {
@@ -37,8 +39,11 @@ export type LoadedPhase = {
 };
 
 export {
+  buildReviewerSystemPrompt,
   buildWorkerSystemPrompt,
+  mergeReviewerAllowedTools,
   mergeWorkerAllowedTools,
+  type ReviewerPromptContext,
   type TaskPromptContext,
 } from "./prompt.js";
 export {
@@ -133,5 +138,20 @@ export async function assembleWorkerPrompt(
     loadedPhase.phase,
     loadedPhase.skills,
     taskCtx,
+  );
+}
+
+export async function assembleReviewerPrompt(
+  protocol: LoadedProtocol,
+  loadedPhase: LoadedPhase,
+  reviewerCtx: ReviewerPromptContext,
+): Promise<readonly string[]> {
+  return buildReviewerSystemPrompt(
+    protocol.yaml,
+    protocol.skillDir,
+    protocol.claudeScienceHome,
+    loadedPhase.phase,
+    loadedPhase.skills,
+    reviewerCtx,
   );
 }
