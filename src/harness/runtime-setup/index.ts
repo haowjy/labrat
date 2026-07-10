@@ -281,7 +281,11 @@ async function validateDep(
       return true;
     }
     case "env": {
-      const value = process.env[dep.name];
+      // Check the same env a subprocess would actually see (subprocessEnv
+      // overrides layered on process.env — see buildSubprocessEnv), not just
+      // process.env: a dep declared to come from the conda/runtime env would
+      // otherwise pass or fail validation for the wrong reason.
+      const value = subprocessEnv[dep.name] ?? process.env[dep.name];
       if (value === undefined || value.length === 0) {
         errors.push(`missing env var dep: ${dep.name}`);
         return false;
