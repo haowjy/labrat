@@ -52,6 +52,10 @@ export function parseHtml(html: string): readonly HtmlElement[] {
       tagName: string;
       attrs: { name: string; value: string }[];
       childNodes: { nodeName: string; value?: string }[];
+      // parse5 stores <template> children in a DocumentFragment on `.content`,
+      // NOT in childNodes — walk it too so scripts/handlers hidden in a
+      // <template> (later cloned + appended) stay visible to every gate.
+      content?: { childNodes: unknown[] };
     };
     const tag = el.tagName.toLowerCase();
     const attrs = new Map<string, string>();
@@ -66,6 +70,7 @@ export function parseHtml(html: string): readonly HtmlElement[] {
       elements.push({ tag, attrs });
     }
     for (const child of el.childNodes) visit(child);
+    if (el.content) for (const child of el.content.childNodes) visit(child);
   };
 
   visit(doc);
@@ -246,7 +251,11 @@ function memberPath(node: EsNode | null): string | null {
   const prop = asNode(node["property"]);
   let key: string | null;
   if (node["computed"] === true) {
-    key = prop?.type === "Literal" && typeof prop["value"] === "string" ? prop["value"] : null;
+    // Resolve a string-literal OR a zero-expression template literal
+    // (`window[`location`]`) via evalStatic, so a template-literal key can't
+    // hide a navigation/exec sink from the name match.
+    const ev = evalStatic(prop);
+    key = ev.known && typeof ev.value === "string" ? ev.value : null;
   } else {
     key = prop?.type === "Identifier" ? String(prop["name"]) : null;
   }
