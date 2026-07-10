@@ -1,3 +1,4 @@
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   validateGateFile,
@@ -65,39 +66,58 @@ export type RunGateResult =
       readonly feedback: string | null;
     };
 
-async function readVerdict(taskDir: string): Promise<VerdictJson> {
-  const path = join(taskDir, "review", "verdict.json");
-  try {
-    const { readFile } = await import("node:fs/promises");
-    const raw: unknown = JSON.parse(await readFile(path, "utf8"));
-    const validated = validateVerdictJson(raw);
-    if (validated.ok) return validated.value;
-  } catch {
-    // no verdict yet
-  }
-  return { status: "in-progress", flags: [] };
+/** review/gates/{phase}.json — excludes .trust-boundary.json and archived .attempt-N.json. */
+function isLiveGateFile(name: string): boolean {
+  return (
+    name.endsWith(".json") &&
+    !name.endsWith(".trust-boundary.json") &&
+    !/\.attempt-\d+\.json$/.test(name)
+  );
 }
 
-async function writeVerdict(
-  taskDir: string,
-  phaseId: string,
-  decision: SubmitGateDecisionInput,
-): Promise<void> {
-  const existing = await readVerdict(taskDir);
-  const nextStatus: VerdictJson["status"] =
-    decision.decision === "pass-with-concerns" || existing.status === "pass-with-concerns"
-      ? "pass-with-concerns"
-      : "pass";
-  const flags =
-    decision.decision === "pass-with-concerns" && decision.feedback
-      ? [...existing.flags, `${phaseId}: ${decision.feedback}`]
-      : existing.flags;
+/**
+ * Rebuild verdict.json from the currently surviving gate files (design §6):
+ * verdict is a *derived* view of `review/gates/`, not an append-only log, so
+ * a clean re-pass after a rewind/retry (which archives the failing gate
+ * file) can return the verdict to `pass` instead of staying stuck at
+ * `pass-with-concerns` from a since-invalidated attempt.
+ */
+export async function rebuildVerdict(taskDir: string): Promise<VerdictJson> {
+  const gatesRoot = join(taskDir, "review", "gates");
+  let entries: string[];
+  try {
+    entries = await readdir(gatesRoot);
+  } catch {
+    entries = [];
+  }
 
-  const verdict: VerdictJson = {
-    status: nextStatus,
+  let anyConcerns = false;
+  const flags: string[] = [];
+  for (const name of entries.filter(isLiveGateFile).sort()) {
+    const raw: unknown = JSON.parse(await readFile(join(gatesRoot, name), "utf8"));
+    const validated = validateGateFile(raw);
+    if (!validated.ok) continue; // corrupt/foreign file — ignore, don't crash the verdict
+    const gateFile = validated.value;
+    if (gateFile.decision === "pass-with-concerns") {
+      anyConcerns = true;
+      if (gateFile.feedback) {
+        flags.push(`${gateFile.phase}: ${gateFile.feedback}`);
+      }
+    }
+  }
+
+  if (entries.filter(isLiveGateFile).length === 0) {
+    return { status: "in-progress", flags: [] };
+  }
+  return {
+    status: anyConcerns ? "pass-with-concerns" : "pass",
     flags,
     updatedAt: new Date().toISOString(),
   };
+}
+
+async function writeVerdict(taskDir: string): Promise<void> {
+  const verdict = await rebuildVerdict(taskDir);
   const validated = validateVerdictJson(verdict);
   if (!validated.ok) {
     throw new Error(
@@ -120,7 +140,7 @@ function reviewerReportMarkdown(
     `- Decision: **${decision.decision}**`,
     `- Reviewer session: ${sessionId}`,
     `- Defaulted (no submit_gate_decision after 2 attempts): ${defaulted ? "yes" : "no"}`,
-    `- Trust boundary: ${trustBoundary.ok ? `OK — artifacts/ and phases/${phaseId}/ unmodified` : "VIOLATION — see below"}`,
+    `- Trust boundary: ${trustBoundary.ok ? "OK — artifacts/, phases/, task.json, review/gates/, and provenance/manifest.yaml unmodified" : "VIOLATION — see below"}`,
   ];
   if (decision.rewind_to) {
     lines.push(`- Rewind to: ${decision.rewind_to}`);
@@ -190,7 +210,6 @@ async function writeGateArtifacts(
 /** review/reviewer_report.md accumulates one section per gate (design §5, §10). */
 async function appendReviewerReport(taskDir: string, section: string): Promise<void> {
   const reportPath = join(taskDir, "review", "reviewer_report.md");
-  const { readFile } = await import("node:fs/promises");
   const existing = await readFile(reportPath, "utf8").catch(() => "");
   await atomicWriteText(reportPath, `${existing}${existing ? "\n---\n\n" : ""}${section}`);
 }
@@ -206,7 +225,6 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
 
   const { result: review, trustBoundary } = await enforceTrustBoundary(
     ctx.taskDir,
-    ctx.phase.id,
     () =>
       runGateReview({
         taskId: ctx.taskId,
@@ -237,7 +255,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   });
 
   if (decision.decision === "pass" || decision.decision === "pass-with-concerns") {
-    await writeVerdict(ctx.taskDir, ctx.phase.id, decision);
+    await writeVerdict(ctx.taskDir);
 
     const { started, completed } = ctx.startedAt
       ? { started: ctx.startedAt, completed: new Date().toISOString() }
