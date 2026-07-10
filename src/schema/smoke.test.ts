@@ -104,6 +104,36 @@ describe("schema validators round-trip", () => {
     const bad = validateProtocolYaml({ ...valid, kind: "skill" });
     assert.equal(bad.ok, false);
 
+    // Lane C: the optional `cdn_allowlist` phase field round-trips as a string
+    // array (the gate reads it for review-site linter G6).
+    const withAllowlist = validateProtocolYaml({
+      ...valid,
+      phases: [
+        ...valid.phases,
+        {
+          id: "review-artifact",
+          skills: ["resources/review-artifact"],
+          inputs: ["labels.nii.gz"],
+          outputs: ["review-site/index.html", "review-site/data/manifest.js"],
+          cdn_allowlist: ["https://cdn.plot.ly"],
+        },
+      ],
+    });
+    assert.equal(withAllowlist.ok, true);
+    if (withAllowlist.ok) {
+      const phase = withAllowlist.value.phases.find((p) => p.id === "review-artifact");
+      assert.deepEqual(phase?.cdn_allowlist, ["https://cdn.plot.ly"]);
+    }
+
+    // A non-array cdn_allowlist is rejected.
+    const badAllowlist = validateProtocolYaml({
+      ...valid,
+      phases: [
+        { id: "review-artifact", skills: ["resources/review-artifact"], cdn_allowlist: "cdn.plot.ly" },
+      ],
+    });
+    assert.equal(badAllowlist.ok, false);
+
     // F3 regression: duplicate phase ids must be rejected, not silently
     // first-match-wins.
     const dupPhase = validateProtocolYaml({

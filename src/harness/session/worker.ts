@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -60,6 +61,16 @@ function buildSdkAgents(
   };
 }
 
+/**
+ * Repo root of this harness checkout, so worker/reviewer Bash sessions can
+ * invoke harness-provided tools (e.g. the generic `check_review_site` linter
+ * at `$LABRAT_HOME/src/review-site/cli.ts`) by absolute path — the seam that
+ * lets any protocol's review site be self-checked and gated by the SAME
+ * linter with zero per-skill duplication. Resolved from this module's
+ * location: src/harness/session/ (or dist/harness/session/) → three up.
+ */
+const LABRAT_HOME = fileURLToPath(new URL("../../../", import.meta.url)).replace(/\/$/, "");
+
 export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> {
   const pythonBinDir = dirname(runtime.pythonPath);
   const pathKey = process.env["PATH"] ?? "";
@@ -77,6 +88,7 @@ export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> 
     env[key] = value;
   }
   env["PATH"] = mergedPath;
+  env["LABRAT_HOME"] = LABRAT_HOME;
   return env;
 }
 
