@@ -15,30 +15,39 @@ import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
 
 /**
- * CDN origins the review page's <script> tags may load from. Hardcoded for the
- * demo; the design's per-phase `cdn_allowlist` field is forward-compat (Lane F).
- * Wiring it in is a one-liner: pass the phase's value to `reviewSiteCsp()` at
- * the call site instead of relying on this default.
+ * CDN origins the review page's <script> tags may load from. Empty by default
+ * (design review-template §2/I4: `cdn_allowlist: []`, vendored) so the demo
+ * emits `script-src 'self'` and the served CSP never exceeds what the G6 gate
+ * verified (`origins ⊆ cdn_allowlist`). The design's per-phase `cdn_allowlist`
+ * field is forward-compat (Lane F): pass the phase's value to `reviewSiteCsp()`
+ * at the call site instead of relying on this default.
  */
-const REVIEW_SITE_CDN_ALLOWLIST = "https://cdn.jsdelivr.net https://cdn.plot.ly";
+const REVIEW_SITE_CDN_ALLOWLIST = "";
 
 /**
  * Build the Content-Security-Policy for the review-site route (design C5/R2).
- * Quarantines a served review page to its own bytes + allow-listed CDNs:
+ * Quarantines a served review page to its own bytes + any allow-listed CDNs:
  * `connect-src 'none'` blocks fetch/XHR back to the dashboard APIs;
  * `frame-ancestors 'self'` (C5) stops third-party framing; `base-uri 'none'`
- * blocks <base> rewriting. Decision point (C4): if/when a route serves a Plotly
- * template, add `'unsafe-eval'` to script-src here — Plotly's bundle evals.
+ * blocks <base> rewriting; `form-action 'none'` (does NOT fall back to
+ * default-src) blocks form POSTs to dashboard endpoints; `object-src 'none'`
+ * blocks <object>/<embed>. The script-src directive is built by filtering empty
+ * tokens, so an empty allowlist yields exactly `script-src 'self'` (no trailing
+ * space). Decision point (C4): if/when a route serves a Plotly template, add
+ * `'unsafe-eval'` to script-src here — Plotly's bundle evals.
  */
 export function reviewSiteCsp(cdnAllowlist: string = REVIEW_SITE_CDN_ALLOWLIST): string {
+  const scriptSrc = ["'self'", ...cdnAllowlist.split(/\s+/)].filter((t) => t !== "").join(" ");
   return [
     "default-src 'self'",
-    `script-src 'self' ${cdnAllowlist}`,
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "connect-src 'none'",
     "frame-ancestors 'self'",
     "base-uri 'none'",
+    "form-action 'none'",
+    "object-src 'none'",
   ].join("; ");
 }
 

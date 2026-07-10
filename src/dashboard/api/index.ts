@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -26,7 +27,14 @@ import {
 
 /** Reject path segments that could escape the task tree. */
 function isSafeSegment(seg: string): boolean {
-  return seg.length > 0 && !seg.includes("/") && !seg.includes("\\") && seg !== "." && seg !== "..";
+  return (
+    seg.length > 0 &&
+    !seg.includes("/") &&
+    !seg.includes("\\") &&
+    !seg.includes("\0") &&
+    seg !== "." &&
+    seg !== ".."
+  );
 }
 
 async function readJsonFile(file: string): Promise<unknown | null> {
@@ -322,8 +330,17 @@ export async function getManifest(
 
 /**
  * Resolve a path to a file the dashboard is allowed to serve verbatim
- * (evidence images, verification scratch). Returns null if any segment is
- * unsafe, keeping serving inside the task tree.
+ * (evidence images, verification scratch, review-site). Returns null if any
+ * segment is unsafe OR if the resolved real path escapes the task tree.
+ *
+ * Lexical segment checks reject `..`/absolute/null-byte, but they do NOT catch
+ * symlinks: a review-site/ tree is LLM-worker-authored, so a symlink (file or
+ * ancestor dir) pointing at `/etc/passwd`, `~/.ssh/id_rsa`, or a sibling task
+ * can escape while every segment looks safe. sendFile follows symlinks, so this
+ * is the seam that must resolve the REAL path and confirm containment. We
+ * compare against `realpath(taskDir) + path.sep` so a sibling task whose name
+ * is a prefix (…/task-1 vs …/task-10) cannot false-match. Fail closed: a
+ * missing target or any realpath error returns null (route 400s).
  */
 export function resolveTaskFile(
   tasksDir: string,
@@ -334,5 +351,13 @@ export function resolveTaskFile(
   for (const seg of segments) {
     if (!isSafeSegment(seg)) return null;
   }
-  return path.join(taskDir(tasksDir, id), ...segments);
+  const candidate = path.join(taskDir(tasksDir, id), ...segments);
+  try {
+    const resolved = realpathSync(candidate);
+    const root = realpathSync(taskDir(tasksDir, id));
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
 }
