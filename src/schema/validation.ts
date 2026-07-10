@@ -164,12 +164,24 @@ export function expectStringMap(
   return success(out);
 }
 
+/**
+ * Matches `YYYY-MM-DDTHH:MM:SS[.sss](Z|+HH:MM|-HH:MM)` — the ISO 8601 subset
+ * every writer in this codebase actually produces (`Date.prototype.toISOString()`,
+ * or the same shape without milliseconds). `Date.parse` alone is too lenient
+ * (e.g. it happily accepts bare `"2026"`), so this regex runs first.
+ */
+const ISO_DATE_TIME_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
 export function expectIsoDateTime(
   value: unknown,
   path: string,
 ): ValidationResult<string> {
   const s = expectString(value, path);
   if (!s.ok) return s;
+  if (!ISO_DATE_TIME_RE.test(s.value)) {
+    return singleError(path, "expected ISO 8601 datetime string");
+  }
   const t = Date.parse(s.value);
   if (Number.isNaN(t)) {
     return singleError(path, "expected ISO 8601 datetime string");
