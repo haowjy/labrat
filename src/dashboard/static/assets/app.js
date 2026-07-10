@@ -14,6 +14,12 @@ const state = {
   tasks: [],
   currentId: null,
   view: "chain",
+  // Trusted-shell side of the review-site postMessage bridge (design/
+  // review-architecture-decision.md): the iframe reports interactions, the
+  // shell is the only place a verdict is assembled. (Re)initialized by
+  // initReviewVerdict() each time renderReviews() mounts a fresh iframe.
+  reviewVerdict: { status: null, log: [] },
+  reviewIframeWindow: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -388,9 +394,104 @@ function renderReviews() {
     `<span class="section-label">Review site</span>` +
     `<span class="quarantine-note">Sandboxed frame — isolated from the dashboard, no shared login or storage</span>` +
     `</div>` +
-    `<iframe class="review-frame" src="${esc(reviewSiteSrc(id))}" ` +
+    `<iframe class="review-frame" id="review-iframe" src="${esc(reviewSiteSrc(id))}" ` +
     `sandbox="${esc(REVIEW_SANDBOX)}" title="Review site for ${esc(id)} (sandboxed)" loading="lazy"></iframe>` +
+    verdictPanelHtml() +
     `</div>`;
+  initReviewVerdict($("review-iframe"));
+}
+
+/* ---- verdict panel: the minimal TRUSTED receiver on the shell side of the
+ * postMessage bridge (design/review-architecture-decision.md, "what lives
+ * where" — verdict state is assembled ONLY here, never inside the untrusted
+ * iframe). Pass/Fail are the reviewer's explicit calls; touching the
+ * interactive part of the 3D scene (e.g. dragging a landmark) auto-flips the
+ * verdict to "corrected", overriding whatever was selected before — that is
+ * the trust-boundary bridge this slice exists to prove. In-memory only: no
+ * write endpoint yet (POST /review/finish is a later, separately-scoped
+ * lane), so nothing here survives a reload. */
+function verdictPanelHtml() {
+  return (
+    `<div class="verdict-panel">` +
+    `<div class="verdict-panel-head">` +
+    `<span class="section-label">Reviewer verdict</span>` +
+    `<span class="pill pill-skip" id="verdict-pill">pending</span>` +
+    `</div>` +
+    `<p class="verdict-hint">Adjusting the 3D scene (e.g. dragging a landmark) auto-flips this to "corrected". In-memory for this preview — not written to the task tree yet.</p>` +
+    `<div class="verdict-actions">` +
+    `<button type="button" class="btn" id="verdict-pass">Mark pass</button>` +
+    `<button type="button" class="btn" id="verdict-fail">Mark fail</button>` +
+    `</div>` +
+    `<div class="verdict-log" id="verdict-log"></div>` +
+    `<label class="verdict-note-label" for="verdict-note">Notes</label>` +
+    `<textarea id="verdict-note" placeholder="Describe what you confirmed, adjusted, or rejected…"></textarea>` +
+    `</div>`
+  );
+}
+
+function verdictPillClass(status) {
+  if (status === "pass") return "pill-pass";
+  if (status === "fail") return "pill-fail";
+  if (status === "corrected") return "pill-warn";
+  return "pill-skip";
+}
+
+function setVerdict(status) {
+  state.reviewVerdict.status = status;
+  const pill = $("verdict-pill");
+  if (!pill) return;
+  pill.className = `pill ${verdictPillClass(status)}`;
+  pill.textContent = status || "pending";
+}
+
+function logVerdictEvent(text) {
+  state.reviewVerdict.log.push({ text, at: new Date().toISOString() });
+  const log = $("verdict-log");
+  if (!log) return;
+  const line = document.createElement("div");
+  line.className = "verdict-log-line";
+  line.innerHTML = `<span class="verdict-log-time">${esc(fmtTime(new Date().toISOString()))}</span>${esc(text)}`;
+  log.prepend(line);
+}
+
+/** Reset + rewire the panel for a freshly-mounted iframe (a new task, or a
+ * re-render of the same one — renderReviews() always rebuilds the DOM). */
+function initReviewVerdict(iframeEl) {
+  state.reviewVerdict = { status: null, log: [] };
+  state.reviewIframeWindow = iframeEl ? iframeEl.contentWindow : null;
+  setVerdict(null);
+  const pass = $("verdict-pass");
+  const fail = $("verdict-fail");
+  if (pass) pass.onclick = () => { setVerdict("pass"); logVerdictEvent("Reviewer marked pass."); };
+  if (fail) fail.onclick = () => { setVerdict("fail"); logVerdictEvent("Reviewer marked fail."); };
+}
+
+/**
+ * The postMessage bridge, iframe -> shell. The child is an opaque origin
+ * (no allow-same-origin), so event.origin is the literal string "null" and
+ * unusable for authentication; every message is instead checked against
+ * event.source (must be the exact iframe window renderReviews() just
+ * mounted) and against message SHAPE, not origin — matching the design
+ * doc's "validate message structure, not origin". Narrow protocol, not RPC:
+ * three message types, nothing here calls back into the iframe except the
+ * shell -> iframe {type:'highlight'|'reset'} messages the template accepts
+ * (not wired to UI yet in this slice — no verdict-row hover/undo control
+ * exists to send them from).
+ */
+function onReviewMessage(event) {
+  if (!state.reviewIframeWindow || event.source !== state.reviewIframeWindow) return;
+  const data = event.data;
+  if (!data || typeof data !== "object") return;
+  if (data.type === "ready") {
+    logVerdictEvent("Review site loaded and interactive.");
+  } else if (data.type === "interaction") {
+    setVerdict("corrected");
+    logVerdictEvent(`Adjusted ${data.id ?? "an item"} — verdict flipped to corrected.`);
+  } else if (data.type === "metrics-updated" && data.metrics && typeof data.metrics === "object") {
+    const m = data.metrics;
+    const bits = Object.keys(m).filter((k) => k !== "id").map((k) => `${k}=${m[k]}`).join(", ");
+    logVerdictEvent(`Metrics for ${m.id ?? "item"}: ${bits}`);
+  }
 }
 
 /** "Open review site" call-to-action shared by the chain + provenance views. */
@@ -480,5 +581,6 @@ async function boot() {
   const initial = state.tasks.find((t) => t.id === fromHash) ?? state.tasks[0];
   if (initial) selectTask(initial.id);
   connectSSE();
+  window.addEventListener("message", onReviewMessage);
 }
 boot();
