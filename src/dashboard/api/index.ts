@@ -10,6 +10,7 @@ import {
   validateSuggestionsJson,
   validateTaskJson,
   type GateFile,
+  type ProvenanceArtifactRef,
   type ProvenanceManifest,
   type SubphaseMark,
   type SubphaseConfidence,
@@ -149,7 +150,24 @@ export type TimelineEntry = {
   readonly started: string | null;
   readonly completed: string | null;
   readonly gate: GateSummary | null;
+  /**
+   * True when this phase's recorded outputs include the review-site contract
+   * folder (design/review-template.md vocabulary: "review site — the concrete
+   * produced folder instance under artifacts/review-site/"). Contract-based,
+   * not a hardcoded phase-id check, so any protocol's review-producing phase
+   * lights up the same way — the dashboard renders it as a first-class node
+   * in the chain (an "Open review site" link into the Reviews view) with no
+   * per-protocol wiring.
+   */
+  readonly hasReviewSite: boolean;
 };
+
+/** The one path prefix the dashboard treats as "this phase made a review site". */
+const REVIEW_SITE_OUTPUT_PREFIX = "artifacts/review-site/";
+
+function producesReviewSite(outputs: readonly ProvenanceArtifactRef[]): boolean {
+  return outputs.some((o) => o.path.startsWith(REVIEW_SITE_OUTPUT_PREFIX));
+}
 
 export type TaskDetail = {
   readonly task: TaskJson;
@@ -218,6 +236,7 @@ export async function getTask(
             hasSubphaseAssessments: gate.subphase_assessments !== undefined,
           }
         : null,
+      hasReviewSite: producesReviewSite(entry?.outputs ?? []),
     });
   }
 

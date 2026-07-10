@@ -54,8 +54,14 @@ a { color:var(--accent); }
 .pill-skip { background:var(--surface); color:var(--muted); }
 
 /* === TOPBAR === */
-.topbar .title { font-family:var(--mono); font-weight:700; font-size:0.85rem; }
-.topbar .subtitle { font-size:0.75rem; color:var(--muted); }
+/* min-width:0 lets this flex item shrink below its text's natural width —
+   the default flex min-width:auto would otherwise hold the row open and
+   force the nav buttons onto a second line before the title ever truncates
+   (the sidebar already shows which task is selected, so losing the tail of
+   a long id here to ellipsis costs nothing at narrow widths). */
+.topbar-titles { min-width:0; overflow:hidden; }
+.topbar .title { font-family:var(--mono); font-weight:700; font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.topbar .subtitle { font-size:0.75rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .topbar .spacer { flex:1; }
 .topbar button { background:none; border:1px solid var(--accent-line); border-radius:4px; padding:0.35rem 0.65rem; font-family:var(--mono); font-size:0.7rem; cursor:pointer; color:var(--ink); transition:background 0.1s; }
 .topbar button:hover { background:var(--accent-soft); }
@@ -144,6 +150,21 @@ a { color:var(--accent); }
 .prov-grid .pv ul { margin:0; padding-left:1rem; }
 .prov-grid .pv .hash { color:var(--muted2); }
 
+/* === REVIEWS (sandboxed review-site embed) ===
+   The frame fills whatever height .main has left (flex, not a vh guess) so
+   it genuinely fits one viewport regardless of how much room the sidebar /
+   topbar / live-strip take above it — a vh-based height can't know that,
+   since the sidebar becomes a variable-height horizontal strip at mobile
+   widths (see the responsive block). min-height:0 on every link in the
+   chain is required — without it a flex item won't shrink below its
+   content's natural size and the whole point of "fill, don't overflow" breaks. */
+.content-reviews { max-width:1100px; flex:1; display:flex; flex-direction:column; min-height:0; }
+.review-embed { display:flex; flex-direction:column; gap:0.6rem; flex:1; min-height:0; }
+.review-embed-head { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem 1rem; flex-wrap:wrap; flex-shrink:0; }
+.quarantine-note { font-size:0.7rem; color:var(--muted); }
+.review-frame { width:100%; flex:1; min-height:280px; border:1px solid var(--accent-line); border-radius:6px; background:#fff; display:block; }
+.review-link { margin-top:0.6rem; }
+
 /* === SUGGESTION BOX === */
 .suggestion-box { margin-top:1.5rem; padding:1rem; background:var(--surface); border-radius:6px; border:1px solid var(--accent-line); }
 .suggestion-box h3 { font-family:var(--mono); font-size:0.72rem; font-weight:700; margin:0 0 0.5rem; color:var(--accent); }
@@ -179,4 +200,14 @@ a { color:var(--accent); }
 @media (max-width:700px) {
   .app { flex-direction:column; }
   .sidebar { width:100%; height:auto; max-height:200px; border-right:none; border-bottom:1px solid var(--accent-line); }
+
+  /* "review on a phone" is a product requirement (design/review-template.md
+     §1 I6) — every tap target a mobile reviewer needs to reach the review
+     site, not just the site's own UI, meets the 44px minimum (WCAG 2.5.8 /
+     Apple HIG). Scoped to mobile widths so the denser desktop chrome is
+     unchanged. */
+  .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
+  .topbar button { min-height:44px; min-width:44px; padding:0.4rem 0.6rem; }
+  .btn { min-height:44px; }
+  .content, .content-reviews { padding:1rem; }
 }
