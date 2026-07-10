@@ -25,6 +25,16 @@ describe("validateReviewFinishInput (POST /api/tasks/:id/review/finish body)", (
     assert.equal(res.ok, true);
   });
 
+  it("rejects a non-finite coordinate (Infinity/-Infinity serialize to null on disk)", () => {
+    for (const bad of [Infinity, -Infinity]) {
+      const res = validateReviewFinishInput({
+        ...valid,
+        adjustments: [{ id: "lm", proposed: null, corrected: { x: bad, y: 0, z: 0 } }],
+      });
+      assert.equal(res.ok, false);
+    }
+  });
+
   it("defaults adjustments to [] when absent", () => {
     const { adjustments: _drop, ...withoutAdjustments } = valid;
     const res = validateReviewFinishInput(withoutAdjustments);

@@ -81,8 +81,8 @@ export function expectNumber(
   value: unknown,
   path: string,
 ): ValidationResult<number> {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return singleError(path, "expected number");
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return singleError(path, "expected finite number");
   }
   return success(value);
 }
