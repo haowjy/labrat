@@ -124,6 +124,25 @@ describe("schema validators round-trip", () => {
       ],
     });
     assert.equal(dupSubphase.ok, false);
+
+    // AgentProfile.model: optional, must be one of the SDK's 4 literals.
+    const withModel = validateProtocolYaml({
+      ...valid,
+      agents: {
+        ...valid.agents,
+        worker: { ...valid.agents.worker, model: "haiku" },
+      },
+    });
+    assert.equal(withModel.ok, true);
+
+    const badModel = validateProtocolYaml({
+      ...valid,
+      agents: {
+        ...valid.agents,
+        worker: { ...valid.agents.worker, model: "gpt" },
+      },
+    });
+    assert.equal(badModel.ok, false);
   });
 
   it("subphases.json + closeable helper", () => {

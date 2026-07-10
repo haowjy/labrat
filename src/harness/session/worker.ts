@@ -120,7 +120,7 @@ async function runOneQuery(
   const q = query({
     prompt: userPrompt,
     options: {
-      model: "sonnet",
+      model: config.protocol.yaml.agents.worker.model ?? "sonnet",
       cwd: config.taskDir,
       env: buildSessionEnv(config.runtime),
       permissionMode: "bypassPermissions",
