@@ -1,11 +1,16 @@
 # TODO — dashboard
 
 Deferred work colocated with the dashboard. Full triage: work-dir `gaps-backlog.md`.
-Active design: work-dir `design-review-bundle-cdn.md` (design-lead).
 
-- [ ] **Review bundle in the dashboard + per-skill CDN allowlist** (#8) — surface the
-  `microct-review-artifact` HTML bundle here: a "Reviews" view that loads it in a
-  **sandboxed iframe** (`sandbox="allow-scripts"`, NO `allow-same-origin`) so the
-  skill/LLM-authored JS can't reach the API. Per-skill CDN allowlist → the iframe's
-  CSP `script-src` (skill declares CDNs; harness stamps them). This is the demo's
-  north-star ("dashboard shows review chain") — see the design doc before building.
+The review-site route, sandboxed-iframe "Reviews" view, and harness-bound
+`check_review_site` gate (#8's core scope) shipped — see `reviewSiteCsp()` /
+`resolveReviewSiteFile()` in `server.ts` and `static/assets/review-site.js`.
+Trust model and rationale: KB `labrat-review-bundle-trust-model.md`.
+
+- [ ] **Per-skill CDN allowlist wired into the served CSP** (#8, remaining
+  slice) — `cdn_allowlist` is already a real `protocol.yaml` phase field the
+  linter's G6 gate enforces authoritatively, but `reviewSiteCsp()` is always
+  called with no argument in `server.ts`, so every served review site gets
+  the same demo-scoped default (`script-src 'self' 'unsafe-inline'`, empty
+  allowlist) instead of the phase's declared value. Thread the phase's
+  `cdn_allowlist` through the route handler into the `reviewSiteCsp()` call.
