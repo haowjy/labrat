@@ -7,6 +7,8 @@ import {
   expectOptional,
   expectRecord,
   expectString,
+  singleError,
+  success,
   type ValidationResult,
 } from "../schema/validation.js";
 
@@ -81,9 +83,41 @@ type LabratConfigFile = {
   };
 };
 
+const KNOWN_TOP_LEVEL_KEYS = new Set([
+  "defaultModel",
+  "defaultPermissionMode",
+  "scienceHome",
+  "microctSrc",
+  "defaultProtocol",
+  "dashboard",
+  "retries",
+]);
+const KNOWN_DASHBOARD_KEYS = new Set(["port", "url", "user"]);
+const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts"]);
+
+/** Reject unknown keys so a typo (e.g. `defualtModel`) fails loudly instead
+ * of being silently dropped, matching the strictness of value validation. */
+function checkUnknownKeys(
+  rec: Record<string, unknown>,
+  path: string,
+  known: ReadonlySet<string>,
+): ValidationResult<void> {
+  const unknown = Object.keys(rec).filter((k) => !known.has(k));
+  if (unknown.length > 0) {
+    return singleError(
+      path,
+      `unknown key(s): ${unknown.join(", ")}`,
+    );
+  }
+  return success(undefined);
+}
+
 function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> {
   const rec = expectRecord(value, "$");
   if (!rec.ok) return rec;
+
+  const unknownTopLevel = checkUnknownKeys(rec.value, "$", KNOWN_TOP_LEVEL_KEYS);
+  if (!unknownTopLevel.ok) return unknownTopLevel;
 
   const defaultModel = expectOptional(
     rec.value["defaultModel"],
@@ -124,6 +158,12 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
   if (rec.value["dashboard"] !== undefined && rec.value["dashboard"] !== null) {
     const dashRec = expectRecord(rec.value["dashboard"], "$.dashboard");
     if (!dashRec.ok) return dashRec;
+    const unknownDashboard = checkUnknownKeys(
+      dashRec.value,
+      "$.dashboard",
+      KNOWN_DASHBOARD_KEYS,
+    );
+    if (!unknownDashboard.ok) return unknownDashboard;
     const port = expectOptional(dashRec.value["port"], "$.dashboard.port", (v, p) =>
       expectNumber(v, p),
     );
@@ -147,6 +187,8 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
   if (rec.value["retries"] !== undefined && rec.value["retries"] !== null) {
     const retRec = expectRecord(rec.value["retries"], "$.retries");
     if (!retRec.ok) return retRec;
+    const unknownRetries = checkUnknownKeys(retRec.value, "$.retries", KNOWN_RETRIES_KEYS);
+    if (!unknownRetries.ok) return unknownRetries;
     const workerStall = expectOptional(
       retRec.value["workerStall"],
       "$.retries.workerStall",
@@ -194,10 +236,11 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
   };
 }
 
-function expandTilde(p: string): string {
-  return p.startsWith("~/") || p === "~"
-    ? join(homedir(), p.slice(1))
-    : p;
+function expandTilde(p: string): string;
+function expandTilde(p: string | null): string | null;
+function expandTilde(p: string | null): string | null {
+  if (p === null) return null;
+  return p.startsWith("~/") || p === "~" ? join(homedir(), p.slice(1)) : p;
 }
 
 /** Read+validate `labrat.config.json`, searching `cwd` then `scienceHome`. */
@@ -250,10 +293,18 @@ function isPermissionMode(
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-/** Resolve the one true {@link LabratConfig} for this process. */
+/**
+ * Resolve the one true {@link LabratConfig} for this process.
+ *
+ * Note on ENUM env vars (`LABRAT_MODEL`, `LABRAT_PERMISSION_MODE`): an
+ * invalid value is intentionally ignored, falling back to the file/default
+ * layer below it — unlike the config file, which throws on an invalid enum
+ * value in `validateConfigFile`. Env vars come from the ambient shell and
+ * are more likely to carry stray/unrelated values, so we're lenient there.
+ */
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd(),
@@ -304,7 +355,9 @@ export function loadConfig(
       file.defaultPermissionMode ??
       defaults.defaultPermissionMode,
     scienceHome,
-    microctSrc: env["LABRAT_MICROCT_SRC"] ?? file.microctSrc ?? defaults.microctSrc,
+    microctSrc: expandTilde(
+      env["LABRAT_MICROCT_SRC"] ?? file.microctSrc ?? defaults.microctSrc,
+    ),
     defaultProtocol:
       env["LABRAT_PROTOCOL"] ?? file.defaultProtocol ?? defaults.defaultProtocol,
     dashboard: {

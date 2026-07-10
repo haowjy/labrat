@@ -380,12 +380,12 @@ export async function enqueueAndRun(
   inputAbsPath: string,
   protocolName?: string,
   tasksRoot?: string,
+  config: LabratConfig = loadConfig(),
 ): Promise<RunTaskResult & { taskId: string; taskDir: string }> {
   const { resolve } = await import("node:path");
   const root =
     tasksRoot ?? join(resolve(process.cwd(), "tasks"));
 
-  const config = loadConfig();
   configureEvents(config.dashboard.url);
   const resolvedProtocolName = protocolName ?? config.defaultProtocol;
   if (!resolvedProtocolName) {
