@@ -1,8 +1,11 @@
 /**
  * Retry/rewind invalidation (design §6, §12).
  *
- * Retry (same phase, fresh agent): archive phases/{phase}/, its gate file,
- * and reset declared artifact outputs.
+ * Retry (same phase, fresh agent): archive phases/{phase}/, its gate file
+ * (+ trust-boundary sidecar), review/verification/{phase}/ (the prior
+ * reviewer's scratch space — a retried gate gets a truly fresh reviewer,
+ * not one that inherits stale verification code/output), and reset declared
+ * artifact outputs.
  *
  * Rewind (fail-upstream): the same, applied to the target phase AND every
  * downstream phase — work built on now-invalid inputs cannot survive.
@@ -67,6 +70,19 @@ export async function archiveAndResetPhase(
   if (await existsAt(gatePath)) {
     await rename(gatePath, join(gatesRoot, `${phaseId}.attempt-${attempt}.json`));
   }
+
+  const trustBoundaryPath = join(gatesRoot, `${phaseId}.trust-boundary.json`);
+  if (await existsAt(trustBoundaryPath)) {
+    await rename(
+      trustBoundaryPath,
+      join(gatesRoot, `${phaseId}.attempt-${attempt}.trust-boundary.json`),
+    );
+  }
+
+  // The prior reviewer's scratch space — rm it so a retried gate's reviewer
+  // starts fresh instead of inheriting stale verification code/output.
+  const verificationDir = join(taskDir, "review", "verification", phaseId);
+  await rm(verificationDir, { recursive: true, force: true });
 
   for (const output of phase?.outputs ?? []) {
     const abs = resolveDeclaredOutputPath(taskDir, output);
