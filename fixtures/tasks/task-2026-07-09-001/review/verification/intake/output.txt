@@ -1,0 +1,8 @@
+$ python review/verification/intake/verify.py
+DICOM files on disk: 877
+In-plane spacing: [0.012, 0.012] mm
+Slice spacing: 0.012 mm (min 0.012, max 0.012)
+Max gap between adjacent slices: 0.0120 mm
+
+Summary: 877 slices, uniform 0.012 mm spacing on all three axes, no gaps or
+duplicates. Matches the worker's reported volume geometry.

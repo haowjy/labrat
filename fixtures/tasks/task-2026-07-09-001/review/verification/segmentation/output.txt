@@ -1,0 +1,14 @@
+$ python review/verification/segmentation/verify.py
+Unique labels: [1, 2]   # expect [1, 2] = femur, tibia
+Label 1 (femur): 142789 voxels, 4 connected components
+  component sizes: [142735, 37, 12, 5]
+  largest fraction: 0.9996
+  CONCERN: expected 1 component for femur, found 4
+Label 2 (tibia): 128944 voxels, 1 connected components
+  component sizes: [128944]
+  largest fraction: 1.0000
+
+Summary: label set {1: femur, 2: tibia} correct. Femur is fragmented into
+4 components; 3 stray islands (37, 12, 5 voxels) near the cortex are
+thresholding speckle. Recommend a largest-connected-component filter per
+bone before landmark placement. Measurements remain within expected ranges.

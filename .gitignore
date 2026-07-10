@@ -31,3 +31,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Dashboard fixtures — committed test data (the disk contract the harness
+# targets). Re-include despite the broad tasks/ and *.nii.gz rules above.
+!fixtures/
+!fixtures/tasks/
+!fixtures/**

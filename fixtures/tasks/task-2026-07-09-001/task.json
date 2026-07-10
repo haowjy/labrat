@@ -1,0 +1,10 @@
+{
+  "id": "task-2026-07-09-001",
+  "protocol": "bonemorph-oa-mouse-knee",
+  "input": "input/OA6-1RK/",
+  "state": "running",
+  "currentPhase": "seed-review",
+  "phasesComplete": ["intake", "segmentation"],
+  "createdAt": "2026-07-09T10:15:23Z",
+  "updatedAt": "2026-07-09T10:42:18Z"
+}

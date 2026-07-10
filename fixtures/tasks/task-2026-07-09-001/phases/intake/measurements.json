@@ -1,0 +1,7 @@
+{
+  "sliceCount": 877,
+  "volumeShape": [512, 512, 877],
+  "spacing_mm": [0.012, 0.012, 0.012],
+  "intensityRange": [-1024, 3071],
+  "boneThresholdHU": 1180
+}
