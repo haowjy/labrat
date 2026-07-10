@@ -109,4 +109,55 @@ describe("loadConfig", () => {
       assert.equal(config.dashboard.url, "http://localhost:9999");
     });
   });
+
+  it("rejects an unknown top-level key in the config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ defualtModel: "sonnet" }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*unknown key\(s\): defualtModel/,
+      );
+    });
+  });
+
+  it("rejects an unknown key under dashboard", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ dashboard: { poort: 5100 } }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*unknown key\(s\): poort/,
+      );
+    });
+  });
+
+  it("LABRAT_WORKER_STALL_RETRIES=0 falls back to the default (not 0)", async () => {
+    await withTmpDir(async (dir) => {
+      const config = loadConfig({ LABRAT_WORKER_STALL_RETRIES: "0" }, dir);
+      assert.equal(config.retries.workerStall, 3);
+    });
+  });
+
+  it("a negative retry count falls back to the default", async () => {
+    await withTmpDir(async (dir) => {
+      const config = loadConfig({ LABRAT_REVIEW_ATTEMPTS: "-1" }, dir);
+      assert.equal(config.retries.reviewAttempts, 2);
+    });
+  });
+
+  it("expands a leading ~ in microctSrc from the config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ microctSrc: "~/foo/src" }),
+      );
+      const config = loadConfig({}, dir);
+      assert.equal(config.microctSrc, join(homedir(), "foo/src"));
+    });
+  });
 });
