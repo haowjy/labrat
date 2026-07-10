@@ -37,10 +37,15 @@ async function makeTasksDir(): Promise<string> {
 }
 
 describe("resolveReviewSiteFile (traversal + symlink guard via resolveTaskFile)", () => {
-  it("resolves a nested fixture path to the real file", async () => {
+  it("resolves a nested *path to the real file", async () => {
     const dir = await makeTasksDir();
     try {
-      const file = resolveReviewSiteFile(dir, TASK_ID, ["data", "manifest.js"]);
+      // The route serves review-site/*path recursively; prove a nested segment
+      // resolves (the single-document fixture is flat, so create one).
+      const site = path.join(dir, TASK_ID, "artifacts", "review-site");
+      await mkdir(path.join(site, "nested"), { recursive: true });
+      await writeFile(path.join(site, "nested", "data.js"), "window.X = 1;\n");
+      const file = resolveReviewSiteFile(dir, TASK_ID, ["nested", "data.js"]);
       assert.ok(file, "expected a resolved path");
       assert.ok(existsSync(file), `expected ${file} to exist`);
       // sendFile derives Content-Type from the extension via mime-types (the
@@ -51,18 +56,15 @@ describe("resolveReviewSiteFile (traversal + symlink guard via resolveTaskFile)"
     }
   });
 
-  it("emits correct content-types for html/css/json", async () => {
+  it("resolves the entry point and derives its content-type", async () => {
     const dir = await makeTasksDir();
     try {
-      for (const [seg, type] of [
-        ["index.html", "text/html; charset=utf-8"],
-        ["assets/app.css", "text/css; charset=utf-8"],
-      ] as const) {
-        const file = resolveReviewSiteFile(dir, TASK_ID, seg.split("/"));
-        assert.ok(file && existsSync(file), `expected ${seg} to resolve+exist`);
-        assert.equal(contentType(path.basename(file)), type);
-      }
-      // .json content-type is stable even without a fixture file present.
+      const file = resolveReviewSiteFile(dir, TASK_ID, ["index.html"]);
+      assert.ok(file && existsSync(file), "expected index.html to resolve+exist");
+      assert.equal(contentType(path.basename(file)), "text/html; charset=utf-8");
+      // sendFile derives these the same way for the other extensions a review
+      // site can carry, without a real file needing to exist.
+      assert.equal(contentType("x.css"), "text/css; charset=utf-8");
       assert.equal(contentType("x.json"), "application/json; charset=utf-8");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -107,7 +109,7 @@ describe("reviewSiteCsp (design C5/R2 quarantine)", () => {
     assert.equal(
       csp,
       "default-src 'self'; " +
-        "script-src 'self' https://cdn.example.test; " +
+        "script-src 'self' 'unsafe-inline' https://cdn.example.test; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; " +
         "connect-src 'none'; " +
@@ -127,12 +129,14 @@ describe("reviewSiteCsp (design C5/R2 quarantine)", () => {
     assert.match(csp, /object-src 'none'/);
   });
 
-  it("defaults to an empty allowlist: script-src 'self' with no trailing space", () => {
+  it("defaults to an empty allowlist: script-src 'self' 'unsafe-inline' with no trailing space", () => {
     const csp = reviewSiteCsp();
-    assert.match(csp, /script-src 'self';/);
-    // No CDN token leaked in, and no `script-src 'self' ;` trailing-space bug.
+    // 'unsafe-inline' is fixed (R4: the inlined single-document site needs it);
+    // the empty CDN allowlist adds nothing beyond it.
+    assert.match(csp, /script-src 'self' 'unsafe-inline';/);
+    // No CDN token leaked in, and no `… 'unsafe-inline' ;` trailing-space bug.
     assert.doesNotMatch(csp, /cdn\./);
-    assert.doesNotMatch(csp, /script-src 'self' ;/);
+    assert.doesNotMatch(csp, /'unsafe-inline' ;/);
   });
 });
 
@@ -178,8 +182,9 @@ describe("review-site route (booted app over HTTP)", () => {
       assert.equal(res.status, 200);
       assert.equal(res.headers["content-type"], "text/html; charset=utf-8");
       assert.equal(res.headers["content-security-policy"], reviewSiteCsp());
-      // The served CSP must never exceed the gated (empty) allowlist.
-      assert.match(String(res.headers["content-security-policy"]), /script-src 'self';/);
+      // The served CSP must never exceed the gated (empty) allowlist beyond the
+      // fixed 'unsafe-inline' the inlined single-document site requires (R4).
+      assert.match(String(res.headers["content-security-policy"]), /script-src 'self' 'unsafe-inline';/);
     } finally {
       server.close();
     }

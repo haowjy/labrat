@@ -285,19 +285,24 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
     review.defaulted,
     review.sessionId,
   );
+
+  // Deterministic floor (Lane C): a produced review site whose linter report is
+  // not `ok` FAILs the gate regardless of the reviewer's decision — the harness
+  // enforces, so a rubber-stamped or ignored linter finding can't pass a
+  // broken/exfiltrating site. Computed before the gate-result event so the floor
+  // decision is what's emitted — never a transient `pass` the floor then flips.
+  const passing = decision.decision === "pass" || decision.decision === "pass-with-concerns";
+  const siteFailure = passing ? reviewSiteGateFailure(siteReport) : null;
+
   notifyEvent({
     type: "gate-result",
     taskId: ctx.taskId,
     phase: ctx.phase.id,
-    decision: decision.decision,
+    decision: siteFailure !== null ? "fail" : decision.decision,
   });
 
-  if (decision.decision === "pass" || decision.decision === "pass-with-concerns") {
-    // Deterministic floor (Lane C): a produced review site whose linter report
-    // is not `ok` FAILs the gate regardless of the reviewer's decision — the
-    // harness enforces, so a rubber-stamped or ignored linter finding can't
-    // pass a broken/exfiltrating site. Runs before the monitor (cheap, exact).
-    const siteFailure = reviewSiteGateFailure(siteReport);
+  if (passing) {
+    // Floor runs before the monitor (cheap, exact).
     if (siteFailure !== null) {
       notifyEvent({
         type: "log",

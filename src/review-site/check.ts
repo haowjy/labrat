@@ -13,22 +13,35 @@ import {
  * `check_review_site` — the deterministic review-site linter (design
  * review-template.md §2, gates G1-G8).
  *
- * It depends ONLY on the review-site CONTRACT (§1, invariants I1-I7): an
- * entry point, a self-contained relative-path folder, `.js`-global run data,
- * an export-a-verdict surface, and a manifest that names the run the site was
- * built from. It knows nothing about bonemorph / 3D / Plotly, so it gates any
- * protocol's review site identically.
+ * It depends ONLY on the review-site CONTRACT (§1, invariants I1-I7): a single
+ * inlined entry point, self-contained (no external subresources), `.js`-global
+ * run data, an export-a-verdict surface, and a manifest that names the run the
+ * site was built from. It knows nothing about bonemorph / 3D / Plotly, so it
+ * gates any protocol's review site identically.
  *
- * This is the STRUCTURAL gate: it proves the site is self-contained, wired to
- * real in-folder files, and faithful to the run it names. It is defense in
- * depth WITH — not a replacement for — the dashboard's runtime CSP (Lane A),
- * which is the security boundary that contains the site at serve time. The
- * linter closes the structural bypass classes (external loads, runtime fetch,
- * arbitrary-exec `data:`/`javascript:` sources) statically, before serve.
+ * TWO-LAYER BOUNDARY (read this — the linter is NOT redundant with the CSP).
+ * The site is served into an opaque-origin sandboxed iframe under a strict CSP
+ * (Lane A, `reviewSiteCsp()`). Because that sandbox refuses every external
+ * subresource, the site ships as ONE inlined `index.html` and the CSP must
+ * carry `script-src 'unsafe-inline'` for it to render at all (R4). That has a
+ * cost the CSP/sandbox alone cannot pay:
+ *   - `'unsafe-inline'` permits inline event handlers (`onerror=`) and inline
+ *     scripts, so the CSP no longer blocks inline-handler exfil; and
+ *   - `connect-src 'none'` blocks fetch/XHR/beacon but NOT navigation
+ *     (`window.location = evil`; there is no `navigate-to` directive).
+ * So the sandbox + CSP contain external loads/connections, and THIS linter is
+ * the only layer that catches navigation (G5) and inline-handler (G5) exfil.
+ * The linter is best-effort structural analysis, not a proof: it closes the
+ * known exfil/self-containment classes statically, before serve — separate-file
+ * subresources (blank in the sandbox), external origins, runtime data loading,
+ * navigation sinks, inline handlers, arbitrary-exec sources — but a determined
+ * producer with `'unsafe-inline'` and enough obfuscation can still author code
+ * a static pass cannot fully reason about (F7 aliasing, computed dispatch). The
+ * two layers together are the boundary; neither alone is.
  *
  * SECURITY: producer code is parsed, NEVER executed. All markup/JS analysis is
  * a static parse (see `parse.ts`) — the reviewer runs this in its own process,
- * so executing `data/*.js` here would be arbitrary code execution inside the
+ * so executing the site's JS here would be arbitrary code execution inside the
  * reviewer. Pure over its inputs (a folder on disk + the phase's
  * `cdn_allowlist` + the run's measurements); returns a findings report, never
  * throws on a contract violation (only on genuinely unreadable input).
@@ -93,6 +106,8 @@ type HtmlFile = {
   readonly refs: readonly HtmlRef[];
   /** Inline `<script>` (no `src`) bodies, statically analysed. */
   readonly inlineScripts: readonly JsAnalysis[];
+  /** Raw source of each inline `<script>`, for text-level greps (G7). */
+  readonly inlineScriptText: readonly string[];
   /** Relative `.js` `<script src>` targets, for G4 id resolution. */
   readonly scriptSrcRefs: readonly string[];
 };
@@ -104,12 +119,15 @@ type JsFile = {
   readonly analysis: JsAnalysis;
 };
 
+/** A statically-analysed JS unit (an inline block or a `.js` file) + its label. */
+type JsSource = { readonly label: string; readonly analysis: JsAnalysis };
+
 /** Where a URL reference appears — governs which schemes are legal (G2). */
 type RefContext = "exec" | "resource" | "css" | "nav";
 type HtmlRef = { readonly value: string; readonly context: RefContext };
 
 /** `src` on these loads executable/framed content; a `data:`/`blob:` there is code. */
-const EXEC_SRC_TAGS = new Set(["script", "iframe", "embed", "object", "frame"]);
+const EXEC_SRC_TAGS = new Set(["script", "iframe", "embed", "frame"]);
 
 async function existsAt(p: string): Promise<boolean> {
   try {
@@ -137,26 +155,59 @@ async function listFiles(root: string, ext: string): Promise<string[]> {
   return out.sort();
 }
 
+/** The `url=` target of a `<meta http-equiv=refresh>` (`""` for a self-refresh). */
+function metaRefreshUrl(el: HtmlElement): string | null {
+  if (el.tag !== "meta") return null;
+  const equiv = el.attrs.get("http-equiv");
+  if (equiv === undefined || equiv.trim().toLowerCase() !== "refresh") return null;
+  const content = el.attrs.get("content") ?? "";
+  const m = /;\s*url\s*=\s*(.+)$/i.exec(content);
+  return m ? (m[1] ?? "").trim().replace(/^['"]|['"]$/g, "") : "";
+}
+
+/** First URL of each candidate in a `srcset` (`"a.png 1x, b.png 2x"`). */
+function parseSrcset(srcset: string): string[] {
+  return srcset
+    .split(",")
+    .map((part) => part.trim().split(/\s+/)[0] ?? "")
+    .filter((u) => u.length > 0);
+}
+
 /** Every URL-bearing reference on a page (attributes + CSS), with its context. */
 function collectRefs(elements: readonly HtmlElement[]): HtmlRef[] {
   const refs: HtmlRef[] = [];
+  const push = (value: string, context: RefContext): void => {
+    refs.push({ value: value.trim(), context });
+  };
   for (const el of elements) {
     const src = el.attrs.get("src");
-    if (src !== undefined) {
-      refs.push({ value: src.trim(), context: EXEC_SRC_TAGS.has(el.tag) ? "exec" : "resource" });
+    if (src !== undefined) push(src, EXEC_SRC_TAGS.has(el.tag) ? "exec" : "resource");
+    if (el.tag === "object") {
+      const data = el.attrs.get("data");
+      if (data !== undefined) push(data, "exec"); // <object data> embeds executable content
     }
     const href = el.attrs.get("href");
     if (href !== undefined) {
       const nav = el.tag === "a" || el.tag === "area" || el.tag === "base";
-      refs.push({ value: href.trim(), context: nav ? "nav" : "exec" });
+      push(href, nav ? "nav" : "exec");
     }
+    const srcset = el.attrs.get("srcset");
+    if (srcset !== undefined) for (const u of parseSrcset(srcset)) push(u, "resource");
+    const poster = el.attrs.get("poster");
+    if (poster !== undefined) push(poster, "resource");
+    const ping = el.attrs.get("ping");
+    if (ping !== undefined) for (const u of ping.trim().split(/\s+/)) if (u) push(u, "nav");
+    const formaction = el.attrs.get("formaction");
+    if (formaction !== undefined) push(formaction, "nav");
+    if (el.tag === "form") {
+      const action = el.attrs.get("action");
+      if (action !== undefined) push(action, "nav");
+    }
+    const metaUrl = metaRefreshUrl(el);
+    if (metaUrl !== null && metaUrl.length > 0) push(metaUrl, "nav");
     const style = el.attrs.get("style");
-    if (style !== undefined) {
-      for (const u of extractCssUrls(style)) refs.push({ value: u, context: "css" });
-    }
-    if (el.tag === "style" && el.rawText) {
-      for (const u of extractCssUrls(el.rawText)) refs.push({ value: u, context: "css" });
-    }
+    if (style !== undefined) for (const u of extractCssUrls(style)) push(u, "css");
+    if (el.tag === "style" && el.rawText) for (const u of extractCssUrls(el.rawText)) push(u, "css");
   }
   return refs;
 }
@@ -214,10 +265,24 @@ async function checkG1(siteDir: string): Promise<Finding> {
   return finding("G1", []);
 }
 
-// --- G2: self-contained (relative in-folder files; no exec/external source) --
+// --- G2: self-contained single document (inlined; no exec/external source) ---
 async function checkG2(siteDir: string, htmls: readonly HtmlFile[]): Promise<Finding> {
   const problems: string[] = [];
   for (const page of htmls) {
+    // Single-document delta (R4): any separate-file subresource silently blanks
+    // in the opaque-origin sandbox — inline it into index.html instead.
+    for (const el of page.elements) {
+      if (el.tag === "script" && el.attrs.get("src") !== undefined) {
+        problems.push(
+          `${page.relPath}: <script src="${el.attrs.get("src")}"> loads a separate file — the site must be a single inlined index.html (an opaque-origin sandbox refuses external subresources)`,
+        );
+      }
+      if (el.tag === "link" && el.attrs.get("href") !== undefined) {
+        problems.push(
+          `${page.relPath}: <link href="${el.attrs.get("href")}"> loads a separate subresource — inline it into index.html (an opaque-origin sandbox refuses external subresources)`,
+        );
+      }
+    }
     for (const { value: ref, context } of page.refs) {
       const kind = classifyRef(ref);
       switch (kind) {
@@ -243,7 +308,7 @@ async function checkG2(siteDir: string, htmls: readonly HtmlFile[]): Promise<Fin
         case "data":
         case "blob":
           // Inline data on an <img> etc. is self-contained; on a script/link/
-          // iframe or in CSS it is an arbitrary exec/style source.
+          // iframe/object or in CSS it is an arbitrary exec/style source.
           if (context === "exec" || context === "css") {
             problems.push(`${page.relPath}: ${kind}: ref in a ${context} position (arbitrary exec/style source)`);
           }
@@ -263,7 +328,7 @@ async function checkG2(siteDir: string, htmls: readonly HtmlFile[]): Promise<Fin
   return finding("G2", problems);
 }
 
-// --- G3: data globals present (statically, never executed) ------------------
+// --- G3: data globals present (statically, from inline <script>) ------------
 type ManifestInfo = {
   readonly sampleId: unknown;
   readonly producedFrom: unknown;
@@ -271,30 +336,22 @@ type ManifestInfo = {
   readonly dataGlobals: readonly string[];
 };
 
-async function checkG3(
-  siteDir: string,
-  dataJs: readonly JsFile[],
-): Promise<{ readonly finding: Finding; readonly manifest: ManifestInfo | null }> {
+function checkG3(jsSources: readonly JsSource[]): {
+  readonly finding: Finding;
+  readonly manifest: ManifestInfo | null;
+} {
   const problems: string[] = [];
-  const manifestPath = join(siteDir, "data", "manifest.js");
-  if (!(await existsAt(manifestPath))) {
-    return { finding: finding("G3", ["data/manifest.js missing"]), manifest: null };
-  }
 
-  // Aggregate every window.* global assigned across data/*.js (static parse).
+  // Aggregate every window.* global assigned across all inline <script> blocks
+  // (and any stray .js file), read statically — never executed.
   const globals = new Map<string, boolean>(); // name -> non-empty
   const globalValues = new Map<string, unknown>();
-  for (const f of dataJs) {
-    if (f.text.trim().length === 0) problems.push(`${f.relPath} is empty`);
-    if (f.analysis.syntaxError) {
-      problems.push(`${f.relPath}: could not parse (${f.analysis.syntaxError})`);
+  for (const { label, analysis } of jsSources) {
+    if (analysis.syntaxError) {
+      problems.push(`${label}: could not parse (${analysis.syntaxError})`);
       continue;
     }
-    const assigned = f.analysis.windowGlobals.filter((g) => g.nonEmpty);
-    if (assigned.length === 0 && f.text.trim().length > 0) {
-      problems.push(`${f.relPath} assigns no non-empty window.* global`);
-    }
-    for (const g of f.analysis.windowGlobals) {
+    for (const g of analysis.windowGlobals) {
       globals.set(g.name, (globals.get(g.name) ?? false) || g.nonEmpty);
       if (g.value !== undefined) globalValues.set(g.name, g.value);
     }
@@ -303,7 +360,7 @@ async function checkG3(
   const manifestValue = globalValues.get("REVIEW_MANIFEST");
   if (!globals.get("REVIEW_MANIFEST")) {
     return {
-      finding: finding("G3", [...problems, "data/manifest.js does not assign window.REVIEW_MANIFEST"]),
+      finding: finding("G3", [...problems, "no inline <script> assigns window.REVIEW_MANIFEST"]),
       manifest: null,
     };
   }
@@ -364,28 +421,42 @@ function checkG4(htmls: readonly HtmlFile[], allJs: readonly JsFile[]): Finding 
   return finding("G4", problems);
 }
 
-// --- G5: no runtime data loading (I3: data ships as .js globals) ------------
-function checkG5(htmls: readonly HtmlFile[], allJs: readonly JsFile[]): Finding {
+// --- G5: no exfil beyond the contract ---------------------------------------
+// Runtime data loading (I3), navigation (F1 — CSP-unblockable), inline event
+// handlers + <meta refresh> (F5/F6 — live under 'unsafe-inline'), and dynamic
+// code exec. This is the layer the CSP/sandbox CANNOT cover (see header).
+function checkG5(jsSources: readonly JsSource[], htmls: readonly HtmlFile[]): Finding {
   const problems: string[] = [];
-  const sources: { label: string; analysis: JsAnalysis }[] = allJs.map((f) => ({
-    label: f.relPath,
-    analysis: f.analysis,
-  }));
-  for (const page of htmls) {
-    page.inlineScripts.forEach((a, idx) =>
-      sources.push({ label: `${page.relPath} inline <script> #${idx + 1}`, analysis: a }),
-    );
-  }
-  for (const { label, analysis } of sources) {
+  for (const { label, analysis } of jsSources) {
     for (const call of analysis.fetchCalls) {
       const shown = call.url === null ? "fetch(<dynamic>)" : `fetch("${call.url}")`;
       problems.push(`${label}: ${shown} — the site must ship data as .js globals, never fetch at runtime (I3)`);
     }
     for (const sink of analysis.networkSinks) {
-      problems.push(`${label}: uses ${sink} (I3: no runtime data loading)`);
+      problems.push(`${label}: uses ${sink} (I3: no runtime data loading/exfil)`);
+    }
+    for (const sink of analysis.navigationSinks) {
+      problems.push(`${label}: navigation sink ${sink} — navigation is an exfil channel the CSP cannot block (F1)`);
+    }
+    for (const sink of analysis.execSinks) {
+      problems.push(`${label}: dynamic code-exec ${sink} — the contract needs no runtime eval`);
     }
     if (analysis.dynamicImports > 0) {
-      problems.push(`${label}: dynamic import() loads code at runtime (I3: load via <script> only)`);
+      problems.push(`${label}: dynamic import() loads code at runtime (I3: inline via <script> only)`);
+    }
+  }
+  // HTML-level exec/nav surfaces that 'unsafe-inline' now permits.
+  for (const page of htmls) {
+    for (const el of page.elements) {
+      for (const attr of el.attrs.keys()) {
+        if (/^on[a-z]+$/.test(attr)) {
+          problems.push(`${page.relPath}: inline <${el.tag} ${attr}=…> event handler — arbitrary JS that 'unsafe-inline' executes; the contract needs none (F5)`);
+        }
+      }
+      const metaUrl = metaRefreshUrl(el);
+      if (metaUrl !== null) {
+        problems.push(`${page.relPath}: <meta http-equiv=refresh${metaUrl ? ` url=${metaUrl}` : ""}> auto-navigates — an exfil channel the CSP cannot block (F6)`);
+      }
     }
   }
   return finding("G5", problems);
@@ -429,17 +500,19 @@ function checkG7(
 ): Finding {
   const problems: string[] = [];
   const htmlText = htmls.map((h) => h.text).join("\n");
+  // Inline scripts live in the HTML text; any stray .js files add their text.
   const jsText = allJs.map((j) => j.text).join("\n");
+  const combined = `${htmlText}\n${jsText}`;
 
   const hasExportControl =
-    /\.download\s*=/.test(jsText) ||
+    /\.download\s*=/.test(combined) ||
     /\bdownload\b/i.test(htmlText) ||
     /id\s*=\s*["'][^"']*export/i.test(htmlText);
   if (!hasExportControl) {
     problems.push("no verdict export control (a `download` surface or an export element)");
   }
 
-  const referencesSchema = /\bschema\b/.test(jsText);
+  const referencesSchema = /\bschema\b/.test(combined);
   const manifestHasSchema = typeof manifest?.verdictSchema === "string" && manifest.verdictSchema.length > 0;
   if (!referencesSchema || !manifestHasSchema) {
     problems.push("verdict `schema` string not referenced (I5: the export must carry a schema)");
@@ -547,6 +620,7 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
       const elements = parseHtml(text);
       const ids = new Set<string>();
       const inlineScripts: JsAnalysis[] = [];
+      const inlineScriptText: string[] = [];
       const scriptSrcRefs: string[] = [];
       for (const el of elements) {
         const id = el.attrs.get("id");
@@ -554,7 +628,10 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
         if (el.tag === "script") {
           const src = el.attrs.get("src");
           if (src === undefined) {
-            if (el.rawText && el.rawText.trim().length > 0) inlineScripts.push(analyzeJs(el.rawText));
+            if (el.rawText && el.rawText.trim().length > 0) {
+              inlineScripts.push(analyzeJs(el.rawText));
+              inlineScriptText.push(el.rawText);
+            }
           } else if (classifyRef(src.trim()) === "relative" && src.trim().endsWith(".js")) {
             scriptSrcRefs.push(src.trim());
           }
@@ -568,21 +645,30 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
         ids,
         refs: collectRefs(elements),
         inlineScripts,
+        inlineScriptText,
         scriptSrcRefs,
       };
     }),
   );
 
-  const dataDir = join(siteDir, "data") + sep;
-  const dataJs = allJs
-    .filter((j) => j.absPath.startsWith(dataDir))
-    .sort((a, b) => a.absPath.localeCompare(b.absPath));
+  // Every statically-analysed JS unit, inline blocks and stray .js files alike,
+  // feeds the global/sink gates. In the single-document contract the app lives
+  // entirely in inline <script> blocks.
+  const jsSources: JsSource[] = [
+    ...allJs.map((f) => ({ label: f.relPath, analysis: f.analysis })),
+    ...htmls.flatMap((page) =>
+      page.inlineScripts.map((analysis, idx) => ({
+        label: `${page.relPath} inline <script> #${idx + 1}`,
+        analysis,
+      })),
+    ),
+  ];
 
   const g1 = await checkG1(siteDir);
   const g2 = await checkG2(siteDir, htmls);
-  const { finding: g3, manifest } = await checkG3(siteDir, dataJs);
+  const { finding: g3, manifest } = checkG3(jsSources);
   const g4 = checkG4(htmls, allJs);
-  const g5 = checkG5(htmls, allJs);
+  const g5 = checkG5(jsSources, htmls);
   const g6 = checkG6(htmls, opts.cdnAllowlist);
   const g7 = checkG7(htmls, allJs, manifest);
   const { finding: g8, fidelity } = await checkG8(manifest, opts);

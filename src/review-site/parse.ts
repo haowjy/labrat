@@ -1,139 +1,74 @@
 import { parse as acornParse } from "acorn";
 import { full as walkFull } from "acorn-walk";
+import { parse as parse5, defaultTreeAdapter } from "parse5";
 
 /**
  * Static parsing utilities for the review-site linter (`check.ts`).
  *
  * SECURITY INVARIANT: producer-authored review-site code is NEVER executed.
- * The worker writes `data/*.js`, `assets/*.js`, and `index.html`; the gate
- * reviewer runs the linter in ITS OWN process, so any `node:vm`/`eval` of that
- * code is arbitrary code execution inside the reviewer (it can read the
- * reviewer's env / API keys and DoS the run). Everything here is a pure
- * STATIC parse: HTML is tokenised, JS is parsed to an AST with `acorn`, and
- * values are read off literal nodes only. No producer expression is evaluated.
+ * The worker writes `index.html` (with inline `<script>`/`<style>` blocks); the
+ * gate reviewer runs the linter in ITS OWN process, so any `node:vm`/`eval` of
+ * that code is arbitrary code execution inside the reviewer (it can read the
+ * reviewer's env / API keys and DoS the run). Everything here is a pure STATIC
+ * parse: HTML is parsed to a DOM tree with `parse5` (spec-compliant — entity
+ * decoding, comment/rawtext termination, and URL-bearing attributes are handled
+ * as the browser would), JS is parsed to an AST with `acorn`, and values are
+ * read off literal nodes only. No producer expression is evaluated.
  */
 
 // --- HTML -------------------------------------------------------------------
 
 export type HtmlElement = {
   readonly tag: string;
-  /** Lowercased attribute name → raw value ("" for boolean attributes). */
+  /** Lowercased attribute name → decoded value ("" for boolean attributes). */
   readonly attrs: ReadonlyMap<string, string>;
   /** Raw text content for rawtext elements (`<script>`, `<style>`). */
   readonly rawText?: string;
 };
 
-/** Elements whose content is raw text, not markup (never re-tokenised). */
+/** Elements whose single text child is their raw content (not markup). */
 const RAWTEXT = new Set(["script", "style", "textarea", "title"]);
 
-function isSpace(ch: string): boolean {
-  return ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\f";
-}
-
 /**
- * Tokenise HTML into its start elements (with attributes, incl. UNQUOTED
- * values) and the raw text of `<script>`/`<style>` blocks. Deliberately small
- * and robust rather than spec-perfect: it exists so the linter sees every
- * `src`/`href`/inline-script the browser would, closing the quoted-attr-regex
- * bypass class. Comments and doctype are skipped.
+ * Parse HTML into a flat list of its elements (tag + decoded attributes) and
+ * the raw text of `<script>`/`<style>` blocks, in document order. Backed by
+ * `parse5`, so the linter sees exactly what the browser's parser would: entity
+ * references in attribute values are decoded (`&#x68;ttps://` → `https://`),
+ * `--!>`/`</style bar>` terminate the constructs they should, and URL-bearing
+ * attributes on any element are visible. Nesting is flattened — the gates care
+ * about which elements exist and their attributes, not the tree shape.
  */
 export function parseHtml(html: string): readonly HtmlElement[] {
+  const doc = parse5(html);
   const elements: HtmlElement[] = [];
-  let i = 0;
-  const n = html.length;
 
-  while (i < n) {
-    const lt = html.indexOf("<", i);
-    if (lt === -1) break;
-    i = lt + 1;
-    if (i >= n) break;
-
-    // Comment.
-    if (html.startsWith("!--", i)) {
-      const end = html.indexOf("-->", i + 3);
-      i = end === -1 ? n : end + 3;
-      continue;
+  const visit = (node: unknown): void => {
+    if (!defaultTreeAdapter.isElementNode(node as never)) {
+      const children = (node as { childNodes?: unknown[] }).childNodes;
+      if (Array.isArray(children)) for (const child of children) visit(child);
+      return;
     }
-    // Doctype / declaration / CDATA.
-    if (html[i] === "!") {
-      const end = html.indexOf(">", i);
-      i = end === -1 ? n : end + 1;
-      continue;
-    }
-    // Closing tag.
-    if (html[i] === "/") {
-      const end = html.indexOf(">", i);
-      i = end === -1 ? n : end + 1;
-      continue;
-    }
-    // Not a tag start (bare `<`).
-    if (!/[a-zA-Z]/.test(html[i] ?? "")) continue;
-
-    // Tag name.
-    let j = i;
-    while (j < n && !isSpace(html[j] ?? "") && html[j] !== ">" && html[j] !== "/") j++;
-    const tag = html.slice(i, j).toLowerCase();
-    i = j;
-
-    // Attributes.
+    const el = node as {
+      tagName: string;
+      attrs: { name: string; value: string }[];
+      childNodes: { nodeName: string; value?: string }[];
+    };
+    const tag = el.tagName.toLowerCase();
     const attrs = new Map<string, string>();
-    while (i < n && html[i] !== ">") {
-      if (html[i] === "/") {
-        i++;
-        continue;
-      }
-      if (isSpace(html[i] ?? "")) {
-        i++;
-        continue;
-      }
-      // Attribute name.
-      let k = i;
-      while (
-        k < n &&
-        !isSpace(html[k] ?? "") &&
-        html[k] !== "=" &&
-        html[k] !== ">" &&
-        html[k] !== "/"
-      ) {
-        k++;
-      }
-      const name = html.slice(i, k).toLowerCase();
-      i = k;
-      // Optional value.
-      while (i < n && isSpace(html[i] ?? "")) i++;
-      let value = "";
-      if (html[i] === "=") {
-        i++;
-        while (i < n && isSpace(html[i] ?? "")) i++;
-        const q = html[i];
-        if (q === '"' || q === "'") {
-          i++;
-          const end = html.indexOf(q, i);
-          value = html.slice(i, end === -1 ? n : end);
-          i = end === -1 ? n : end + 1;
-        } else {
-          let v = i;
-          while (v < n && !isSpace(html[v] ?? "") && html[v] !== ">") v++;
-          value = html.slice(i, v);
-          i = v;
-        }
-      }
-      if (name && !attrs.has(name)) attrs.set(name, value);
+    for (const a of el.attrs) {
+      const name = a.name.toLowerCase();
+      if (!attrs.has(name)) attrs.set(name, a.value);
     }
-    if (i < n && html[i] === ">") i++;
-
-    // Rawtext content.
     if (RAWTEXT.has(tag)) {
-      const close = new RegExp(`</${tag}\\s*>`, "i").exec(html.slice(i));
-      const rawEnd = close ? i + close.index : n;
-      const rawText = html.slice(i, rawEnd);
-      elements.push({ tag, attrs, rawText });
-      i = close ? i + close.index + close[0].length : n;
+      const text = el.childNodes.find((c) => c.nodeName === "#text")?.value ?? "";
+      elements.push({ tag, attrs, rawText: text });
     } else {
       elements.push({ tag, attrs });
     }
-  }
+    for (const child of el.childNodes) visit(child);
+  };
 
+  visit(doc);
   return elements;
 }
 
@@ -183,8 +118,16 @@ export type JsAnalysis = {
   readonly syntaxError: string | null;
   readonly windowGlobals: readonly WindowGlobal[];
   readonly fetchCalls: readonly FetchCall[];
-  /** Runtime data-loading sinks used (XMLHttpRequest / WebSocket / EventSource). */
+  /** Data-exfil/loading sinks: XMLHttpRequest / WebSocket / EventSource /
+   * navigator.sendBeacon. */
   readonly networkSinks: readonly string[];
+  /** Navigation sinks (F1): assignment to `window.location`/`location.href`,
+   * `location.assign`/`.replace`, `window.open` — CSP `connect-src` does NOT
+   * block navigation, so ONLY the linter catches this exfil channel. */
+  readonly navigationSinks: readonly string[];
+  /** Dynamic code-exec sinks: `eval`, `new Function`, `setTimeout`/`setInterval`
+   * with a string body (live if `'unsafe-eval'` is ever added for Plotly). */
+  readonly execSinks: readonly string[];
   /** Count of dynamic `import(...)` expressions. */
   readonly dynamicImports: number;
   /** String-literal arguments to `document.getElementById("…")`. */
@@ -192,6 +135,8 @@ export type JsAnalysis = {
 };
 
 const NETWORK_CTORS = new Set(["XMLHttpRequest", "WebSocket", "EventSource"]);
+/** Identifiers that resolve to the global (window) object. */
+const WINDOW_ALIASES = new Set(["window", "self", "top", "parent", "globalThis", "frames"]);
 
 /** Statically evaluate a literal AST node; `{ known: false }` for anything else. */
 function evalStatic(node: EsNode | null): { known: boolean; value: unknown } {
@@ -286,22 +231,49 @@ function windowMemberName(node: EsNode | null): string | null {
   return prop?.type === "Identifier" ? String(prop["name"]) : null;
 }
 
-/** `document.getElementById` / bare `getElementById` callee, else identifier calls. */
-function calleeName(node: EsNode | null): string | null {
+/**
+ * Flatten a member/identifier chain to a dotted path (`window.location.href`),
+ * resolving computed members with a string-literal property (`window["fetch"]`
+ * → `window.fetch`) so aliased/computed sinks can't hide from a name match.
+ * Returns null if any segment is dynamic (a computed non-literal, a call, etc.).
+ */
+function memberPath(node: EsNode | null): string | null {
   if (!node) return null;
   if (node.type === "Identifier") return String(node["name"]);
-  if (node.type === "MemberExpression" && node["computed"] !== true) {
-    const prop = asNode(node["property"]);
-    return prop?.type === "Identifier" ? String(prop["name"]) : null;
+  if (node.type !== "MemberExpression") return null;
+  const objPath = memberPath(asNode(node["object"]));
+  if (objPath === null) return null;
+  const prop = asNode(node["property"]);
+  let key: string | null;
+  if (node["computed"] === true) {
+    key = prop?.type === "Literal" && typeof prop["value"] === "string" ? prop["value"] : null;
+  } else {
+    key = prop?.type === "Identifier" ? String(prop["name"]) : null;
   }
-  return null;
+  return key === null ? null : `${objPath}.${key}`;
+}
+
+/** A window-alias base is `undefined` (bare) or a known window alias. */
+function baseIsGlobal(base: string | undefined): boolean {
+  return base === undefined || WINDOW_ALIASES.has(base) || base === "document";
+}
+
+/** Does assigning to this path navigate the frame (`window.location` / `.href`)? */
+function isNavigationTarget(path: string): boolean {
+  const segs = path.split(".");
+  const last = segs[segs.length - 1];
+  if (last === "location") return baseIsGlobal(segs[segs.length - 2]);
+  if (last === "href" && segs[segs.length - 2] === "location") {
+    return baseIsGlobal(segs[segs.length - 3]);
+  }
+  return false;
 }
 
 /**
  * Parse JS to an AST and read off exactly what the gates need — never executing
- * it. Parsed as a classic script (the review-site contract loads `.js` via
- * `<script src>`, not modules); a static `import`/`export` therefore surfaces
- * as a syntax error, which G4 reports.
+ * it. Parsed as a classic script (the review-site contract inlines `.js` in
+ * `<script>` blocks, not modules); a static `import`/`export` therefore
+ * surfaces as a syntax error, which G4 reports.
  */
 export function analyzeJs(source: string): JsAnalysis {
   let program: EsNode;
@@ -316,6 +288,8 @@ export function analyzeJs(source: string): JsAnalysis {
       windowGlobals: [],
       fetchCalls: [],
       networkSinks: [],
+      navigationSinks: [],
+      execSinks: [],
       dynamicImports: 0,
       getElementByIds: [],
     };
@@ -324,19 +298,34 @@ export function analyzeJs(source: string): JsAnalysis {
   const windowGlobals: WindowGlobal[] = [];
   const fetchCalls: FetchCall[] = [];
   const networkSinks: string[] = [];
+  const navigationSinks: string[] = [];
+  const execSinks: string[] = [];
   const getElementByIds: string[] = [];
   let dynamicImports = 0;
+
+  const addSink = (list: string[], value: string): void => {
+    if (!list.includes(value)) list.push(value);
+  };
+  const firstArgIsString = (node: EsNode): boolean => {
+    const args = node["arguments"];
+    const first = Array.isArray(args) ? asNode(args[0]) : null;
+    const ev = evalStatic(first);
+    return ev.known && typeof ev.value === "string";
+  };
 
   walkFull(program as never, (raw) => {
     const node = asNode(raw);
     if (!node) return;
 
     if (node.type === "AssignmentExpression" && node["operator"] === "=") {
-      const name = windowMemberName(asNode(node["left"]));
+      const left = asNode(node["left"]);
+      const name = windowMemberName(left);
       if (name !== null) {
         const { known, value } = evalStatic(asNode(node["right"]));
         windowGlobals.push({ name, nonEmpty: nonEmptyLiteral(known, value), value });
       }
+      const path = memberPath(left);
+      if (path !== null && isNavigationTarget(path)) addSink(navigationSinks, `${path} = …`);
       return;
     }
 
@@ -346,15 +335,39 @@ export function analyzeJs(source: string): JsAnalysis {
     }
 
     if (node.type === "NewExpression" || node.type === "CallExpression") {
-      const name = calleeName(asNode(node["callee"]));
-      if (name === "fetch") {
+      const callee = asNode(node["callee"]);
+      const path = memberPath(callee);
+      const segs = path === null ? [] : path.split(".");
+      const last = segs[segs.length - 1] ?? "";
+      const base = segs[segs.length - 2];
+
+      // Runtime code-exec constructor: new Function(...) / Function(...).
+      if (last === "Function" && baseIsGlobal(base)) {
+        addSink(execSinks, "Function(…)");
+        return;
+      }
+      if (node.type === "NewExpression") {
+        if (last !== "" && NETWORK_CTORS.has(last)) addSink(networkSinks, last);
+        return;
+      }
+
+      // CallExpression from here.
+      if (last === "fetch" && baseIsGlobal(base)) {
         const args = node["arguments"];
         const first = Array.isArray(args) ? asNode(args[0]) : null;
         const ev = evalStatic(first);
         fetchCalls.push({ url: ev.known && typeof ev.value === "string" ? ev.value : null });
-      } else if (name !== null && NETWORK_CTORS.has(name)) {
-        if (!networkSinks.includes(name)) networkSinks.push(name);
-      } else if (name === "getElementById") {
+      } else if (last === "sendBeacon") {
+        addSink(networkSinks, "navigator.sendBeacon");
+      } else if ((last === "assign" || last === "replace") && base === "location") {
+        addSink(navigationSinks, `${path}(…)`);
+      } else if (last === "open" && baseIsGlobal(base)) {
+        addSink(navigationSinks, "window.open(…)");
+      } else if (last === "eval" && baseIsGlobal(base)) {
+        addSink(execSinks, "eval(…)");
+      } else if ((last === "setTimeout" || last === "setInterval") && firstArgIsString(node)) {
+        addSink(execSinks, `${last}("<string body>")`);
+      } else if (last === "getElementById") {
         const args = node["arguments"];
         const first = Array.isArray(args) ? asNode(args[0]) : null;
         const ev = evalStatic(first);
@@ -368,6 +381,8 @@ export function analyzeJs(source: string): JsAnalysis {
     windowGlobals,
     fetchCalls,
     networkSinks,
+    navigationSinks,
+    execSinks,
     dynamicImports,
     getElementByIds,
   };

@@ -39,6 +39,13 @@ export function reviewArtifactCheckPath(taskDir: string, phaseId: string): strin
  * This is what makes a failing site gated OUT deterministically — the reviewer
  * reading the file is the primary path, this is the harness backstop. Returns
  * the failure feedback, or null when there's nothing to block on.
+ *
+ * The linter is best-effort structural + self-containment analysis; it is ONE
+ * of the two boundary layers, not the whole story. The opaque sandbox + CSP
+ * (Lane A) contain external subresource loads and network connections; the
+ * linter (G5) contains navigation + inline-handler exfil, which the CSP cannot
+ * block under the `'unsafe-inline'` the inlined site requires (R4). A failing
+ * report here means the STRUCTURAL/self-containment layer rejected the site.
  */
 export function reviewSiteGateFailure(report: ReviewSiteReport | null): string | null {
   if (report === null || report.ok) return null;
