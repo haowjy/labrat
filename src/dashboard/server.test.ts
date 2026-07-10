@@ -134,4 +134,41 @@ describe("POST /api/tasks/:id/review/finish", () => {
     const phase = (await res.json()) as Record<string, any>;
     assert.equal(phase.humanVerdict, null);
   });
+
+  it("closes the loop end to end: finish with a null proposed, then GET /api/tasks/:id surfaces humanVerdict on the matching phase entry", async () => {
+    const { base } = await boot();
+    const body = {
+      phase: "segmentation",
+      human_verdict: "fail",
+      corrected: true,
+      notes: "Femur landmark needed a manual correction; no pre-drag position was sent.",
+      adjustments: [{ id: "lm-1", proposed: null, corrected: { x: 1, y: 2, z: 3 } }],
+    };
+
+    const postRes = await fetch(`${base}/api/tasks/${TASK_ID}/review/finish`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(postRes.status, 201);
+
+    const taskRes = await fetch(`${base}/api/tasks/${TASK_ID}`);
+    assert.equal(taskRes.status, 200);
+    const task = (await taskRes.json()) as Record<string, any>;
+    const entry = (task.timeline as Array<Record<string, any>>).find(
+      (e) => e.phase === "segmentation",
+    );
+    assert.ok(entry, "expected a segmentation timeline entry");
+    assert.ok(entry.humanVerdict, "expected humanVerdict to be populated on the timeline entry");
+    assert.equal(entry.humanVerdict.human_verdict, "fail");
+    assert.deepEqual(entry.humanVerdict.corrected, true);
+    assert.equal(
+      entry.humanVerdict.notes,
+      "Femur landmark needed a manual correction; no pre-drag position was sent.",
+    );
+    assert.ok(entry.humanVerdict.reviewed_at, "expected a reviewed_at stamp");
+    assert.deepEqual(entry.humanVerdict.adjustments, [
+      { id: "lm-1", proposed: null, corrected: { x: 1, y: 2, z: 3 } },
+    ]);
+  });
 });

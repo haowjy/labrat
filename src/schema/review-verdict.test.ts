@@ -62,6 +62,32 @@ describe("validateReviewFinishInput (POST /api/tasks/:id/review/finish body)", (
     assert.equal(res.ok, false);
   });
 
+  it("accepts a null proposed (review-site interaction message has no pre-drag position, gh #20)", () => {
+    const res = validateReviewFinishInput({
+      ...valid,
+      adjustments: [{ id: "x", proposed: null, corrected: { x: 1, y: 2, z: 3 } }],
+    });
+    assert.equal(res.ok, true);
+    if (res.ok) assert.equal(res.value.adjustments[0]?.proposed, null);
+  });
+
+  it("treats a missing proposed key the same as null", () => {
+    const res = validateReviewFinishInput({
+      ...valid,
+      adjustments: [{ id: "x", corrected: { x: 1, y: 2, z: 3 } }],
+    });
+    assert.equal(res.ok, true);
+    if (res.ok) assert.equal(res.value.adjustments[0]?.proposed, null);
+  });
+
+  it("still rejects a malformed non-null proposed (missing coordinate)", () => {
+    const res = validateReviewFinishInput({
+      ...valid,
+      adjustments: [{ id: "x", proposed: { x: 1 }, corrected: { x: 1, y: 2, z: 3 } }],
+    });
+    assert.equal(res.ok, false);
+  });
+
   it("rejects a non-numeric coordinate", () => {
     const res = validateReviewFinishInput({
       ...valid,

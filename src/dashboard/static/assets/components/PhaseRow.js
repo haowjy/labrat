@@ -141,33 +141,30 @@ function GateBlock({ gate }) {
 
 /** The human review verdict, read back from the persisted task-tree write
  * (goal doc: "the chain view reads the persisted verdict back... shows the
- * completed chain (agent confidence + human verdict)"). ASSUMPTION (flagged
- * in the Lane B report): Lane A's read route is expected to surface this as
- * a `humanReview` field on the GET /api/tasks/:id response, shaped after the
- * pinned POST /review/finish body plus a `reviewed_at` stamp. Read
- * defensively — if the field is named differently or absent (Lane A not yet
- * merged, or this phase was never finished), nothing renders here; the rest
- * of the chain is unaffected. */
-function HumanVerdict({ humanReview }) {
-  if (!humanReview) return null;
-  const pass = humanReview.human_verdict === "pass";
+ * completed chain (agent confidence + human verdict)"). Sourced per-phase
+ * from `entry.humanVerdict` on the GET /api/tasks/:id timeline entry (same
+ * `ReviewVerdictRecord` shape `getPhase()` returns), so it's null until this
+ * phase has actually been finished. */
+function HumanVerdict({ humanVerdict }) {
+  if (!humanVerdict) return null;
+  const pass = humanVerdict.human_verdict === "pass";
   return html`
     <div class="human-verdict">
       <span class="pill ${pass ? "pill-pass" : "pill-fail"}"
-        >human: ${humanReview.human_verdict}</span
+        >human: ${humanVerdict.human_verdict}</span
       >
-      ${humanReview.corrected ? html`<span class="pill pill-warn">corrected</span>` : null}
-      ${humanReview.reviewed_at
-        ? html`<span class="human-verdict-time">reviewed ${fmtTime(humanReview.reviewed_at)}</span>`
+      ${humanVerdict.corrected ? html`<span class="pill pill-warn">corrected</span>` : null}
+      ${humanVerdict.reviewed_at
+        ? html`<span class="human-verdict-time">reviewed ${fmtTime(humanVerdict.reviewed_at)}</span>`
         : null}
-      ${humanReview.notes
-        ? html`<div class="human-verdict-notes">${humanReview.notes}</div>`
+      ${humanVerdict.notes
+        ? html`<div class="human-verdict-notes">${humanVerdict.notes}</div>`
         : null}
     </div>
   `;
 }
 
-export function PhaseRow({ taskId, entry, last, refreshTick, humanReview, onOpenLightbox, onOpenReviews }) {
+export function PhaseRow({ taskId, entry, last, refreshTick, onOpenLightbox, onOpenReviews }) {
   const [detail, setDetail] = useState(null);
 
   useEffect(() => {
@@ -213,7 +210,7 @@ export function PhaseRow({ taskId, entry, last, refreshTick, humanReview, onOpen
 
         <${GateBlock} gate=${entry.gate} />
 
-        <${HumanVerdict} humanReview=${humanReview} />
+        <${HumanVerdict} humanVerdict=${entry.humanVerdict} />
 
         ${entry.hasReviewSite
           ? html`<button type="button" class="btn review-link" onClick=${onOpenReviews}>

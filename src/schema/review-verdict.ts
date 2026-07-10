@@ -41,7 +41,12 @@ export type Point3D = {
 
 export type LandmarkAdjustment = {
   readonly id: string;
-  readonly proposed: Point3D;
+  /**
+   * The pre-drag position, or `null` when the review-site's `interaction`
+   * postMessage doesn't carry one (known gap, gh #20) — never backfilled
+   * from disk.
+   */
+  readonly proposed: Point3D | null;
   readonly corrected: Point3D;
 };
 
@@ -57,6 +62,16 @@ function validatePoint3D(value: unknown, path: string): ValidationResult<Point3D
   return success({ x: x.value, y: y.value, z: z.value });
 }
 
+function validateNullablePoint3D(
+  value: unknown,
+  path: string,
+): ValidationResult<Point3D | null> {
+  if (value === undefined || value === null) {
+    return success(null);
+  }
+  return validatePoint3D(value, path);
+}
+
 function validateLandmarkAdjustment(
   value: unknown,
   path: string,
@@ -65,7 +80,7 @@ function validateLandmarkAdjustment(
   if (!rec.ok) return rec;
   const id = expectNonEmptyString(rec.value["id"], `${path}.id`);
   if (!id.ok) return id;
-  const proposed = validatePoint3D(rec.value["proposed"], `${path}.proposed`);
+  const proposed = validateNullablePoint3D(rec.value["proposed"], `${path}.proposed`);
   if (!proposed.ok) return proposed;
   const corrected = validatePoint3D(rec.value["corrected"], `${path}.corrected`);
   if (!corrected.ok) return corrected;
