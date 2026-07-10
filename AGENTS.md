@@ -45,5 +45,7 @@ authoring tool — the skills are authored in **Claude Science**; this repo
 
 - Repo-local contracts, config precedence, runtime substrate, commands →
   [`.context/CONTEXT.md`](.context/CONTEXT.md)
-- Domain (OA / micro-CT), the authored skills, product thesis, and the Claude
-  Science relationship → KB `labrat-domain-and-skills.md`
+- Domain (OA / micro-CT), the authored skills, and the Claude Science
+  relationship → KB `labrat-domain-and-skills.md`
+- Product vision and trust architecture → KB `labrat-vision.md`; build status
+  and gh-issue-keyed roadmap → KB `labrat-roadmap.md`
