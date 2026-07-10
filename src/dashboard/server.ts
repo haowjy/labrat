@@ -15,6 +15,47 @@ import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
 
 /**
+ * CDN origins the review page's <script> tags may load from. Hardcoded for the
+ * demo; the design's per-phase `cdn_allowlist` field is forward-compat (Lane F).
+ * Wiring it in is a one-liner: pass the phase's value to `reviewSiteCsp()` at
+ * the call site instead of relying on this default.
+ */
+const REVIEW_SITE_CDN_ALLOWLIST = "https://cdn.jsdelivr.net https://cdn.plot.ly";
+
+/**
+ * Build the Content-Security-Policy for the review-site route (design C5/R2).
+ * Quarantines a served review page to its own bytes + allow-listed CDNs:
+ * `connect-src 'none'` blocks fetch/XHR back to the dashboard APIs;
+ * `frame-ancestors 'self'` (C5) stops third-party framing; `base-uri 'none'`
+ * blocks <base> rewriting. Decision point (C4): if/when a route serves a Plotly
+ * template, add `'unsafe-eval'` to script-src here — Plotly's bundle evals.
+ */
+export function reviewSiteCsp(cdnAllowlist: string = REVIEW_SITE_CDN_ALLOWLIST): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' ${cdnAllowlist}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'none'",
+    "frame-ancestors 'self'",
+    "base-uri 'none'",
+  ].join("; ");
+}
+
+/**
+ * Resolve a request path under a task's artifacts/review-site/ to an absolute
+ * file, or null if any segment escapes the tree. Delegates traversal guarding
+ * to resolveTaskFile — the single seam that keeps serving inside the task tree.
+ */
+export function resolveReviewSiteFile(
+  tasksDir: string,
+  id: string,
+  segments: readonly string[],
+): string | null {
+  return resolveTaskFile(tasksDir, id, ["artifacts", "review-site", ...segments]);
+}
+
+/**
  * Build the dashboard Express app (Process B, design §4). Every data route
  * reads only disk under `config.tasksDir`; the only live channel is /events,
  * which carries notifications, not data.
@@ -68,6 +109,27 @@ export function createApp(config: DashboardConfig): Express {
       res.status(400).json({ error: "invalid path" });
       return;
     }
+    res.sendFile(file, (err) => {
+      if (err && !res.headersSent) res.status(404).end();
+    });
+  });
+
+  // Review-site static serve (design §3 two-layer trust, C5/R2). Serves ANY
+  // task's artifacts/review-site/ tree over one route, quarantined by a CSP so a
+  // review page can only reach its own bytes + the allow-listed CDN — never the
+  // dashboard's own APIs or a parent frame. Generic by contract: no
+  // skill-specific logic. Traversal is guarded solely by resolveTaskFile
+  // (path-to-regexp already splits *path into decoded segments; ".." / empty /
+  // absolute segments are rejected there, keeping serving inside the task tree).
+  app.get("/api/tasks/:id/review-site/*path", (req, res) => {
+    const segments = req.params.path as string[];
+    const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
+    if (!file) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    res.setHeader("Content-Security-Policy", reviewSiteCsp());
+    // sendFile sets Content-Type from the extension (.html/.js/.css/.json).
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
