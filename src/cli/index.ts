@@ -9,6 +9,7 @@ import {
   runPhaseInIsolation,
   runStandaloneGate,
 } from "../harness/orchestrator/index.js";
+import { runCheckReviewSiteCli } from "../review-site/cli.js";
 
 function expandUserPath(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -83,6 +84,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "check-review-site") {
+    const code = await runCheckReviewSiteCli(args.slice(1));
+    process.exit(code);
+  }
+
   if (command === "resume") {
     const taskId = args[1];
     if (!taskId) {
@@ -123,6 +129,7 @@ async function main(): Promise<void> {
   console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
   console.error("       labrat gate <task-id> <phase>");
   console.error("       labrat run-phase <task-id> <phase> [--gate]");
+  console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");
   console.error("       labrat resume <task-id>");
   console.error("       labrat reset-to <task-id> <phase>");
   process.exit(1);

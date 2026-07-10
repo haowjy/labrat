@@ -113,6 +113,7 @@ When the entire phase is complete:
 
 Declared artifact outputs for this phase:
 ${outputs.map((o) => `- artifacts/${o}`).join("\n") || "(none)"}
+${phase.cdn_allowlist !== undefined ? `\nPhase \`cdn_allowlist\` (external origins your review site may load, review-site linter G6): ${JSON.stringify(phase.cdn_allowlist)}` : ""}
 
 ${subphaseIds.length > 0 ? `Subphases (mark each before record_phase): ${subphaseIds.join(", ")}` : ""}`;
 
@@ -252,6 +253,7 @@ ${subphaseReviewTopics}
 
 Declared artifact outputs for this phase (relative to \`artifacts/\`):
 ${outputs.map((o) => `- artifacts/${o}`).join("\n") || "(none)"}
+${phase.cdn_allowlist !== undefined ? `\nPhase \`cdn_allowlist\` (external origins this review site may load, review-site linter G6): ${JSON.stringify(phase.cdn_allowlist)}` : ""}
 
 When finished, call \`submit_gate_decision\` **exactly once** with:
 - \`decision\`: one of \`pass\`, \`fail\`, \`fail-upstream\`, \`pass-with-concerns\`

@@ -8,7 +8,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/cli/index.ts",
-    "test": "tsx --test src/config/config.test.ts src/schema/smoke.test.ts src/harness/session/trust-boundary.test.ts src/harness/session/monitor.test.ts src/harness/orchestrator/gate.test.ts src/harness/orchestrator/invalidation.test.ts src/dashboard/review-site.test.ts src/harness/tools/direct-call.test.ts",
+    "test": "tsx --test src/config/config.test.ts src/schema/smoke.test.ts src/harness/session/trust-boundary.test.ts src/harness/session/monitor.test.ts src/harness/orchestrator/gate.test.ts src/harness/orchestrator/invalidation.test.ts src/dashboard/review-site.test.ts src/harness/tools/direct-call.test.ts src/review-site/check.test.ts",
     "smoke": "tsx validation/smoke/run.ts",
     "monitor": "tsx validation/monitor/run.ts"
   },

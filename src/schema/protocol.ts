@@ -105,6 +105,14 @@ export type ProtocolPhase = {
   readonly outputs?: readonly string[];
   readonly subphases?: readonly ProtocolSubphase[];
   readonly agent?: string;
+  /**
+   * External resource origins a `review-artifact` phase's review site may load
+   * (design review-template.md §1 I4 / §2 G6). Protocol-scoped, not
+   * skill-scoped: the same review skill renders Plotly here, Three.js
+   * elsewhere. Empty (or absent) = fully offline, only `'self'`. The gate's
+   * `check_review_site` reads it for G6.
+   */
+  readonly cdn_allowlist?: readonly string[];
 };
 
 export type SubagentDefinition = {
@@ -288,6 +296,13 @@ function validatePhase(
   );
   if (!agent.ok) return agent;
 
+  const cdn_allowlist = expectOptional(
+    rec.value["cdn_allowlist"],
+    `${path}.cdn_allowlist`,
+    (v, p) => expectStringArray(v, p),
+  );
+  if (!cdn_allowlist.ok) return cdn_allowlist;
+
   return success({
     id: id.value,
     skills: skills.value,
@@ -295,6 +310,7 @@ function validatePhase(
     ...(outputs.value !== undefined ? { outputs: outputs.value } : {}),
     ...(subphases !== undefined ? { subphases } : {}),
     ...(agent.value !== undefined ? { agent: agent.value } : {}),
+    ...(cdn_allowlist.value !== undefined ? { cdn_allowlist: cdn_allowlist.value } : {}),
   });
 }
 
