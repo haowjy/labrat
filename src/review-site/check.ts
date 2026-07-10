@@ -355,6 +355,9 @@ type ManifestInfo = {
   readonly dataGlobals: readonly string[];
 };
 
+/** A `window.<NAME> = "__REVIEW_INJECT:<NAME>__"` serve-time placeholder value. */
+const INJECT_SENTINEL = /^__REVIEW_INJECT:(.+)__$/;
+
 function checkG3(jsSources: readonly JsSource[]): {
   readonly finding: Finding;
   readonly manifest: ManifestInfo | null;
@@ -401,6 +404,57 @@ function checkG3(jsSources: readonly JsSource[]): {
       problems.push(`declared data global window.${name} is missing or empty`);
     }
   }
+
+  // Serve-time injection hardening (review-data-injection.md): when the manifest
+  // declares data_sources, the template's placeholders and the manifest's
+  // sources must agree, else the server would splice into a document the linter
+  // never validated as consistent. Additive — a fully-inlined manifest (no
+  // data_sources) skips this entirely and G3 is unchanged.
+  const ds = mf["data_sources"];
+  const dataSourceGlobals =
+    ds !== null && typeof ds === "object"
+      ? Object.keys(ds as Record<string, unknown>)
+      : [];
+  if (ds !== null && typeof ds === "object") {
+    const declaredSet = new Set(declared);
+    for (const key of dataSourceGlobals) {
+      if (!declaredSet.has(key)) {
+        problems.push(`data_sources.${key} is not listed in data_globals`);
+      }
+    }
+    // Every placeholder-assigned global (static sentinel value) must be declared
+    // as a source, or the server has no artifact to fill it with.
+    const sourceSet = new Set(dataSourceGlobals);
+    for (const [name, value] of globalValues) {
+      if (typeof value === "string" && INJECT_SENTINEL.test(value) && !sourceSet.has(name)) {
+        problems.push(`window.${name} is an injection placeholder with no data_sources entry`);
+      }
+    }
+    // Every source's artifact path must carry a produced_from hash — the same
+    // path-portion lookup the server performs at splice time. Catching the
+    // mismatch here means the template fails the GATE, not the serve.
+    const producedFromPaths = new Set<string>();
+    const pf = mf["produced_from"];
+    if (pf !== null && typeof pf === "object") {
+      for (const ref of Object.values(pf as Record<string, unknown>)) {
+        if (typeof ref !== "string") continue;
+        const at = ref.lastIndexOf("@");
+        if (at !== -1) producedFromPaths.add(ref.slice(0, at));
+      }
+    }
+    for (const [key, raw] of Object.entries(ds as Record<string, unknown>)) {
+      const artifact =
+        raw !== null && typeof raw === "object"
+          ? (raw as Record<string, unknown>)["artifact"]
+          : undefined;
+      if (typeof artifact === "string" && artifact.length > 0 && !producedFromPaths.has(artifact)) {
+        problems.push(
+          `data_sources.${key} artifact "${artifact}" has no matching produced_from entry (the server cannot verify its hash)`,
+        );
+      }
+    }
+  }
+
   const manifest: ManifestInfo = {
     sampleId: mf["sample_id"],
     producedFrom: mf["produced_from"],
@@ -639,6 +693,40 @@ async function checkG8(
     problems.push(
       `fidelity required but the measurement is unavailable (${measurementFile ?? "no path supplied"})`,
     );
+  }
+
+  // Multi-source provenance (review-data-injection.md): a template may inject
+  // more than one artifact, each declared under its own produced_from key
+  // ("path@<sha256>"). Verify every ADDITIONAL entry the same way — hash the
+  // on-disk file under measurementsRoot. `measurement` stays the primary
+  // (handled above with the sample_id cross-check); the single-measurement case
+  // adds no extra entries, so it is unchanged.
+  if (pf !== null && typeof pf === "object") {
+    for (const [key, ref] of Object.entries(pf as Record<string, unknown>)) {
+      if (key === "measurement") continue;
+      if (typeof ref !== "string") {
+        problems.push(`manifest produced_from.${key} is not a "path@<sha256>" string`);
+        continue;
+      }
+      const kat = ref.lastIndexOf("@");
+      const kPath = kat === -1 ? "" : ref.slice(0, kat);
+      const kHash = kat === -1 ? "" : ref.slice(kat + 1);
+      if (kat === -1 || !HEX64.test(kHash)) {
+        problems.push(`manifest produced_from.${key} is not "path@<sha256>" (got "${ref}")`);
+        continue;
+      }
+      const kFile = opts.measurementsRoot ? resolveMeasurement(opts.measurementsRoot, kPath) : null;
+      if (kFile && (await existsAt(kFile))) {
+        const kActual = createHash("sha256").update(await readFile(kFile)).digest("hex");
+        if (kHash !== kActual) {
+          problems.push(
+            `manifest produced_from.${key} hash ${kHash.slice(0, 12)}… ≠ file ${kActual.slice(0, 12)}… (stale/mismatched site)`,
+          );
+        }
+      } else if (opts.requireFidelity) {
+        problems.push(`fidelity required but produced_from.${key} is unavailable (${kFile ?? "no path supplied"})`);
+      }
+    }
   }
 
   return { finding: finding("G8", problems), fidelity };

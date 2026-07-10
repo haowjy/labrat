@@ -9,6 +9,37 @@ import { checkReviewSite, type Finding, type GateId, type ReviewSiteReport } fro
 import { resolveArtifactRefs } from "../harness/provenance/index.js";
 
 const FIXTURE = fileURLToPath(new URL("../../validation/fixtures/review-site", import.meta.url));
+const INJECTED_FIXTURE = fileURLToPath(
+  new URL("../../validation/fixtures/review-site-injected", import.meta.url),
+);
+
+/**
+ * Lay out the serve-time-injection fixture as a real task's `artifacts/` tree:
+ * the template under `artifacts/review-site/` and the declared artifact under
+ * `artifacts/landmarks/geometry.json` (the path `produced_from`/`data_sources`
+ * name). Returns the artifacts root so G8's `measurementsRoot` can hash it.
+ */
+async function scratchInjectedFixture(): Promise<{
+  siteDir: string;
+  artifactsRoot: string;
+  cleanup: () => Promise<void>;
+}> {
+  const root = await mkdtemp(join(tmpdir(), "review-site-injected-"));
+  const artifactsRoot = join(root, "artifacts");
+  await mkdir(join(artifactsRoot, "landmarks"), { recursive: true });
+  await cp(join(INJECTED_FIXTURE, "review-site"), join(artifactsRoot, "review-site"), {
+    recursive: true,
+  });
+  await cp(
+    join(INJECTED_FIXTURE, "data", "geometry.json"),
+    join(artifactsRoot, "landmarks", "geometry.json"),
+  );
+  return {
+    siteDir: join(artifactsRoot, "review-site"),
+    artifactsRoot,
+    cleanup: () => rm(root, { recursive: true, force: true }),
+  };
+}
 
 function gate(report: ReviewSiteReport, id: GateId): Finding {
   const f = report.findings.find((x) => x.gate === id);
@@ -700,6 +731,91 @@ describe("check_review_site — parse-don't-execute closes the bypass classes", 
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
       assert.equal(gate(report, "G4").ok, false, gate(report, "G4").detail);
       assert.match(gate(report, "G4").detail, /ghost-node/);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("check_review_site — serve-time injection fixture (data_sources placeholders)", () => {
+  it("the injected-data fixture passes every gate (G3 hardening + G8 fidelity)", async () => {
+    const { siteDir, artifactsRoot, cleanup } = await scratchInjectedFixture();
+    try {
+      const report = await checkReviewSite({
+        siteDir,
+        cdnAllowlist: [],
+        measurementsRoot: artifactsRoot,
+        expectedSampleId: "oa-knee-0007",
+        requireFidelity: true,
+      });
+      for (const f of report.findings) {
+        assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
+      }
+      assert.equal(report.ok, true);
+      assert.equal(report.fidelity, "verified");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("G3: a data_sources key missing from data_globals fails G3", async () => {
+    const { siteDir, artifactsRoot, cleanup } = await scratchInjectedFixture();
+    try {
+      // Drop REVIEW_GEOMETRY from data_globals while data_sources still names it.
+      await edit(siteDir, "index.html", (s) =>
+        s.replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_GEOMETRY"]', 'data_globals: ["REVIEW_MANIFEST"]'),
+      );
+      const report = await checkReviewSite({
+        siteDir,
+        cdnAllowlist: [],
+        measurementsRoot: artifactsRoot,
+      });
+      assert.equal(gate(report, "G3").ok, false, gate(report, "G3").detail);
+      assert.match(gate(report, "G3").detail, /data_sources\.REVIEW_GEOMETRY is not listed in data_globals/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("G3: a data_sources artifact with no produced_from entry fails G3 (lint-time, not serve-time)", async () => {
+    const { siteDir, artifactsRoot, cleanup } = await scratchInjectedFixture();
+    try {
+      // Rename only the produced_from path; data_sources still names
+      // landmarks/geometry.json, so the server would have no hash to verify —
+      // the gate must catch that before serve time.
+      await edit(siteDir, "index.html", (s) =>
+        s.replace("landmarks/geometry.json@", "landmarks/other.json@"),
+      );
+      const report = await checkReviewSite({
+        siteDir,
+        cdnAllowlist: [],
+        measurementsRoot: artifactsRoot,
+      });
+      assert.equal(gate(report, "G3").ok, false, gate(report, "G3").detail);
+      assert.match(
+        gate(report, "G3").detail,
+        /data_sources\.REVIEW_GEOMETRY artifact "landmarks\/geometry\.json" has no matching produced_from entry/,
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("G3: an injection placeholder with no data_sources entry fails G3", async () => {
+    const { siteDir, artifactsRoot, cleanup } = await scratchInjectedFixture();
+    try {
+      // Rename the data_sources key so the REVIEW_GEOMETRY placeholder
+      // assignment is left with no source entry (block stays valid JS).
+      await edit(siteDir, "index.html", (s) =>
+        s.replace("REVIEW_GEOMETRY: {", "REVIEW_ABSENT: {"),
+      );
+      const report = await checkReviewSite({
+        siteDir,
+        cdnAllowlist: [],
+        measurementsRoot: artifactsRoot,
+      });
+      assert.equal(gate(report, "G3").ok, false, gate(report, "G3").detail);
+      assert.match(gate(report, "G3").detail, /REVIEW_GEOMETRY is an injection placeholder with no data_sources entry/);
     } finally {
       await cleanup();
     }
