@@ -1,7 +1,7 @@
-import { access, mkdir, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, type LabratConfig } from "../../config/index.js";
-import type { TaskJson } from "../../schema/index.js";
+import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
 import { validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 import { configureEvents, notifyEvent } from "../events/index.js";
@@ -62,6 +62,32 @@ async function readPhaseSummary(
     return undefined;
   }
   return readFile(summaryPath, "utf8");
+}
+
+/**
+ * Rebuild the in-memory `priorPhaseSummaries` map from `phases/<id>/summary.md`
+ * on disk (the one disk-contract exception — see AGENTS.md). Used by both
+ * task-level resume and single-phase isolation so a phase run outside the
+ * normal `runTask` loop still sees the same upstream context the live loop
+ * would have passed in memory.
+ */
+export async function reconstructPriorSummaries(
+  taskDir: string,
+  protocolYaml: ProtocolYaml,
+  phaseId: string,
+): Promise<Record<string, string>> {
+  const phaseIds = protocolYaml.phases.map((p) => p.id);
+  const idx = phaseIds.indexOf(phaseId);
+  const upstream = idx === -1 ? phaseIds : phaseIds.slice(0, idx);
+
+  const summaries: Record<string, string> = {};
+  for (const id of upstream) {
+    const summary = await readPhaseSummary(taskDir, id);
+    if (summary) {
+      summaries[id] = summary;
+    }
+  }
+  return summaries;
 }
 
 async function writeTaskJson(taskDir: string, task: TaskJson): Promise<void> {
@@ -197,10 +223,26 @@ export async function runTask(
   const runtime = pythonRuntime();
   const phaseIds = orchestratorConfig.protocol.yaml.phases.map((p) => p.id);
   const phaseResults: PhaseRunResult[] = [];
-  const priorSummaries: Record<string, string> = {};
   const attemptByPhase = new Map<string, number>();
 
-  let pointer = 0;
+  // Resume-aware: start at the first phase NOT already in `phasesComplete`
+  // instead of always phase 0. A fresh `enqueue` task has `phasesComplete:
+  // []`, so `pointer` still starts at 0 for it — this is a strict superset
+  // of the old behavior, not a branch on top of it.
+  const startTask = await loadTaskJson(orchestratorConfig.taskDir);
+  let pointer = phaseIds.findIndex((id) => !startTask.phasesComplete.includes(id));
+  if (pointer === -1) {
+    pointer = phaseIds.length;
+  }
+  const priorSummaries: Record<string, string> =
+    pointer > 0
+      ? await reconstructPriorSummaries(
+          orchestratorConfig.taskDir,
+          orchestratorConfig.protocol.yaml,
+          phaseIds[pointer] ?? "",
+        )
+      : {};
+
   while (pointer < phaseIds.length) {
     const phaseId = phaseIds[pointer];
     if (!phaseId) break;
@@ -318,8 +360,12 @@ export async function runTask(
 
     if (gate.kind === "fail") {
       if (attempt >= config.retries.phaseAttempts) {
+        // runGate already archived phases/{phase}/ + reset its outputs on
+        // disk (gate.ts fail path) — keep phasesComplete in sync so a later
+        // resume doesn't skip this phase believing it already ran.
         task = {
           ...task,
+          phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
           state: "failed",
           reason: `Gate failed twice on phase ${phaseId}: ${gate.feedback ?? "no feedback"}`,
           updatedAt: new Date().toISOString(),
@@ -508,6 +554,22 @@ export async function runStandaloneGate(
   // phasesComplete/currentPhase back in sync with that so disk stays
   // consistent (the normal runTask loop does this bookkeeping itself, but
   // the standalone `gate` CLI backfills a phase outside that loop).
+  await syncTaskAfterStandaloneGate(taskDir, protocol.yaml, phaseId, gate);
+
+  return gate;
+}
+
+/**
+ * Bring task.json back in sync with the disk-side invalidation `runGate`
+ * already performed, for gate runs that happen outside the `runTask` loop
+ * (standalone `gate` and isolated `run-phase --gate`). No-op on pass paths.
+ */
+async function syncTaskAfterStandaloneGate(
+  taskDir: string,
+  protocolYaml: ProtocolYaml,
+  phaseId: string,
+  gate: RunGateResult,
+): Promise<void> {
   if (gate.kind === "fail") {
     const refreshed = await loadTaskJson(taskDir);
     await writeTaskJson(taskDir, {
@@ -517,7 +579,7 @@ export async function runStandaloneGate(
       updatedAt: new Date().toISOString(),
     });
   } else if (gate.kind === "fail-upstream") {
-    const invalidatedIds = downstreamPhaseIds(protocol.yaml, gate.rewindTo);
+    const invalidatedIds = downstreamPhaseIds(protocolYaml, gate.rewindTo);
     const refreshed = await loadTaskJson(taskDir);
     await writeTaskJson(taskDir, {
       ...refreshed,
@@ -528,6 +590,211 @@ export async function runStandaloneGate(
       updatedAt: new Date().toISOString(),
     });
   }
+}
 
-  return gate;
+export type RunPhaseIsolatedResult = {
+  readonly task: TaskJson;
+  readonly workerSessionId: string;
+  readonly phaseComplete: boolean;
+  readonly gate?: RunGateResult;
+};
+
+/**
+ * `run-phase <task-id> <phase> [--gate]`: run ONE phase's worker via
+ * `runWorkerPhase` against whatever upstream artifacts are already on disk
+ * for `taskId` — no other phase is touched. `priorPhaseSummaries` is
+ * rebuilt from `phases/<id>/summary.md` (the disk-contract exception), not
+ * carried over from any prior in-memory run. Optionally also runs that
+ * phase's gate afterward (`withGate`), reusing the same standalone-gate
+ * bookkeeping as the `gate` CLI.
+ */
+export async function runPhaseInIsolation(
+  taskId: string,
+  phaseId: string,
+  withGate: boolean,
+  tasksRoot?: string,
+): Promise<RunPhaseIsolatedResult> {
+  const { resolve } = await import("node:path");
+  const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
+  const taskDir = join(root, taskId);
+
+  const config = loadConfig();
+  configureEvents(config.dashboard.url);
+
+  let task = await loadTaskJson(taskDir);
+  const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
+  const phaseIds = protocol.yaml.phases.map((p) => p.id);
+  const phaseDef = protocol.yaml.phases.find((p) => p.id === phaseId);
+  if (!phaseDef) {
+    throw new Error(`Protocol "${task.protocol}" has no phase "${phaseId}"`);
+  }
+
+  process.env["MPLBACKEND"] = process.env["MPLBACKEND"] ?? "Agg";
+
+  const runtimeResult = await ensureRuntime(protocol.yaml, {
+    skillRuntimeDeps: [],
+    claudeScienceHome: config.scienceHome,
+    microctSrcPath: config.microctSrc,
+    skillDir: protocol.skillDir,
+  });
+  if (!runtimeResult.ok || !runtimeResult.handle) {
+    throw new Error(`Runtime setup failed: ${runtimeResult.errors.join("; ")}`);
+  }
+  const runtime = pythonRuntime();
+
+  const priorSummaries = await reconstructPriorSummaries(taskDir, protocol.yaml, phaseId);
+
+  task = {
+    ...task,
+    state: "running",
+    currentPhase: phaseId,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  notifyEvent({ type: "phase-started", taskId, phase: phaseId });
+
+  const startedAt = new Date().toISOString();
+  const workerResult = await runWorkerPhase({
+    taskId,
+    taskDir,
+    inputRel: task.input,
+    protocol,
+    phaseId,
+    runtime,
+    priorPhaseSummaries: priorSummaries,
+    runSettings: config,
+  });
+
+  if (workerResult.blockedReason) {
+    task = {
+      ...task,
+      state: "paused",
+      reason: workerResult.blockedReason,
+      updatedAt: new Date().toISOString(),
+    };
+    await writeTaskJson(taskDir, task);
+    notifyEvent({ type: "task-paused", taskId, reason: workerResult.blockedReason });
+    return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
+  }
+
+  if (workerResult.stallExhausted || !workerResult.phaseComplete) {
+    task = {
+      ...task,
+      state: "failed",
+      reason: `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`,
+      updatedAt: new Date().toISOString(),
+    };
+    await writeTaskJson(taskDir, task);
+    notifyEvent({ type: "task-failed", taskId, reason: task.reason ?? `Phase ${phaseId} did not complete` });
+    return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
+  }
+
+  const phasesComplete = task.phasesComplete.includes(phaseId)
+    ? task.phasesComplete
+    : [...task.phasesComplete, phaseId];
+  const allComplete = phaseIds.every((id) => phasesComplete.includes(id));
+  task = {
+    ...task,
+    phasesComplete,
+    currentPhase: null,
+    state: allComplete ? "done" : "running",
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  notifyEvent({ type: "phase-complete", taskId, phase: phaseId });
+
+  if (!withGate) {
+    return { task, workerSessionId: workerResult.sessionId, phaseComplete: true };
+  }
+
+  const attempt = await nextGateAttempt(taskDir, phaseId);
+  const gate = await runGate({
+    taskId,
+    taskDir,
+    protocol,
+    phase: phaseDef,
+    workerSessionId: workerResult.sessionId,
+    runtime,
+    attempt,
+    startedAt,
+    config,
+  });
+
+  await syncTaskAfterStandaloneGate(taskDir, protocol.yaml, phaseId, gate);
+  task = await loadTaskJson(taskDir);
+
+  return { task, workerSessionId: workerResult.sessionId, phaseComplete: true, gate };
+}
+
+/**
+ * `resume <task-id>`: re-enter `runTask` for a task already on disk,
+ * picking up at the first phase not in `phasesComplete` (runTask itself is
+ * resume-aware — this just reloads the protocol/config needed to build an
+ * `OrchestratorConfig` for a task that wasn't just enqueued in-process).
+ */
+export async function resumeTask(
+  taskId: string,
+  tasksRoot?: string,
+  config: LabratConfig = loadConfig(),
+): Promise<RunTaskResult> {
+  const { resolve } = await import("node:path");
+  const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
+  const taskDir = join(root, taskId);
+
+  configureEvents(config.dashboard.url);
+
+  const task = await loadTaskJson(taskDir);
+  const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
+
+  return runTask({
+    taskId,
+    taskDir,
+    inputRel: task.input,
+    protocol,
+    config,
+  });
+}
+
+/**
+ * `reset-to <task-id> <phase>`: truncate `phasesComplete` to the phases
+ * strictly before `<phase>`, point `currentPhase`/`state` at `<phase>`, and
+ * delete `phases/<later>` + `artifacts/<later>` for `<phase>` and everything
+ * downstream of it — so a subsequent `run-phase`/`resume` starts clean
+ * there. Only ever touches phases at or after `<phase>`; never `<phase>`'s
+ * upstream inputs.
+ */
+export async function resetTaskToPhase(
+  taskId: string,
+  phaseId: string,
+  tasksRoot?: string,
+): Promise<TaskJson> {
+  const { resolve } = await import("node:path");
+  const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
+  const taskDir = join(root, taskId);
+
+  const config = loadConfig();
+  const task = await loadTaskJson(taskDir);
+  const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
+  const phaseIds = protocol.yaml.phases.map((p) => p.id);
+  if (!phaseIds.includes(phaseId)) {
+    throw new Error(`Protocol "${task.protocol}" has no phase "${phaseId}"`);
+  }
+
+  const downstream = downstreamPhaseIds(protocol.yaml, phaseId);
+  for (const id of downstream) {
+    await rm(join(taskDir, "phases", id), { recursive: true, force: true });
+    await rm(join(taskDir, "artifacts", id), { recursive: true, force: true });
+  }
+
+  const { reason: _droppedReason, ...rest } = task;
+  const updated: TaskJson = {
+    ...rest,
+    phasesComplete: task.phasesComplete.filter((p) => !downstream.includes(p)),
+    currentPhase: phaseId,
+    state: "running",
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, updated);
+
+  return loadTaskJson(taskDir);
 }
