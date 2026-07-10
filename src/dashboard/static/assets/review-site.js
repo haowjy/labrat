@@ -7,9 +7,10 @@
  *
  *   - REVIEW_SANDBOX never gains `allow-same-origin`. The iframe must stay
  *     opaque-origin so the quarantined review site's JS cannot read the
- *     dashboard's cookies/storage/DOM or call /api/*. `allow-downloads` is
- *     required for the verdict Export to work in Chrome 83+ and does NOT
- *     grant any same-origin capability (C1 / design doc principle 3).
+ *     dashboard's cookies/storage/DOM or call /api/*. It grants ONLY
+ *     `allow-scripts` — no `allow-downloads` (F2): verdict/data export moved to
+ *     the trusted shell, so the review site needs no download capability, and a
+ *     download sink authored inside it is now a gate hard-fail (check.ts G5).
  *   - reviewSiteSrc() must match the URL shape Lane A serves (pinned in
  *     validation/fixtures/review-site/README.md): GET
  *     /api/tasks/:id/review-site/*path, defaulting to index.html.
@@ -22,7 +23,7 @@
  * with no bundler and no reimplementation to drift from what app.js runs.
  */
 
-var REVIEW_SANDBOX = "allow-scripts allow-downloads";
+var REVIEW_SANDBOX = "allow-scripts";
 
 /** GET .../review-site/index.html for one task, per the pinned URL shape. */
 function reviewSiteSrc(taskId) {

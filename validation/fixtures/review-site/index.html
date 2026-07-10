@@ -339,7 +339,6 @@ button {
 
   <footer class="action-bar">
     <p id="progress" class="progress" aria-live="polite"></p>
-    <button id="export-btn" type="button" disabled>Export verdict</button>
   </footer>
 </div>
 
@@ -411,11 +410,11 @@ window.REVIEW_DATA = {
 <script>
 // Minimal review-site fixture (review-template.md §1, the "minimal" column).
 // Reads window.REVIEW_MANIFEST / window.REVIEW_DATA (assigned by the inline
-// data blocks above — I3: never fetched JSON). Verdict
-// state lives in memory only for this document's lifetime (Top risk / R2:
-// an opaque-origin sandboxed frame hard-throws on localStorage/sessionStorage,
-// and in-memory state does not survive cross-page navigation anyway, hence
-// single-document). Export is the only record.
+// data blocks above — I3: never fetched JSON). Per-row verdict state lives in
+// memory only for this document's lifetime (Top risk / R2: an opaque-origin
+// sandboxed frame hard-throws on localStorage/sessionStorage). The site itself
+// exports NOTHING — the trusted shell owns verdict export/write (F2); an
+// in-iframe download sink is a gate hard-fail (check.ts G5).
 (function () {
   "use strict";
 
@@ -434,7 +433,6 @@ window.REVIEW_DATA = {
     source: document.getElementById("sample-source"),
     tbody: document.getElementById("rows-body"),
     progress: document.getElementById("progress"),
-    exportBtn: document.getElementById("export-btn"),
   };
 
   // --- small DOM helper (avoids repeating createElement/className/textContent) ---
@@ -449,13 +447,6 @@ window.REVIEW_DATA = {
       });
     }
     return node;
-  }
-
-  // --- pure: derive overall from per-item verdicts (reject > correct > confirm) ---
-  function computeOverall(rowVerdicts) {
-    if (rowVerdicts.indexOf("reject") !== -1) return "reject";
-    if (rowVerdicts.indexOf("correct") !== -1) return "correct";
-    return "confirm";
   }
 
   function reviewedCount() {
@@ -477,7 +468,6 @@ window.REVIEW_DATA = {
       els.progress.textContent = done + " of " + total + " reviewed.";
     }
     els.progress.dataset.ready = String(ready);
-    els.exportBtn.disabled = !ready;
   }
 
   function syncRowButtons(tr, itemId) {
@@ -550,29 +540,6 @@ window.REVIEW_DATA = {
     return tr;
   }
 
-  // --- pure: the review-verdict/1 payload from current state ---
-  function buildVerdictPayload() {
-    return {
-      schema: manifest.verdict_schema,
-      sample_id: manifest.sample_id,
-      produced_from: manifest.produced_from,
-      overall: computeOverall(
-        items.map(function (item) {
-          return state.verdicts[item.id];
-        }),
-      ),
-      items: items.map(function (item) {
-        return {
-          id: item.id,
-          verdict: state.verdicts[item.id],
-          corrected_value: null,
-          note: "",
-        };
-      }),
-      exported_at: new Date().toISOString(),
-    };
-  }
-
   function render() {
     els.title.textContent = "Review " + manifest.sample_id;
     els.source.textContent = "from " + manifest.produced_from.measurement;
@@ -583,25 +550,6 @@ window.REVIEW_DATA = {
 
     updateProgress();
   }
-
-  // C2: the whole handler runs synchronously, start to finish, inside the
-  // click event, so a real tap/touch triggers the download directly (iOS
-  // Safari drops a download-anchor click deferred past an await/microtask).
-  // C3: data: URL, not blob: (Safari refuses blob: URLs created inside an
-  // opaque-origin sandboxed frame; a data: URL needs no origin at all).
-  els.exportBtn.addEventListener("click", function () {
-    if (els.exportBtn.disabled) return;
-
-    var json = JSON.stringify(buildVerdictPayload(), null, 2);
-    var dataUrl = "data:application/json;charset=utf-8," + encodeURIComponent(json);
-
-    var link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = "verdict.json";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  });
 
   render();
 })();

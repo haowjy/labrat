@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ProtocolPhase } from "../../schema/index.js";
 import { checkReviewSite, type ReviewSiteReport } from "../../review-site/check.js";
+import { buildReviewSiteCsp } from "../../review-site/csp.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 
 /**
@@ -42,10 +43,13 @@ export function reviewArtifactCheckPath(taskDir: string, phaseId: string): strin
  *
  * The linter is best-effort structural + self-containment analysis; it is ONE
  * of the two boundary layers, not the whole story. The opaque sandbox + CSP
- * (Lane A) contain external subresource loads and network connections; the
- * linter (G5) contains navigation + inline-handler exfil, which the CSP cannot
- * block under the `'unsafe-inline'` the inlined site requires (R4). A failing
- * report here means the STRUCTURAL/self-containment layer rejected the site.
+ * (Lane A) contain external subresource loads and the `connect-src`-owned
+ * network class; the linter (G5) hard-fails the sinks the CSP cannot own under
+ * the `'unsafe-inline'` the inlined site requires (R4) — navigation, download/
+ * self-export, dynamic image, WebRTC, inline handlers — and downgrades the
+ * network class to a warning ONLY when the canonical served CSP is confirmed
+ * exactly `connect-src 'none'` (F4/F5). A failing report here means the
+ * STRUCTURAL/self-containment layer rejected the site.
  */
 export function reviewSiteGateFailure(report: ReviewSiteReport | null): string | null {
   if (report === null || report.ok) return null;
@@ -68,14 +72,19 @@ export async function runReviewArtifactCheck(
 ): Promise<ReviewSiteReport | null> {
   if (!phaseProducesReviewSite(phase)) return null;
 
+  const cdnAllowlist = phase.cdn_allowlist ?? [];
   const report = await checkReviewSite({
     siteDir: join(taskDir, "artifacts", REVIEW_SITE_DIR),
-    cdnAllowlist: phase.cdn_allowlist ?? [],
+    cdnAllowlist,
     measurementsRoot: join(taskDir, "artifacts"),
     // The harness's authoritative run identity — the site's sample_id must
     // equal it (H1b), independent of anything the producer wrote.
     expectedSampleId: taskId,
     requireFidelity: true,
+    // The EXACT policy the dashboard route will serve for this site, from the
+    // canonical builder (F4) — so G5 can confirm connect-src 'none' before it
+    // downgrades a network sink to a warning, and fail closed otherwise.
+    contentSecurityPolicy: buildReviewSiteCsp(cdnAllowlist),
   });
 
   const outPath = reviewArtifactCheckPath(taskDir, phase.id);

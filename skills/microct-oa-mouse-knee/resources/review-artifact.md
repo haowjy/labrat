@@ -13,7 +13,9 @@ The CONTRACT and the gate linter are **generic** (identical for every
 protocol's review site); only the rows are microct — the Tang OA geometric
 indices (femoral W/L, tibial IIOC H/W, the distances they derive from). This is
 the reusable **inlined values-review-site** pattern: a values table with an
-honesty flag per index, a per-index verdict control, and a synchronous export.
+honesty flag per index and a per-index verdict control. The site exports
+NOTHING — verdict export/write lives in the trusted shell (F2), and an in-iframe
+download sink is a gate hard-fail (G5).
 
 Emit exactly ONE inlined file:
 
@@ -22,7 +24,7 @@ review-site/
   index.html   entry point (I1): a <style> block, then inline <script> data
                blocks (window.REVIEW_MANIFEST, window.REVIEW_DATA — data
                globals FIRST), then the inline app <script> (renders the
-               table, holds verdict state in memory, exports JSON)
+               table, holds verdict state in memory — no export/download)
 ```
 
 **Single document — no separate files.** An opaque-origin sandboxed iframe (how
@@ -34,8 +36,8 @@ carries `script-src 'self' 'unsafe-inline'` so the inline blocks execute.
 
 `validation/fixtures/review-site/index.html` in the repo is a hand-written,
 contract-clean reference for this exact single-file structure — **mirror it**
-(its `<style>`, its data-blocks-then-app-script order, its synchronous
-`data:`-URL export). The fixture already renders the OA indices; you are
+(its `<style>`, its data-blocks-then-app-script order). It exports nothing — the
+trusted shell owns export. The fixture already renders the OA indices; you are
 rebuilding it from THIS run's real numbers.
 
 **Exact steps for the worker** (cwd IS the task dir; paths are literal):
@@ -88,20 +90,19 @@ rebuilding it from THIS run's real numbers.
      when `ground_truth_gate.pass` is false; `criss-cross` when landmark lines
      cross between bones). See the fixture's items for the shape.
 6. Build the rest of `index.html` (I1): a `<meta viewport>`, an inline `<style>`
-   block (self-contained — no external fonts/CDN), the values table, and an
-   **Export verdict** button. No `<script src>`, no `<link href>`, no external
-   origins (this phase's `cdn_allowlist` is `[]`) — everything inlined. Mobile:
-   touch targets ≥44px, the whole review fits one viewport (I6).
+   block (self-contained — no external fonts/CDN), and the values table. No
+   export/download control — the trusted shell owns export. No `<script src>`,
+   no `<link href>`, no external origins (this phase's `cdn_allowlist` is `[]`) —
+   everything inlined. Mobile: touch targets ≥44px, the whole review fits one
+   viewport (I6).
 7. In the final inline `<script>` (the app), read
    `window.REVIEW_MANIFEST`/`window.REVIEW_DATA` (never `fetch` local JSON —
-   I3/G5), render the rows, hold per-row verdict state in memory, and Export a
-   `verdict.json` via a **synchronous `data:`-URL download** in the button's
-   click handler carrying `schema`, `sample_id`, `produced_from`, `overall`,
-   `items[]`, `exported_at` (I5). Do NOT navigate the frame
-   (`window.location`/`location.assign`/`window.open`), add inline `on*`
-   handlers, or a `<meta refresh>` — the linter fails those (G5), and under
-   `'unsafe-inline'` they are the exfil channels the CSP can't block. Mirror the
-   fixture's app script.
+   I3/G5), render the rows, and hold per-row verdict state in memory. The site
+   must NOT export/download or navigate: no download anchor (`a.download` /
+   `.click()`), no `new Image()`/`createElement("img")`, no `RTCPeerConnection`,
+   no `window.location`/`location.assign`/`window.open`/`form.submit()`, no
+   inline `on*` handlers, no `<meta refresh>` — the linter hard-fails every one
+   of these (G5). Mirror the fixture's app script (which exports nothing).
 8. **Match the fixture and re-read your file.** The gate is run by the harness,
    not by you: after you `record_phase`, the harness runs the deterministic
    `check_review_site` linter (G1-G8) with its own authoritative inputs and the
@@ -110,8 +111,8 @@ rebuilding it from THIS run's real numbers.
    the site a **single inlined `index.html`** (no separate `<script src>`/`<link
    href>`, no `..`/absolute/`data:`/`blob:`/`javascript:` sources, no external
    origins beyond `cdn_allowlist`), ship data as inline `.js` globals (never
-   `fetch`), no navigation/`on*`-handler/`<meta refresh>`, and keep the export
-   button + `schema` string.
+   `fetch`), no navigation/download/`on*`-handler/`<meta refresh>` sink, and
+   keep the manifest's `verdict_schema` string (G7). The site exports nothing.
 9. Call `record_phase` with phase `review-artifact` and a short summary.
 
 ## Expected outputs / how to verify
@@ -146,15 +147,19 @@ source, or dangling ref; **G3** an inline `<script>` assigns
 `window.REVIEW_MANIFEST` and every declared `window.*` data global is present
 and non-empty (parsed **statically**, never executed); **G4** every inline
 `<script>` is syntactically valid and each `getElementById` targets an id that
-exists in the page; **G5** no exfil beyond the contract — no runtime data
-loading (`fetch`/`XMLHttpRequest`/`sendBeacon`/`import()`), no navigation sink
-(`window.location`/`location.assign`/`window.open` — CSP-unblockable), no inline
-`on*` handler or `<meta refresh>`, no dynamic `eval`/`Function`; **G6** every
-external origin is in this phase's `cdn_allowlist`; **G7** a verdict export
-control exists and the verdict `schema` string is referenced; **G8** the
-manifest's `sample_id` equals the run id and its `produced_from` hash matches
-`measurements/results.json` on disk (the site describes THIS run, not a stale
-one).
+exists in the page; **G5** no exfil beyond the contract — the network class
+(`fetch`/`XMLHttpRequest`/`sendBeacon`/`WebSocket`/`EventSource`) is a warning
+only when the served CSP is confirmed exactly `connect-src 'none'` (else it
+hard-fails, fail-closed), while these stay HARD-FAILS regardless: any
+navigation/download/self-export sink (`window.location`/`location.assign`/
+`window.open`/`form.submit()`/`a.download`+`.click()`), dynamic image
+(`new Image()`/`createElement("img")`), `RTCPeerConnection`, `import()`, inline
+`on*` handler, `<meta refresh>`, `eval`/`Function`/string-timer; **G6** every
+external origin is in this phase's `cdn_allowlist`; **G7** the manifest declares
+a `verdict_schema` the trusted shell will emit the verdict under (the site
+itself exports nothing); **G8** the manifest's `sample_id` equals the run id and
+its `produced_from` hash matches `measurements/results.json` on disk (the site
+describes THIS run, not a stale one).
 
 **Gate `pass` only if** `check_review_site.json` has `"ok": true` and every one
 of the eight findings is `"ok": true`. If the file is missing or `"ok": false`,
@@ -181,8 +186,9 @@ classes, not every obfuscation (aliasing, computed non-literal dispatch).
 
 **Failure modes to flag:** any gate `ok: false` — e.g. `index.html` missing
 (G1), a separate-file `<script src>`/absolute/`..` path (G2), a missing data
-global (G3), a `getElementById` with no matching element (G4), a `fetch`/
-navigation sink/inline `on*` handler/`<meta refresh>` (G5), an external origin
-not in `cdn_allowlist` (G6), no export/`schema` surface (G7), or a
-`produced_from` hash / `sample_id` that does not match the run (G8, a
-stale/mismatched or swapped site).
+global (G3), a `getElementById` with no matching element (G4), a
+navigation/download/image/WebRTC sink or inline `on*` handler/`<meta refresh>`
+or an un-neutralized `fetch` (G5), an external origin not in `cdn_allowlist`
+(G6), a missing manifest `verdict_schema` (G7), or a `produced_from` hash /
+`sample_id` that does not match the run (G8, a stale/mismatched or swapped
+site).
