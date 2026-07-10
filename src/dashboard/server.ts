@@ -12,6 +12,7 @@ import {
 import type { SseEvent } from "../schema/index.js";
 import { handleSse, publishEvent } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
+import { finishReview } from "./review/index.js";
 import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
 
@@ -187,6 +188,19 @@ export function createApp(config: DashboardConfig): Express {
     res.status(201).json(entry);
   });
 
+  // Human review verdict write (design/review-loop-and-roles.md "trust
+  // line"): the trusted shell writes review/verdict/{phase}.json here — the
+  // untrusted review-site iframe never reaches this route directly, only via
+  // the shell's postMessage bridge -> an explicit "Finish review" click.
+  app.post("/api/tasks/:id/review/finish", async (req, res) => {
+    const result = await finishReview(tasksDir, req.params.id, req.body);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.status(201).json(result.value);
+  });
+
   // Cross-process notify seam (design §4, §13): the harness (Process A)
   // POSTs here after an atomic write lands; we forward to publishEvent(),
   // which validates and fans out to connected /events clients. This is the
@@ -200,6 +214,25 @@ export function createApp(config: DashboardConfig): Express {
   app.get("/events", handleSse);
 
   app.use(express.static(STATIC_ROOT));
+
+  // Malformed JSON body (express.json() throws a SyntaxError before any
+  // route handler runs) -> a clean 400 instead of express's default HTML
+  // error page. Must be registered last (4-arg signature) and after static
+  // so it only catches body-parse failures, not route/static 404s.
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      if (err instanceof SyntaxError && "body" in err) {
+        res.status(400).json({ error: "malformed JSON body" });
+        return;
+      }
+      next(err);
+    },
+  );
 
   return app;
 }
