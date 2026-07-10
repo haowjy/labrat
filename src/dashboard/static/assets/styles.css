@@ -34,6 +34,16 @@ a { color:var(--accent); }
 .sidebar-header { padding:0.9rem 1rem; border-bottom:1px solid var(--accent-line); display:flex; align-items:center; gap:0.5rem; }
 .sidebar-header .logo { font-family:var(--mono); font-weight:700; font-size:0.85rem; letter-spacing:0.06em; }
 .sidebar-header .badge { font-family:var(--mono); font-size:0.6rem; background:var(--accent-soft); color:var(--accent); padding:0.15em 0.45em; border-radius:3px; font-weight:600; }
+
+/* Drawer-level nav (App.js/Sidebar.js): the one way back to the level-1
+   fleet board — see Sidebar.js for why the sample list below needs no
+   equivalent "back to level 2" entry of its own. */
+.sidebar-nav { padding:0.5rem; border-bottom:1px solid var(--accent-line); }
+.sidebar-nav-item { display:flex; align-items:center; gap:0.5rem; width:100%; padding:0.55rem 0.75rem; border:none; border-radius:6px; background:none; color:var(--ink); font-family:var(--mono); font-size:0.78rem; font-weight:600; cursor:pointer; text-align:left; }
+.sidebar-nav-item:hover { background:var(--accent-soft); }
+.sidebar-nav-item.active { background:var(--accent-soft); color:var(--accent); }
+.sidebar-nav-icon { font-size:0.9rem; }
+
 .task-list { flex:1; overflow-y:auto; padding:0.5rem; }
 .task-item { padding:0.65rem 0.75rem; border-radius:6px; cursor:pointer; margin-bottom:0.25rem; transition:background 0.1s; border-left:3px solid transparent; }
 .task-item:hover { background:var(--accent-soft); }
@@ -71,18 +81,16 @@ a { color:var(--accent); }
 .pill-skip { background:var(--surface); color:var(--muted); }
 
 /* === TOPBAR === */
-/* min-width:0 lets this flex item shrink below its text's natural width —
-   the default flex min-width:auto would otherwise hold the row open and
-   force the nav buttons onto a second line before the title ever truncates
-   (the sidebar already shows which task is selected, so losing the tail of
-   a long id here to ellipsis costs nothing at narrow widths). */
-.topbar-titles { min-width:0; overflow:hidden; }
-.topbar .title { font-family:var(--mono); font-weight:700; font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.topbar .subtitle { font-size:0.75rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.topbar .spacer { flex:1; }
-.topbar button { background:none; border:1px solid var(--accent-line); border-radius:4px; padding:0.35rem 0.65rem; font-family:var(--mono); font-size:0.7rem; cursor:pointer; color:var(--ink); transition:background 0.1s; }
-.topbar button:hover { background:var(--accent-soft); }
-.topbar button.active-btn { background:var(--accent); color:#fff; border-color:var(--accent); }
+/* Read-only wayfinding trail (App.js's Breadcrumb) — the only thing left in
+   the topbar now that navigation lives in the drawer (Sidebar.js). flex:1 +
+   min-width:0 lets it take the row's remaining space and truncate instead
+   of forcing the bar onto a second line for a long sample id; a single run
+   of inline spans (not flex children) is what makes text-overflow:ellipsis
+   apply to the whole trail rather than clipping one crumb abruptly. */
+.breadcrumb { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-family:var(--mono); font-size:0.8rem; }
+.crumb { color:var(--muted); }
+.crumb-sep { color:var(--muted3); }
+.crumb-current { color:var(--ink); font-weight:700; }
 
 /* === LIVE STRIP (SSE) === */
 .live-strip { display:flex; align-items:center; gap:0.6rem; padding:0.4rem 1.25rem; border-bottom:1px solid var(--accent-line); background:var(--surface); font-family:var(--mono); font-size:0.7rem; }
@@ -99,6 +107,25 @@ a { color:var(--accent); }
 .log-strip .log-head { text-transform:uppercase; letter-spacing:0.05em; font-size:0.58rem; color:var(--muted2); margin-bottom:0.25rem; }
 .log-line { opacity:0.85; padding:0.05rem 0; }
 .log-line .log-t { color:var(--muted3); margin-right:0.5rem; }
+
+/* === DASHBOARD (fleet board, level 1, Dashboard.js) === */
+.content-dashboard { max-width:1400px; }
+.sample-board { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:0.75rem; margin-top:0.5rem; }
+.sample-card { display:flex; flex-direction:column; gap:0.4rem; width:100%; text-align:left; padding:0.9rem 1rem; border:1px solid var(--accent-line); border-radius:8px; background:var(--surface); color:inherit; font:inherit; cursor:pointer; }
+.sample-card:hover { border-color:var(--accent); background:var(--accent-soft); }
+.sample-card:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.sample-card-head { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; }
+.sample-card-id { font-family:var(--mono); font-weight:700; font-size:0.85rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sample-card-protocol { font-size:0.72rem; color:var(--muted); }
+.sample-card-phase-label { font-family:var(--mono); font-size:0.7rem; color:var(--muted); }
+.sample-card-phase-label b { color:var(--ink); }
+.sample-card-progress { display:flex; align-items:center; gap:0.25rem; flex-wrap:wrap; }
+.sample-card-no-phases { font-size:0.7rem; color:var(--muted2); font-style:italic; }
+.sample-card-reason { font-size:0.7rem; color:var(--warn); }
+/* Same ring the sidebar's TaskCard uses (@keyframes card-pulse, LAYOUT/
+   SIDEBAR block above) on a card-family-scoped selector, since a board card
+   and a sidebar row are different DOM shapes sharing one animation. */
+.sample-card-pulse { animation:card-pulse 0.9s ease-out; }
 
 /* === PHASE TABS — the Phase-review phase selector (PhaseReviewView.js).
    Same pill-tab visual the old chain view's scroll-spy jump-nav used
@@ -250,10 +277,10 @@ a { color:var(--accent); }
      unconditionally — it's the primary Overview->Phase-review nav control
      at every width, not just mobile.) */
   .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
-  .topbar button { min-height:44px; min-width:44px; padding:0.4rem 0.6rem; }
+  .sidebar-nav-item { min-height:44px; }
   .btn { min-height:44px; }
   .phase-tab { min-height:44px; }
   .verdict-collapse-btn { min-width:44px; min-height:44px; }
   .verdict-chip { min-height:44px; }
-  .content, .content-review { padding:1rem; }
+  .content, .content-review, .content-dashboard { padding:1rem; }
 }
