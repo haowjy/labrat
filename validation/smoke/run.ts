@@ -100,7 +100,16 @@ async function main(): Promise<void> {
     const monitorPath = join(taskDir, "review", "monitor", `${phase}.json`);
     assert(await exists(monitorPath), `independent monitor recorded review/monitor/${phase}.json`);
     const mon = JSON.parse(await readFile(monitorPath, "utf8")) as { verdict?: string };
-    assert(mon.verdict === "ok", `monitor verdict for "${phase}" is ok on a genuine run (got ${mon.verdict})`);
+    // F2: on a genuine run the ENFORCING verdict `rubber_stamp` must not fire —
+    // that's the false positive that discards worker output and forces a retry.
+    // `insufficient_evidence` is advisory (the model's nuance on an
+    // evidence-present pass); it is recorded but does NOT fail the gate, so the
+    // task still reaches `done` above without a retry. Only rubber_stamp is a
+    // failure here.
+    assert(
+      mon.verdict === "ok" || mon.verdict === "insufficient_evidence",
+      `monitor did not rubber_stamp-fail "${phase}" on a genuine run (got ${mon.verdict})`,
+    );
   }
 
   const seen = new Set(captured.map((e) => e.type));

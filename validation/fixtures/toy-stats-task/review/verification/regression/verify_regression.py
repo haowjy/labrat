@@ -59,15 +59,9 @@ def main():
     r_squared = compute_r_squared(xs, ys, slope, intercept)
 
     # Load worker's results
-    worker_path = "artifacts/artifacts/regression/regression.json"
-    try:
-        with open(worker_path) as f:
-            worker_data = json.load(f)
-    except FileNotFoundError:
-        # Try alternate path
-        worker_path = "artifacts/regression/regression.json"
-        with open(worker_path) as f:
-            worker_data = json.load(f)
+    worker_path = "artifacts/regression/regression.json"
+    with open(worker_path) as f:
+        worker_data = json.load(f)
 
     worker_slope = worker_data["slope"]
     worker_intercept = worker_data["intercept"]

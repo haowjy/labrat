@@ -13,16 +13,16 @@ phases:
       - resources/classify
     inputs: [input/]
     outputs:
-      - artifacts/classify/data.csv
-      - artifacts/classify/classification.json
+      - classify/data.csv
+      - classify/classification.json
 
   - id: regression
     skills:
       - resources/regression
     inputs:
-      - artifacts/classify/data.csv
+      - classify/data.csv
     outputs:
-      - artifacts/regression/regression.json
+      - regression/regression.json
 
 runtime:
   substrate: toy-stats

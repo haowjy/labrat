@@ -9,15 +9,11 @@ trivial classifier against it. Use ONLY Python 3 stdlib — `random`, `csv`,
 
 **Exact steps for the worker:**
 
-Your working directory IS the task dir already — do not `cd` into `artifacts/`
-or any subdirectory first. All paths below are relative to that working
-directory exactly as written, with no extra leading `artifacts/`. Do NOT run
-`mkdir artifacts && cd artifacts`; if you `mkdir -p artifacts/classify`, stay
-in the task dir and write to `artifacts/classify/data.csv` (never
-`artifacts/artifacts/classify/data.csv`).
+Your working directory IS the task dir. All paths below are relative to it
+exactly as written — do not `cd` into a subdirectory first.
 
 1. Create the output directory `artifacts/classify/` if it does not exist
-   (e.g. `mkdir -p artifacts/classify` from the task dir — do not `cd` into it).
+   (`mkdir -p artifacts/classify`).
 2. Generate data with a **fixed seed** so the run is fully reproducible:
    ```python
    import random, csv, json

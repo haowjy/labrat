@@ -45,8 +45,9 @@ async function main(): Promise<void> {
 
   try {
     // 1. reset-to: truncate the fixture back to just before `regression` —
-    // deletes phases/regression + artifacts/regression, which the fixture
-    // ships already populated (it's a completed run).
+    // invalidates regression by its DECLARED OUTPUTS (F1), which the fixture
+    // ships already populated (it's a completed run). The upstream classify
+    // outputs must survive untouched.
     console.log(`[eval] reset-to ${TASK_ID} ${TARGET_PHASE}`);
     const resetTask = await resetTaskToPhase(TASK_ID, TARGET_PHASE, tasksRoot);
     assertTrue(
@@ -57,13 +58,16 @@ async function main(): Promise<void> {
       resetTask.phasesComplete.includes("classify"),
       `reset-to should leave upstream "classify" in phasesComplete`,
     );
-    assertTrue(
-      !(await existsAt(join(taskDir, "artifacts", TARGET_PHASE))),
-      `reset-to should delete artifacts/${TARGET_PHASE}/`,
-    );
+    // F1: reset-to clears the DECLARED output, not `artifacts/<phaseId>/` — the
+    // stale regression.json (contamination risk) must be gone.
     assertTrue(
       !(await existsAt(join(taskDir, TARGET_ARTIFACT))),
       `${TARGET_ARTIFACT} should not exist after reset-to`,
+    );
+    // Upstream classify outputs are untouched by the downstream reset.
+    assertTrue(
+      await existsAt(join(taskDir, "artifacts", "classify", "data.csv")),
+      "reset-to must leave upstream artifacts/classify/data.csv intact",
     );
 
     // 2. run-phase: run ONLY the regression phase's worker, in isolation,
@@ -74,6 +78,13 @@ async function main(): Promise<void> {
     assertTrue(
       result.task.phasesComplete.includes(TARGET_PHASE),
       `run-phase should re-add "${TARGET_PHASE}" to phasesComplete`,
+    );
+    // F3: `regression` is the LAST phase, so all phases are now complete — but
+    // run-phase (no gate) must NOT promote the task to "done". Terminal
+    // promotion belongs to the gated runTask/resume path only.
+    assertTrue(
+      result.task.state === "running",
+      `run-phase must leave state "running", never "done" (got "${result.task.state}")`,
     );
 
     // 3. assert the output artifact is back on disk with the shape the

@@ -39,9 +39,7 @@ I independently recomputed the OLS regression using pure Python 3 stdlib (csv, j
   - Valid range check: 0 ≤ 0.31178 ≤ 1 ✓
 
 ### File Integrity
-- ✓ `artifacts/regression/regression.json` exists
-- ✓ `artifacts/artifacts/regression/regression.json` exists (declared artifact)
-- ✓ Both copies are identical
+- ✓ `artifacts/regression/regression.json` exists (declared artifact)
 - ✓ JSON parses correctly with all required fields
 
 ## Conclusion

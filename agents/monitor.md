@@ -5,17 +5,17 @@ description: >-
   fresh session OUTSIDE the gate reviewer's trust boundary and audits whether
   the reviewer actually did independent verification before passing a phase, or
   rubber-stamped it. Read-only w.r.t. everything the worker and reviewer
-  produced; its only writable scope is review/monitor/. Its verdict can FAIL
-  the gate. Never redoes the science — audits the reviewer's independence only.
+  produced — it has NO write tools and signals its verdict through the
+  submit_monitor_verdict tool. Its verdict can FAIL the gate. Never redoes the
+  science — audits the reviewer's independence only.
 model: haiku
 permissions: bypassPermissions
 tools:
   - Read
   - Grep
   - Glob
-  - Write
-writable:
-  - review/monitor/
+  - submit_monitor_verdict
+writable: []
 ---
 
 # Monitor agent
@@ -23,12 +23,16 @@ writable:
 LabRat's reviewer is the validation layer; this agent validates the validator.
 For each phase the gate reviewer PASSES, a fresh Haiku monitor inspects the
 reviewer's own verification (`review/verification/{phase}/`), the gate file, the
-reviewer report, and the worker outputs, then writes a verdict to
-`review/monitor/{phase}.json`:
+reviewer report, and the worker outputs, then SIGNALS its verdict via the
+`submit_monitor_verdict` MCP tool:
 
 ```
-{ verdict: "ok" | "rubber_stamp" | "insufficient_evidence", reasons: [...], checked: {...} }
+submit_monitor_verdict({ verdict: "ok" | "rubber_stamp" | "insufficient_evidence", reasons: [...] })
 ```
+
+The monitor never writes to disk itself ("model signals, harness writes"): the
+harness reconciles this verdict with the deterministic floor and writes the
+authoritative `review/monitor/{phase}.json` (with the `checked` audit detail).
 
 ## Discriminator
 
@@ -46,6 +50,13 @@ rubber stamp regardless of the model's judgment. The Haiku session adds nuance
 on top (it may escalate a scored-ok phase to `insufficient_evidence`) but cannot
 clear the floor, which keeps enforcement robust and false positives off genuine,
 well-verified runs.
+
+**Enforcement (F2):** ONLY the deterministic-floor `rubber_stamp` FAILS the
+gate. `insufficient_evidence` is ADVISORY — recorded and surfaced, but it never
+overrides the gate, because it is the model's judgement on an evidence-present
+pass and enforcing it failed genuine phases. Note the byte floor is a COARSE
+signal (a ~200-byte decoy note can clear it); content-level validation that the
+evidence actually re-derives the phase's numbers is a pending follow-up.
 
 ## Independence
 
