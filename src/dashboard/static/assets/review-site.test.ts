@@ -34,13 +34,18 @@ const { REVIEW_SANDBOX, reviewSiteSrc } = loadReviewSite() as {
  * boundary (design/review-template.md §3 point 3, C1). `allow-same-origin`
  * must never appear on REVIEW_SANDBOX — its absence is what makes the
  * review site's origin opaque, so its JS cannot reach the dashboard's
- * cookies/storage/DOM or call /api/*. `allow-downloads` must stay present —
- * without it the verdict Export silently fails to download in Chrome 83+.
+ * cookies/storage/DOM or call /api/*. `allow-downloads` must NOT appear either
+ * (F2): export moved to the trusted shell, so the sandbox grants ONLY
+ * `allow-scripts` and an in-iframe download sink is a gate hard-fail.
  */
 describe("REVIEW_SANDBOX (iframe trust boundary)", () => {
-  it("grants exactly allow-scripts and allow-downloads", () => {
+  it("grants exactly allow-scripts (no allow-downloads)", () => {
     const tokens = REVIEW_SANDBOX.split(" ");
-    assert.deepEqual(tokens.sort(), ["allow-downloads", "allow-scripts"]);
+    assert.deepEqual(tokens.sort(), ["allow-scripts"]);
+  });
+
+  it("never grants allow-downloads (export is the shell's job)", () => {
+    assert.ok(!REVIEW_SANDBOX.split(" ").includes("allow-downloads"));
   });
 
   it("never grants allow-same-origin", () => {

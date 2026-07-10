@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import { loadConfig, type DashboardConfig } from "./config.js";
+import { buildReviewSiteCsp } from "../review-site/csp.js";
 import {
   getManifest,
   getPhase,
@@ -27,44 +28,24 @@ import { STATIC_ROOT } from "./static/index.js";
 const REVIEW_SITE_CDN_ALLOWLIST = "";
 
 /**
- * Build the Content-Security-Policy for the review-site route (design C5/R2).
- * Quarantines a served review page to its own bytes + any allow-listed CDNs:
- * `connect-src 'none'` blocks fetch/XHR back to the dashboard APIs;
- * `frame-ancestors 'self'` (C5) stops third-party framing; `base-uri 'none'`
- * blocks <base> rewriting; `form-action 'none'` (does NOT fall back to
- * default-src) blocks form POSTs to dashboard endpoints; `object-src 'none'`
- * blocks <object>/<embed>. The script-src directive is built by filtering empty
- * tokens, so an empty allowlist yields exactly `script-src 'self' 'unsafe-inline'`
- * (no trailing space). Decision point (C4): if/when a route serves a Plotly
- * template, add `'unsafe-eval'` to script-src here — Plotly's bundle evals.
+ * The Content-Security-Policy for the review-site route (design C5/R2). Thin
+ * adapter over the CANONICAL builder in `review-site/csp.ts` — the single
+ * source of truth the G5 gate also confirms (F4), so the served policy and the
+ * gated policy cannot drift. Takes a space-separated allowlist string (the
+ * route's config shape) and forwards the tokens.
  *
- * `'unsafe-inline'` on script-src is LOAD-BEARING (R4): the site ships as a
- * single inlined index.html because an opaque-origin sandboxed iframe refuses
- * every external `<script src>`/`<link href>` subresource, so the inline
- * `<script>`/`<style>` blocks MUST be permitted or the page renders blank.
- * The cost: `'unsafe-inline'` also permits inline event handlers (`onerror=`)
- * and inline scripts, and `connect-src 'none'` does NOT block navigation
- * (`window.location = evil`; no `navigate-to` directive exists). Those two
- * exfil classes are caught not here but by the deterministic linter
- * (`review-site/check.ts` G5) — the sandbox + CSP contain external
- * loads/connections; the linter contains navigation + inline-handler exfil.
- * The two layers together are the boundary.
+ * Decision point (C4): if/when a route serves a Plotly template, add
+ * `'unsafe-eval'` to script-src in the canonical builder — Plotly's bundle
+ * evals. `'unsafe-inline'` on script-src is LOAD-BEARING (R4): the inlined
+ * single-document site renders blank in an opaque-origin sandbox without it.
+ * The cost — inline handlers become live and `connect-src 'none'` never blocked
+ * navigation — is carried by the deterministic linter (`review-site/check.ts`
+ * G5), not here. The sandbox + CSP contain external loads/connections; the
+ * linter contains navigation + inline-handler exfil. The two layers together
+ * are the boundary.
  */
 export function reviewSiteCsp(cdnAllowlist: string = REVIEW_SITE_CDN_ALLOWLIST): string {
-  const scriptSrc = ["'self'", "'unsafe-inline'", ...cdnAllowlist.split(/\s+/)]
-    .filter((t) => t !== "")
-    .join(" ");
-  return [
-    "default-src 'self'",
-    `script-src ${scriptSrc}`,
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data:",
-    "connect-src 'none'",
-    "frame-ancestors 'self'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "object-src 'none'",
-  ].join("; ");
+  return buildReviewSiteCsp(cdnAllowlist.split(/\s+/).filter((t) => t !== ""));
 }
 
 /**

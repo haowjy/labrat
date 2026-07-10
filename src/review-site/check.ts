@@ -8,6 +8,7 @@ import {
   type HtmlElement,
   type JsAnalysis,
 } from "./parse.js";
+import { cspConfirmsNoConnect } from "./csp.js";
 
 /**
  * `check_review_site` — the deterministic review-site linter (design
@@ -15,9 +16,11 @@ import {
  *
  * It depends ONLY on the review-site CONTRACT (§1, invariants I1-I7): a single
  * inlined entry point, self-contained (no external subresources), `.js`-global
- * run data, an export-a-verdict surface, and a manifest that names the run the
- * site was built from. It knows nothing about bonemorph / 3D / Plotly, so it
- * gates any protocol's review site identically.
+ * run data, and a manifest that names the run the site was built from and the
+ * `verdict_schema` the trusted shell will emit under (G7). The site itself
+ * exports NOTHING — a self-download/export sink is a G5 hard-fail (F2/F3);
+ * export lives in the shell. It knows nothing about bonemorph / 3D / Plotly, so
+ * it gates any protocol's review site identically.
  *
  * THE BOUNDARY IS NOT THE LINTER ALONE (read this — it is NOT redundant with the CSP).
  * The site is served into an opaque-origin sandboxed iframe under a strict CSP
@@ -60,6 +63,10 @@ export type Finding = {
   readonly ok: boolean;
   /** One line per problem; empty on a clean gate. */
   readonly detail: string;
+  /** Non-blocking notes that do NOT set `ok=false` — the `connect-src`-owned
+   * network sinks the served CSP is confirmed to block (G5/F5). Present only
+   * when a gate distinguishes warnings from hard-fails. */
+  readonly warnings?: string;
 };
 
 export type ReviewSiteReport = {
@@ -99,6 +106,16 @@ export type CheckReviewSiteOptions = {
    * structural-only pass (H1). The standalone Lane 0 fixture leaves it false.
    */
   readonly requireFidelity?: boolean;
+  /**
+   * The EFFECTIVE served CSP (F4) — the exact policy the dashboard route will
+   * emit for this site, built by the canonical `buildReviewSiteCsp`. G5 uses it
+   * to decide the F5 downgrade: a `connect-src`-owned network sink is a warning
+   * (not a hard-fail) ONLY when this policy is confirmed exactly
+   * `connect-src 'none'` (`cspConfirmsNoConnect`). Missing/malformed/weaker →
+   * FAIL CLOSED: the network sinks stay hard-fails. The harness gate always
+   * supplies it; the standalone CLI/fixture omits it (network sinks hard-fail).
+   */
+  readonly contentSecurityPolicy?: string;
 };
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -106,14 +123,11 @@ const HEX64 = /^[0-9a-f]{64}$/;
 type HtmlFile = {
   readonly relPath: string;
   readonly absPath: string;
-  readonly text: string;
   readonly elements: readonly HtmlElement[];
   readonly ids: ReadonlySet<string>;
   readonly refs: readonly HtmlRef[];
   /** Inline `<script>` (no `src`) bodies, statically analysed. */
   readonly inlineScripts: readonly JsAnalysis[];
-  /** Raw source of each inline `<script>`, for text-level greps (G7). */
-  readonly inlineScriptText: readonly string[];
   /** Relative `.js` `<script src>` targets, for G4 id resolution. */
   readonly scriptSrcRefs: readonly string[];
 };
@@ -121,7 +135,6 @@ type HtmlFile = {
 type JsFile = {
   readonly relPath: string;
   readonly absPath: string;
-  readonly text: string;
   readonly analysis: JsAnalysis;
 };
 
@@ -428,21 +441,55 @@ function checkG4(htmls: readonly HtmlFile[], allJs: readonly JsFile[]): Finding 
 }
 
 // --- G5: no exfil beyond the contract ---------------------------------------
-// Runtime data loading (I3), navigation (F1 — CSP-unblockable), inline event
-// handlers + <meta refresh> (F5/F6 — live under 'unsafe-inline'), and dynamic
-// code exec. This is the layer the CSP/sandbox CANNOT cover (see header).
-function checkG5(jsSources: readonly JsSource[], htmls: readonly HtmlFile[]): Finding {
+// The layer the CSP/sandbox CANNOT cover (see header). Two severities (F5):
+//   - HARD-FAIL: navigation (F1), downloads/self-export + image + WebRTC sinks
+//     (F3), inline event handlers + <meta refresh> (F5/F6), dynamic code-exec.
+//     None of these is owned by `connect-src`.
+//   - WARNING ONLY: the `connect-src`-owned network class — fetch / XHR /
+//     sendBeacon / WebSocket / EventSource — but ONLY when the effective served
+//     CSP is confirmed exactly `connect-src 'none'` (F4/`cspConfirmsNoConnect`).
+//     Missing/malformed/weaker policy → FAIL CLOSED (these become hard-fails).
+function checkG5(
+  jsSources: readonly JsSource[],
+  htmls: readonly HtmlFile[],
+  opts: CheckReviewSiteOptions,
+): Finding {
   const problems: string[] = [];
+  const warnings: string[] = [];
+  // The `connect-src`-owned class is downgraded to a warning only under a
+  // confirmed exact `connect-src 'none'`; otherwise it stays a hard-fail.
+  const connectSrcBlocked = cspConfirmsNoConnect(opts.contentSecurityPolicy);
+
   for (const { label, analysis } of jsSources) {
+    // connect-src-owned network sinks (fetch + XHR/WebSocket/EventSource/beacon).
+    const networkHits: string[] = [];
     for (const call of analysis.fetchCalls) {
       const shown = call.url === null ? "fetch(<dynamic>)" : `fetch("${call.url}")`;
-      problems.push(`${label}: ${shown} — the site must ship data as .js globals, never fetch at runtime (I3)`);
+      networkHits.push(`${label}: ${shown} — the site must ship data as .js globals, never fetch at runtime (I3)`);
     }
     for (const sink of analysis.networkSinks) {
-      problems.push(`${label}: uses ${sink} (I3: no runtime data loading/exfil)`);
+      networkHits.push(`${label}: uses ${sink} (I3: no runtime data loading/exfil)`);
     }
+    for (const hit of networkHits) {
+      if (connectSrcBlocked) {
+        warnings.push(`${hit} [warning: neutralized by served connect-src 'none']`);
+      } else {
+        problems.push(`${hit} — and the served CSP does not confirm connect-src 'none' (fail-closed, F4)`);
+      }
+    }
+
+    // Everything below is a hard-fail regardless of the CSP.
     for (const sink of analysis.navigationSinks) {
       problems.push(`${label}: navigation sink ${sink} — navigation is an exfil channel the CSP cannot block (F1)`);
+    }
+    for (const sink of analysis.downloadSinks) {
+      problems.push(`${label}: download/self-export sink ${sink} — the review site must never download; the trusted shell owns export (F2/F3)`);
+    }
+    for (const sink of analysis.imageSinks) {
+      problems.push(`${label}: dynamic image sink ${sink} — an image src is a GET governed by img-src, not connect-src (F3)`);
+    }
+    for (const sink of analysis.webrtcSinks) {
+      problems.push(`${label}: WebRTC sink ${sink} — a data channel connect-src does not own (F3; also webrtc 'block')`);
     }
     for (const sink of analysis.execSinks) {
       problems.push(`${label}: dynamic code-exec ${sink} — the contract needs no runtime eval`);
@@ -465,7 +512,8 @@ function checkG5(jsSources: readonly JsSource[], htmls: readonly HtmlFile[]): Fi
       }
     }
   }
-  return finding("G5", problems);
+  const base = finding("G5", problems);
+  return warnings.length > 0 ? { ...base, warnings: warnings.join("; ") } : base;
 }
 
 // --- G6: external origins ⊆ cdn_allowlist ----------------------------------
@@ -498,30 +546,20 @@ function checkG6(htmls: readonly HtmlFile[], cdnAllowlist: readonly string[]): F
   return finding("G6", problems);
 }
 
-// --- G7: verdict export surface + schema string referenced ------------------
-function checkG7(
-  htmls: readonly HtmlFile[],
-  allJs: readonly JsFile[],
-  manifest: ManifestInfo | null,
-): Finding {
+// --- G7: manifest declares the verdict schema (NOT an iframe export) ---------
+// Redefined by F2. The OLD G7 REQUIRED the review site to own a download/export
+// surface — a capability the new architecture deliberately removed: verdict
+// export/write lives in the TRUSTED SHELL, and any iframe-side download/self-
+// export is now a G5 hard-fail (F3). What survives is the provenance fact the
+// shell needs: the manifest must name the `verdict_schema` the shell will emit
+// the verdict under (I5). The site itself must NOT export anything.
+function checkG7(manifest: ManifestInfo | null): Finding {
   const problems: string[] = [];
-  const htmlText = htmls.map((h) => h.text).join("\n");
-  // Inline scripts live in the HTML text; any stray .js files add their text.
-  const jsText = allJs.map((j) => j.text).join("\n");
-  const combined = `${htmlText}\n${jsText}`;
-
-  const hasExportControl =
-    /\.download\s*=/.test(combined) ||
-    /\bdownload\b/i.test(htmlText) ||
-    /id\s*=\s*["'][^"']*export/i.test(htmlText);
-  if (!hasExportControl) {
-    problems.push("no verdict export control (a `download` surface or an export element)");
-  }
-
-  const referencesSchema = /\bschema\b/.test(combined);
-  const manifestHasSchema = typeof manifest?.verdictSchema === "string" && manifest.verdictSchema.length > 0;
-  if (!referencesSchema || !manifestHasSchema) {
-    problems.push("verdict `schema` string not referenced (I5: the export must carry a schema)");
+  const schema = manifest?.verdictSchema;
+  if (!(typeof schema === "string" && schema.length > 0)) {
+    problems.push(
+      "manifest verdict_schema missing (I5: the trusted shell needs the schema name it will emit the verdict under)",
+    );
   }
   return finding("G7", problems);
 }
@@ -616,7 +654,7 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
   const allJs: JsFile[] = await Promise.all(
     jsPaths.map(async (absPath) => {
       const text = await readFile(absPath, "utf8");
-      return { absPath, relPath: relative(siteDir, absPath), text, analysis: analyzeJs(text) };
+      return { absPath, relPath: relative(siteDir, absPath), analysis: analyzeJs(text) };
     }),
   );
 
@@ -626,7 +664,6 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
       const elements = parseHtml(text);
       const ids = new Set<string>();
       const inlineScripts: JsAnalysis[] = [];
-      const inlineScriptText: string[] = [];
       const scriptSrcRefs: string[] = [];
       for (const el of elements) {
         const id = el.attrs.get("id");
@@ -636,7 +673,6 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
           if (src === undefined) {
             if (el.rawText && el.rawText.trim().length > 0) {
               inlineScripts.push(analyzeJs(el.rawText));
-              inlineScriptText.push(el.rawText);
             }
           } else if (classifyRef(src.trim()) === "relative" && src.trim().endsWith(".js")) {
             scriptSrcRefs.push(src.trim());
@@ -646,12 +682,10 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
       return {
         absPath,
         relPath: relative(siteDir, absPath),
-        text,
         elements,
         ids,
         refs: collectRefs(elements),
         inlineScripts,
-        inlineScriptText,
         scriptSrcRefs,
       };
     }),
@@ -674,9 +708,9 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
   const g2 = await checkG2(siteDir, htmls);
   const { finding: g3, manifest } = checkG3(jsSources);
   const g4 = checkG4(htmls, allJs);
-  const g5 = checkG5(jsSources, htmls);
+  const g5 = checkG5(jsSources, htmls, opts);
   const g6 = checkG6(htmls, opts.cdnAllowlist);
-  const g7 = checkG7(htmls, allJs, manifest);
+  const g7 = checkG7(manifest);
   const { finding: g8, fidelity } = await checkG8(manifest, opts);
 
   const findings = [g1, g2, g3, g4, g5, g6, g7, g8];

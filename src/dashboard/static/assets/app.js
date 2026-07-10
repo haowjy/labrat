@@ -18,9 +18,41 @@ const state = {
   // review-architecture-decision.md): the iframe reports interactions, the
   // shell is the only place a verdict is assembled. (Re)initialized by
   // initReviewVerdict() each time renderReviews() mounts a fresh iframe.
-  reviewVerdict: { status: null, log: [] },
+  //   - status: the reviewer's EXPLICIT verdict (only pass/fail here) — the sole
+  //     value a future irreversible write may use.
+  //   - corrected: an untrusted-EVIDENCE auto-flag from iframe interactions; it
+  //     tints the pill but must NEVER stand in for an explicit reviewer action.
+  //   - evidence: validated interaction payloads (bounded), never raw messages.
+  reviewVerdict: newReviewVerdict(),
   reviewIframeWindow: null,
+  // Bridge-revocation bookkeeping (F1): the SAME iframe WindowProxy survives a
+  // self-navigation/reload, so event.source keeps matching. We count load
+  // events on the mounted frame — the first is the expected initial document,
+  // any later one is an unexpected navigation and revokes the bridge.
+  reviewFrameLoads: 0,
 };
+
+// The trusted receiver's protocol contract (F1). Only these message types,
+// actions, and keys are accepted; everything else is dropped.
+const REVIEW_MSG_TYPES = { ready: 1, interaction: 1, "metrics-updated": 1 };
+const REVIEW_INTERACTION_ACTIONS = { "landmark-moved": 1 };
+const REVIEW_ID_RE = /^[A-Za-z0-9_-]{1,128}$/; // a bounded, safe landmark id
+const REVIEW_LOG_CAP = 200; // max log lines kept (memory + DOM)
+const REVIEW_EVIDENCE_CAP = 500; // max validated-interaction payloads retained
+const REVIEW_LOG_RATE_WINDOW_MS = 1000;
+const REVIEW_LOG_RATE_MAX = 20; // beyond this per window, coalesce/drop
+
+function newReviewVerdict() {
+  return {
+    status: null,
+    corrected: false,
+    evidence: [],
+    log: [],
+    logWindowStart: 0,
+    logWindowCount: 0,
+    logSuppressed: 0,
+  };
+}
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -436,61 +468,190 @@ function verdictPillClass(status) {
   return "pill-skip";
 }
 
-function setVerdict(status) {
-  state.reviewVerdict.status = status;
+/** Repaint the pill from state: an explicit verdict wins; otherwise the
+ * untrusted "corrected" evidence flag tints it; otherwise pending. */
+function renderVerdictPill() {
   const pill = $("verdict-pill");
   if (!pill) return;
-  pill.className = `pill ${verdictPillClass(status)}`;
-  pill.textContent = status || "pending";
+  const v = state.reviewVerdict;
+  const shown = v.status || (v.corrected ? "corrected" : "pending");
+  pill.className = `pill ${verdictPillClass(shown)}`;
+  pill.textContent = shown;
+}
+
+/** The reviewer's EXPLICIT verdict (pass/fail) — the only committable value. */
+function setVerdict(status) {
+  state.reviewVerdict.status = status;
+  renderVerdictPill();
 }
 
 function logVerdictEvent(text) {
-  state.reviewVerdict.log.push({ text, at: new Date().toISOString() });
+  const v = state.reviewVerdict;
+  // Rate-limit: coalesce message floods so a hostile iframe can't grow the log
+  // (memory) or thrash the DOM. Beyond REVIEW_LOG_RATE_MAX events per window we
+  // drop and count; the array + DOM are also hard-capped below.
+  const now = Date.now();
+  if (now - v.logWindowStart > REVIEW_LOG_RATE_WINDOW_MS) {
+    if (v.logSuppressed > 0) {
+      // Surface that a flood was dropped, once per window, then reset.
+      appendVerdictLine(`… ${v.logSuppressed} event(s) suppressed (rate limit).`);
+    }
+    v.logWindowStart = now;
+    v.logWindowCount = 0;
+    v.logSuppressed = 0;
+  }
+  v.logWindowCount += 1;
+  if (v.logWindowCount > REVIEW_LOG_RATE_MAX) {
+    v.logSuppressed += 1;
+    return;
+  }
+  v.log.push({ text, at: new Date().toISOString() });
+  while (v.log.length > REVIEW_LOG_CAP) v.log.shift();
+  appendVerdictLine(text);
+}
+
+function appendVerdictLine(text) {
   const log = $("verdict-log");
   if (!log) return;
   const line = document.createElement("div");
   line.className = "verdict-log-line";
   line.innerHTML = `<span class="verdict-log-time">${esc(fmtTime(new Date().toISOString()))}</span>${esc(text)}`;
   log.prepend(line);
+  while (log.children.length > REVIEW_LOG_CAP) log.removeChild(log.lastChild);
+}
+
+/**
+ * Revoke the bridge: drop the trusted window ref so every later message is
+ * rejected, and clear untrusted evidence. Called on an unexpected iframe
+ * reload/navigation (the WindowProxy survives it, so event.source alone can't
+ * distinguish a self-navigated document — F1). The reviewer's own explicit
+ * status is preserved; only iframe-sourced state is discarded.
+ */
+function revokeReviewBridge(reason) {
+  state.reviewIframeWindow = null;
+  state.reviewVerdict.corrected = false;
+  state.reviewVerdict.evidence = [];
+  logVerdictEvent(`Bridge revoked — ${reason}. Re-open the review to re-establish it.`);
+  renderVerdictPill();
 }
 
 /** Reset + rewire the panel for a freshly-mounted iframe (a new task, or a
  * re-render of the same one — renderReviews() always rebuilds the DOM). */
 function initReviewVerdict(iframeEl) {
-  state.reviewVerdict = { status: null, log: [] };
+  state.reviewVerdict = newReviewVerdict();
   state.reviewIframeWindow = iframeEl ? iframeEl.contentWindow : null;
+  state.reviewFrameLoads = 0;
   setVerdict(null);
+  if (iframeEl) {
+    iframeEl.addEventListener("load", () => {
+      state.reviewFrameLoads += 1;
+      // The first load is the expected initial document the shell mounted; any
+      // later load on the SAME frame the shell did not re-render is a self-
+      // navigation/reload → revoke (event.source would otherwise still match).
+      if (state.reviewFrameLoads > 1) {
+        revokeReviewBridge("the sandboxed frame navigated or reloaded itself");
+      }
+    });
+  }
   const pass = $("verdict-pass");
   const fail = $("verdict-fail");
   if (pass) pass.onclick = () => { setVerdict("pass"); logVerdictEvent("Reviewer marked pass."); };
   if (fail) fail.onclick = () => { setVerdict("fail"); logVerdictEvent("Reviewer marked fail."); };
 }
 
+/** True for a finite JS number (rejects NaN/±Infinity/non-numbers). */
+function isFiniteNumber(n) {
+  return typeof n === "number" && isFinite(n);
+}
+/** True when `obj`'s own enumerable keys are all within `allowed` (no extras). */
+function hasOnlyKeys(obj, allowed) {
+  for (const k of Object.keys(obj)) if (!allowed[k]) return false;
+  return true;
+}
+/** A bounded, safe landmark id (non-empty, ≤128 chars, `[A-Za-z0-9_-]`). */
+function isReviewId(id) {
+  return typeof id === "string" && REVIEW_ID_RE.test(id);
+}
+
+const REVIEW_INTERACTION_KEYS = { type: 1, action: 1, id: 1, position: 1 };
+const REVIEW_POSITION_KEYS = { x: 1, y: 1, z: 1 };
+const REVIEW_METRICS_KEYS = { type: 1, metrics: 1 };
+const REVIEW_READY_KEYS = { type: 1 };
+const REVIEW_METRICS_MAX_KEYS = 16;
+
+/** Validate an `interaction`: strict keys, known action, safe id, finite x/y/z.
+ * Returns the sanitized payload, or null to reject. */
+function validateInteraction(d) {
+  if (!hasOnlyKeys(d, REVIEW_INTERACTION_KEYS)) return null;
+  if (!REVIEW_INTERACTION_ACTIONS[d.action]) return null;
+  if (!isReviewId(d.id)) return null;
+  const p = d.position;
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  if (!hasOnlyKeys(p, REVIEW_POSITION_KEYS)) return null;
+  if (!isFiniteNumber(p.x) || !isFiniteNumber(p.y) || !isFiniteNumber(p.z)) return null;
+  return { action: d.action, id: d.id, position: { x: p.x, y: p.y, z: p.z } };
+}
+
+/** Validate a `metrics-updated`: strict keys, safe id, only finite-number
+ * metric values (no arbitrary objects/arrays). Returns sanitized metrics or null. */
+function validateMetrics(d) {
+  if (!hasOnlyKeys(d, REVIEW_METRICS_KEYS)) return null;
+  const m = d.metrics;
+  if (!m || typeof m !== "object" || Array.isArray(m)) return null;
+  const keys = Object.keys(m);
+  if (keys.length === 0 || keys.length > REVIEW_METRICS_MAX_KEYS) return null;
+  if (!isReviewId(m.id)) return null;
+  const out = { id: m.id };
+  for (const k of keys) {
+    if (k === "id") continue;
+    if (!isFiniteNumber(m[k])) return null;
+    out[k] = m[k];
+  }
+  return out;
+}
+
 /**
- * The postMessage bridge, iframe -> shell. The child is an opaque origin
- * (no allow-same-origin), so event.origin is the literal string "null" and
- * unusable for authentication; every message is instead checked against
- * event.source (must be the exact iframe window renderReviews() just
- * mounted) and against message SHAPE, not origin — matching the design
- * doc's "validate message structure, not origin". Narrow protocol, not RPC:
- * three message types, nothing here calls back into the iframe except the
- * shell -> iframe {type:'highlight'|'reset'} messages the template accepts
- * (not wired to UI yet in this slice — no verdict-row hover/undo control
- * exists to send them from).
+ * The postMessage bridge, iframe -> shell. The child is an opaque origin (no
+ * allow-same-origin), so event.origin is the literal string "null" and unusable
+ * for authentication; every message is checked against event.source (the exact
+ * mounted iframe window — and revoked on unexpected reload, since the
+ * WindowProxy persists across navigation) AND against a STRICT per-type
+ * validator: exact key sets, known enums, finite coordinates, bounded sizes.
+ * Narrow protocol, not RPC — three message types.
+ *
+ * TRUST BOUNDARY: an `interaction` is untrusted EVIDENCE. It may auto-tint the
+ * pill "corrected" for the reviewer's attention, but it never sets the
+ * committable `status` — that stays reserved for an explicit reviewer action,
+ * so the eventual irreversible write (a later lane) can never be driven by a
+ * raw iframe message.
  */
 function onReviewMessage(event) {
   if (!state.reviewIframeWindow || event.source !== state.reviewIframeWindow) return;
   const data = event.data;
-  if (!data || typeof data !== "object") return;
+  if (!data || typeof data !== "object" || !REVIEW_MSG_TYPES[data.type]) return;
+
   if (data.type === "ready") {
+    if (!hasOnlyKeys(data, REVIEW_READY_KEYS)) return;
     logVerdictEvent("Review site loaded and interactive.");
-  } else if (data.type === "interaction") {
-    setVerdict("corrected");
-    logVerdictEvent(`Adjusted ${data.id ?? "an item"} — verdict flipped to corrected.`);
-  } else if (data.type === "metrics-updated" && data.metrics && typeof data.metrics === "object") {
-    const m = data.metrics;
+    return;
+  }
+  if (data.type === "interaction") {
+    const ok = validateInteraction(data);
+    if (!ok) return;
+    const v = state.reviewVerdict;
+    v.evidence.push(ok);
+    while (v.evidence.length > REVIEW_EVIDENCE_CAP) v.evidence.shift();
+    v.corrected = true; // untrusted evidence: a UI hint, NOT a committed verdict
+    renderVerdictPill();
+    logVerdictEvent(`Adjusted ${ok.id} — flagged "corrected" (needs an explicit reviewer verdict).`);
+    return;
+  }
+  if (data.type === "metrics-updated") {
+    const m = validateMetrics(data);
+    if (!m) return;
     const bits = Object.keys(m).filter((k) => k !== "id").map((k) => `${k}=${m[k]}`).join(", ");
-    logVerdictEvent(`Metrics for ${m.id ?? "item"}: ${bits}`);
+    logVerdictEvent(`Metrics for ${m.id}: ${bits}`);
+    return;
   }
 }
 

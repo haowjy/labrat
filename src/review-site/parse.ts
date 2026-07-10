@@ -127,9 +127,24 @@ export type JsAnalysis = {
    * navigator.sendBeacon. */
   readonly networkSinks: readonly string[];
   /** Navigation sinks (F1): assignment to `window.location`/`location.href`,
-   * `location.assign`/`.replace`, `window.open` — CSP `connect-src` does NOT
-   * block navigation, so ONLY the linter catches this exfil channel. */
+   * `location.assign`/`.replace`, `window.open`, dynamic `form.submit()` — CSP
+   * `connect-src` does NOT block navigation, so ONLY the linter catches this
+   * exfil channel. */
   readonly navigationSinks: readonly string[];
+  /** Download sinks (F3): a dynamic download/self-export surface — an anchor
+   * `.download =` attribute or a programmatic `.click()`. The review site must
+   * NEVER self-export (the trusted shell owns download); `connect-src` does not
+   * own downloads and the sandbox's `allow-downloads` was removed, so the linter
+   * is the boundary here. */
+  readonly downloadSinks: readonly string[];
+  /** Image sinks (F3): `new Image()` / `document.createElement("img")` — a
+   * dynamically created image element loads its `src` as a GET, governed by
+   * `img-src` (which permits `data:`), NOT `connect-src`; hard-fail. */
+  readonly imageSinks: readonly string[];
+  /** WebRTC sinks (F3): `RTCPeerConnection` — a separate CSP3 `webrtc`
+   * directive owns this, not `connect-src`; hard-fail (plus `webrtc 'block'`
+   * in the CSP as defense-in-depth). */
+  readonly webrtcSinks: readonly string[];
   /** Dynamic code-exec sinks: `eval`, `new Function`, `setTimeout`/`setInterval`
    * with a string body (live if `'unsafe-eval'` is ever added for Plotly). */
   readonly execSinks: readonly string[];
@@ -298,6 +313,9 @@ export function analyzeJs(source: string): JsAnalysis {
       fetchCalls: [],
       networkSinks: [],
       navigationSinks: [],
+      downloadSinks: [],
+      imageSinks: [],
+      webrtcSinks: [],
       execSinks: [],
       dynamicImports: 0,
       getElementByIds: [],
@@ -308,6 +326,9 @@ export function analyzeJs(source: string): JsAnalysis {
   const fetchCalls: FetchCall[] = [];
   const networkSinks: string[] = [];
   const navigationSinks: string[] = [];
+  const downloadSinks: string[] = [];
+  const imageSinks: string[] = [];
+  const webrtcSinks: string[] = [];
   const execSinks: string[] = [];
   const getElementByIds: string[] = [];
   let dynamicImports = 0;
@@ -320,6 +341,13 @@ export function analyzeJs(source: string): JsAnalysis {
     const first = Array.isArray(args) ? asNode(args[0]) : null;
     const ev = evalStatic(first);
     return ev.known && typeof ev.value === "string";
+  };
+  /** The first argument as a lowercased string literal, or null. */
+  const firstStringArgLower = (node: EsNode): string | null => {
+    const args = node["arguments"];
+    const first = Array.isArray(args) ? asNode(args[0]) : null;
+    const ev = evalStatic(first);
+    return ev.known && typeof ev.value === "string" ? ev.value.toLowerCase() : null;
   };
 
   walkFull(program as never, (raw) => {
@@ -334,7 +362,14 @@ export function analyzeJs(source: string): JsAnalysis {
         windowGlobals.push({ name, nonEmpty: nonEmptyLiteral(known, value), value });
       }
       const path = memberPath(left);
-      if (path !== null && isNavigationTarget(path)) addSink(navigationSinks, `${path} = …`);
+      if (path !== null) {
+        if (isNavigationTarget(path)) addSink(navigationSinks, `${path} = …`);
+        // `x.download = …` is only meaningful on an anchor and its sole purpose
+        // is to turn a click into a file save — a self-export sink (F3).
+        if (path.split(".").pop() === "download") {
+          addSink(downloadSinks, `${path} = … (anchor download attribute)`);
+        }
+      }
       return;
     }
 
@@ -349,14 +384,32 @@ export function analyzeJs(source: string): JsAnalysis {
       const segs = path === null ? [] : path.split(".");
       const last = segs[segs.length - 1] ?? "";
       const base = segs[segs.length - 2];
+      // The invoked method name, taken straight off the callee's (non-computed)
+      // property — visible even when the RECEIVER is dynamic (`forms[0].submit()`,
+      // where the full member path can't resolve). Used for receiver-agnostic
+      // sinks (`.click()`/`.submit()`) that are exfil regardless of what holds them.
+      const methodName =
+        callee?.type === "MemberExpression" && callee["computed"] !== true
+          ? (asNode(callee["property"])?.type === "Identifier"
+              ? String((asNode(callee["property"]) as EsNode)["name"])
+              : "")
+          : "";
 
       // Runtime code-exec constructor: new Function(...) / Function(...).
       if (last === "Function" && baseIsGlobal(base)) {
         addSink(execSinks, "Function(…)");
         return;
       }
+      // WebRTC constructor (F3) — `new RTCPeerConnection()` or a bare call;
+      // `connect-src` does not own it, the CSP3 `webrtc` directive does.
+      if (last === "RTCPeerConnection" || last === "webkitRTCPeerConnection") {
+        addSink(webrtcSinks, `${last}(…)`);
+        return;
+      }
       if (node.type === "NewExpression") {
-        if (last !== "" && NETWORK_CTORS.has(last)) addSink(networkSinks, last);
+        // A dynamically created image element loads its src as a GET (img-src).
+        if (last === "Image" && baseIsGlobal(base)) addSink(imageSinks, "new Image()");
+        else if (last !== "" && NETWORK_CTORS.has(last)) addSink(networkSinks, last);
         return;
       }
 
@@ -372,6 +425,15 @@ export function analyzeJs(source: string): JsAnalysis {
         addSink(navigationSinks, `${path}(…)`);
       } else if (last === "open" && baseIsGlobal(base)) {
         addSink(navigationSinks, "window.open(…)");
+      } else if (methodName === "submit") {
+        // `form.submit()` navigates/POSTs without a user gesture (F3).
+        addSink(navigationSinks, "form.submit(…)");
+      } else if (methodName === "click") {
+        // A programmatic `.click()` triggers a download/navigation anchor with
+        // no user gesture — the self-export half of the anchor pattern (F3).
+        addSink(downloadSinks, "element.click()");
+      } else if (last === "createElement" && firstStringArgLower(node) === "img") {
+        addSink(imageSinks, 'document.createElement("img")');
       } else if (last === "eval" && baseIsGlobal(base)) {
         addSink(execSinks, "eval(…)");
       } else if ((last === "setTimeout" || last === "setInterval") && firstArgIsString(node)) {
@@ -391,6 +453,9 @@ export function analyzeJs(source: string): JsAnalysis {
     fetchCalls,
     networkSinks,
     navigationSinks,
+    downloadSinks,
+    imageSinks,
+    webrtcSinks,
     execSinks,
     dynamicImports,
     getElementByIds,
