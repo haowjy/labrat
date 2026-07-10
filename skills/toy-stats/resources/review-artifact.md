@@ -36,15 +36,21 @@ reference for this exact structure — mirror it.
    sha256sum artifacts/regression/regression.json
    ```
    Take the 64-hex digest as `<HASH>`.
-4. Write `data/manifest.js` assigning `window.REVIEW_MANIFEST`:
+4. Write `data/manifest.js` assigning `window.REVIEW_MANIFEST`. Set `sample_id`
+   to the **task id from your prompt** (e.g. `task-2026-07-09-001`) — the gate
+   verifies it against the harness's authoritative run id (G8/H1b), so it must
+   be the task id, not a free-form label:
    ```js
    window.REVIEW_MANIFEST = {
-     sample_id: "toy-stats-run",
+     sample_id: "<the task id from your prompt>",
      produced_from: { measurement: "regression/regression.json@<HASH>" },
      verdict_schema: "review-verdict/1",
      data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],
    };
    ```
+   Assign every `window.*` global with a **static object/array literal** — the
+   gate reads the manifest by parsing it statically and NEVER executes it, so
+   computed/dynamic assignments are invisible to G3/G8.
 5. Write `data/values.js` assigning `window.REVIEW_DATA = { items: [...] }` —
    one item per vetted number, each `{ id, label, value, unit, honesty_flag,
    honesty_detail }` (see the fixture's `data/values.js`).
@@ -59,15 +65,15 @@ reference for this exact structure — mirror it.
    download** in the button's click handler carrying `schema`, `sample_id`,
    `produced_from`, `overall`, `items[]`, `exported_at` (I5). Mirror the
    fixture's `assets/app.js`.
-8. **Self-check before recording** — run the same linter the gate runs, and
-   iterate until every gate is clean:
-   ```
-   "$LABRAT_HOME/node_modules/.bin/tsx" "$LABRAT_HOME/src/review-site/cli.ts" \
-     check-review-site artifacts/review-site \
-     --results artifacts/regression/regression.json \
-     --cdn-allowlist ""
-   ```
-   Exit 0 with `"ok": true` means all of G1-G8 pass.
+8. **Match the fixture and re-read your files.** The gate is run by the harness,
+   not by you: after you `record_phase`, the harness runs the deterministic
+   `check_review_site` linter (G1-G8) with its own authoritative inputs and the
+   reviewer gates on the result. If a gate fails, the gate feedback names the
+   failing `Gx` and its detail — fix exactly that and the phase re-runs. Keep
+   every `href`/`src` a **relative in-folder file** (no `..`, absolute, `data:`/
+   `blob:`/`javascript:` sources, or external origins beyond this phase's
+   `cdn_allowlist`), ship data as `.js` globals (never `fetch`), and keep the
+   export button + `schema` string.
 9. Call `record_phase` with phase `review-artifact` and a short summary.
 
 ## Expected outputs / how to verify
@@ -76,36 +82,47 @@ reference for this exact structure — mirror it.
 `artifacts/review-site/data/manifest.js` exist; the folder is self-contained
 and passes the review-site linter G1-G8 clean.
 
-**Reviewer runs the linter (its own process, does NOT rebuild the site):**
+**Reviewer READS the harness-run linter result (does NOT run it or rebuild the site):**
 
 The gate for this phase is **structural + fidelity**, not scientific — do NOT
-recompute slope/accuracy here (that was gated upstream). Run the generic
-`check_review_site` linter and read its findings:
+recompute slope/accuracy here (that was gated upstream), and do NOT hand-run a
+linter or hand-type the policy. The **harness** runs the deterministic
+`check_review_site` linter (G1-G8) with its own authoritative inputs — the phase
+`cdn_allowlist`, the run's `artifacts/` measurement root, and the task id as the
+expected `sample_id` — and writes the report to:
 
 ```
-"$LABRAT_HOME/node_modules/.bin/tsx" "$LABRAT_HOME/src/review-site/cli.ts" \
-  check-review-site artifacts/review-site \
-  --results artifacts/regression/regression.json \
-  --cdn-allowlist "<the phase cdn_allowlist, comma-joined; empty here>"
+review/verification/review-artifact/check_review_site.json
 ```
 
-It prints `{ "ok": bool, "findings": [{ "gate": "G1".."G8", "ok": bool,
-"detail": "…" }] }` and exits 0 when clean, 1 when any gate fails.
+Read that file. It is `{ "ok": bool, "fidelity": "verified"|"unverified",
+"findings": [{ "gate": "G1".."G8", "ok": bool, "detail": "…" }] }`.
 
 The linter checks: **G1** `index.html` resolves and is non-empty; **G2**
-every `href`/`src` is relative, inside the folder, no `..`/absolute/`file://`;
-**G3** `data/manifest.js` exists and every declared `window.*` data global is
-present and non-empty; **G4** every JS file is syntactically valid and each
-`getElementById` targets an id that exists in its page; **G5** no `fetch`/
-`XMLHttpRequest` of a local or `.json` path; **G6** every external origin is
-in this phase's `cdn_allowlist`; **G7** a verdict export control exists and the
-verdict `schema` string is referenced; **G8** the manifest's `produced_from`
-hash matches `artifacts/regression/regression.json` on disk (the site describes
-THIS run, not a stale one).
+every `href`/`src`/CSS `url()` is a relative in-folder file — no `..`,
+absolute, `file://`, `data:`/`blob:`/`javascript:` exec source, or dangling
+ref; **G3** `data/manifest.js` exists and every declared `window.*` data global
+is present and non-empty (parsed **statically**, never executed); **G4** every
+JS file (and inline `<script>`) is syntactically valid and each
+`getElementById` targets an id that exists in its page; **G5** no runtime data
+loading (`fetch`/`XMLHttpRequest`/`import()` — data ships as `.js` globals);
+**G6** every external origin is in this phase's `cdn_allowlist`; **G7** a
+verdict export control exists and the verdict `schema` string is referenced;
+**G8** the manifest's `sample_id` equals the run id and its `produced_from` hash
+matches the on-disk measurement (the site describes THIS run, not a stale one).
 
-**Gate `pass` only if** the linter exits 0 with `"ok": true` and every one of
-the eight findings is `"ok": true`. Quote the failing findings' `detail` in
-your `submit_gate_decision` feedback on a fail.
+**Gate `pass` only if** `check_review_site.json` has `"ok": true` and every one
+of the eight findings is `"ok": true`. If the file is missing or `"ok": false`,
+FAIL and quote the failing findings' `detail` in your `submit_gate_decision`
+feedback. (Note: the harness also enforces this as a deterministic floor — a
+non-`ok` report fails the gate regardless — so passing a non-`ok` report is a
+rubber stamp the monitor will catch.)
+
+**This linter is the STRUCTURAL gate, not the whole security story.** It proves
+the site is self-contained and faithful. The **runtime** security boundary is
+the dashboard's CSP (Lane A), which sandboxes the site at serve time. They are
+defense in depth: the linter closes structural bypasses before serve; the CSP
+contains anything at serve time.
 
 **Failure modes to flag:** any gate `ok: false` — e.g. `index.html` missing
 (G1), an absolute/`..` path (G2), a missing data global (G3), a `getElementById`

@@ -1,5 +1,4 @@
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -62,15 +61,13 @@ function buildSdkAgents(
 }
 
 /**
- * Repo root of this harness checkout, so worker/reviewer Bash sessions can
- * invoke harness-provided tools (e.g. the generic `check_review_site` linter
- * at `$LABRAT_HOME/src/review-site/cli.ts`) by absolute path — the seam that
- * lets any protocol's review site be self-checked and gated by the SAME
- * linter with zero per-skill duplication. Resolved from this module's
- * location: src/harness/session/ (or dist/harness/session/) → three up.
+ * The environment for a worker/reviewer session: process env + the runtime's
+ * python on PATH. It deliberately does NOT export a harness-root handle
+ * (formerly `LABRAT_HOME`): the review-site linter is bound and run by the
+ * HARNESS as part of the gate (orchestrator/review-artifact-check.ts), so no
+ * session needs to reach into the harness checkout to run it — removing the
+ * seam that exposed the harness root + `tsx` to session Bash (Lane C, T1).
  */
-const LABRAT_HOME = fileURLToPath(new URL("../../../", import.meta.url)).replace(/\/$/, "");
-
 export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> {
   const pythonBinDir = dirname(runtime.pythonPath);
   const pathKey = process.env["PATH"] ?? "";
@@ -88,7 +85,6 @@ export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> 
     env[key] = value;
   }
   env["PATH"] = mergedPath;
-  env["LABRAT_HOME"] = LABRAT_HOME;
   return env;
 }
 
