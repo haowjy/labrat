@@ -7,6 +7,7 @@ import { MobileDrawer } from "./MobileDrawer.js";
 import { PhaseOverview } from "./PhaseOverview.js";
 import { PhaseReviewView } from "./PhaseReviewView.js";
 import { Sidebar } from "./Sidebar.js";
+import { SkillsView } from "./SkillsView.js";
 
 const LOG_CAP = 40;
 
@@ -121,6 +122,16 @@ export function App() {
     scrollMainToTop();
   }, []);
 
+  /** Claude Science skill browser (import bridge) — a top-level screen off the
+   * drawer, alongside Dashboard. Not tied to any sample, so currentId clears. */
+  const goToSkills = useCallback(() => {
+    setCurrentId(null);
+    setScreenState("skills");
+    location.hash = "skills";
+    setDrawerOpen(false);
+    scrollMainToTop();
+  }, []);
+
   /** A Sample-index row click or a Phase-review tab click both mean the
    * same thing — "show Phase review for this phase" — so one callback
    * covers both entry points; setting screen to "review" again when
@@ -220,6 +231,7 @@ export function App() {
           screen=${screen}
           onSelect=${selectSample}
           onGoDashboard=${goToDashboard}
+          onGoSkills=${goToSkills}
         />
       <//>
       <main class="main">
@@ -246,7 +258,9 @@ export function App() {
         <div
           class="content ${screen === "review" ? "content-review" : screen === "dashboard" ? "content-dashboard" : ""}"
         >
-          ${screen === "dashboard"
+          ${screen === "skills"
+            ? html`<${SkillsView} />`
+            : screen === "dashboard"
             ? html`<${Dashboard} tasks=${sortedTasks} onSelectSample=${selectSample} />`
             : !currentId
               ? html`<div class="empty">No sample selected.</div>`

@@ -12,6 +12,7 @@ import {
   listTasks,
   resolveTaskFile,
 } from "./api/index.js";
+import { listClaudeScienceSkillsView } from "./api/claude-science.js";
 import type { SseEvent } from "../schema/index.js";
 import { handleSse, publishEvent } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
@@ -374,6 +375,15 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.status(201).json(result.value);
+  });
+
+  // Claude Science skill browse (LabRat ↔ Claude Science import bridge).
+  // Read-only: lists registry skills (org + builtin) with a `vendored` flag.
+  // Import itself is a CLI action (`labrat import-skill`) — a dashboard POST
+  // that writes into the repo's source tree is out of scope for this
+  // disk-read surface, so the UI links to the CLI instead.
+  app.get("/api/claude-science/skills", async (_req, res) => {
+    res.json(await listClaudeScienceSkillsView(config.scienceHome));
   });
 
   // Cross-process notify seam (design §4, §13): the harness (Process A)

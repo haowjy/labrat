@@ -28,7 +28,7 @@ async function boot(): Promise<{ base: string }> {
   const tasksDir = await mkdtemp(path.join(tmpdir(), "labrat-server-review-"));
   dirs.push(tasksDir);
   await cp(FIXTURE, path.join(tasksDir, TASK_ID), { recursive: true });
-  const app = createApp({ tasksDir, user: "tester", port: 0, devReplay: false });
+  const app = createApp({ tasksDir, scienceHome: "/nonexistent", user: "tester", port: 0, devReplay: false });
   const server = await new Promise<http.Server>((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
