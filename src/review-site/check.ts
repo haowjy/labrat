@@ -13,7 +13,7 @@ import { cspConfirmsNoConnect } from "./csp.js";
 
 /**
  * `check_review_site` — the deterministic review-site linter (design
- * review-template.md §2, gates G1-G8).
+ * review-template.md §2, gates G1-G9).
  *
  * It depends ONLY on the review-site CONTRACT (§1, invariants I1-I7): a single
  * inlined entry point, self-contained (no external subresources), `.js`-global
@@ -57,7 +57,7 @@ import { cspConfirmsNoConnect } from "./csp.js";
  * throws on a contract violation (only on genuinely unreadable input).
  */
 
-export type GateId = "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8";
+export type GateId = "G1" | "G2" | "G3" | "G4" | "G5" | "G6" | "G7" | "G8" | "G9";
 
 export type Finding = {
   readonly gate: GateId;
@@ -354,7 +354,31 @@ type ManifestInfo = {
   readonly producedFrom: unknown;
   readonly verdictSchema: unknown;
   readonly dataGlobals: readonly string[];
+  readonly dataSources: unknown;
+  /** G9 (spatial reviews): absent on single-pane manifests → G9 is N/A. */
+  readonly reviewLayout: unknown;
+  readonly requiredViews: readonly string[];
+  readonly linkedViews: unknown;
 };
+
+/**
+ * The path portions the manifest's `produced_from` entries hash
+ * (`"<path>@<sha256>"` → `"<path>"`) — the same path-portion lookup the server
+ * performs at splice time and G8 hash-verifies. Shared by G3 (every
+ * `data_sources` artifact must be hashed) and G9 (the slice-data artifact
+ * specifically); hash FORMAT and file-hash verification stay G8's job.
+ */
+function producedFromPaths(pf: unknown): ReadonlySet<string> {
+  const paths = new Set<string>();
+  if (pf !== null && typeof pf === "object") {
+    for (const ref of Object.values(pf as Record<string, unknown>)) {
+      if (typeof ref !== "string") continue;
+      const at = ref.lastIndexOf("@");
+      if (at !== -1) paths.add(ref.slice(0, at));
+    }
+  }
+  return paths;
+}
 
 /** A `window.<NAME> = "__REVIEW_INJECT:<NAME>__"` serve-time placeholder value. */
 const INJECT_SENTINEL = /^__REVIEW_INJECT:(.+)__$/;
@@ -362,6 +386,8 @@ const INJECT_SENTINEL = /^__REVIEW_INJECT:(.+)__$/;
 function checkG3(jsSources: readonly JsSource[]): {
   readonly finding: Finding;
   readonly manifest: ManifestInfo | null;
+  /** Statically-parsed `window.*` literal values (G9 reads the slice-data one). */
+  readonly globalValues: ReadonlyMap<string, unknown>;
 } {
   const problems: string[] = [];
 
@@ -385,6 +411,7 @@ function checkG3(jsSources: readonly JsSource[]): {
     return {
       finding: finding("G3", [...problems, "no inline <script> assigns window.REVIEW_MANIFEST"]),
       manifest: null,
+      globalValues,
     };
   }
   if (manifestValue === undefined || typeof manifestValue !== "object" || manifestValue === null) {
@@ -393,6 +420,7 @@ function checkG3(jsSources: readonly JsSource[]): {
     return {
       finding: finding("G3", [...problems, "window.REVIEW_MANIFEST is not a static object literal"]),
       manifest: null,
+      globalValues,
     };
   }
 
@@ -434,21 +462,13 @@ function checkG3(jsSources: readonly JsSource[]): {
     // Every source's artifact path must carry a produced_from hash — the same
     // path-portion lookup the server performs at splice time. Catching the
     // mismatch here means the template fails the GATE, not the serve.
-    const producedFromPaths = new Set<string>();
-    const pf = mf["produced_from"];
-    if (pf !== null && typeof pf === "object") {
-      for (const ref of Object.values(pf as Record<string, unknown>)) {
-        if (typeof ref !== "string") continue;
-        const at = ref.lastIndexOf("@");
-        if (at !== -1) producedFromPaths.add(ref.slice(0, at));
-      }
-    }
+    const hashedPaths = producedFromPaths(mf["produced_from"]);
     for (const [key, raw] of Object.entries(ds as Record<string, unknown>)) {
       const artifact =
         raw !== null && typeof raw === "object"
           ? (raw as Record<string, unknown>)["artifact"]
           : undefined;
-      if (typeof artifact === "string" && artifact.length > 0 && !producedFromPaths.has(artifact)) {
+      if (typeof artifact === "string" && artifact.length > 0 && !hashedPaths.has(artifact)) {
         problems.push(
           `data_sources.${key} artifact "${artifact}" has no matching produced_from entry (the server cannot verify its hash)`,
         );
@@ -461,8 +481,14 @@ function checkG3(jsSources: readonly JsSource[]): {
     producedFrom: mf["produced_from"],
     verdictSchema: mf["verdict_schema"],
     dataGlobals: declared,
+    dataSources: ds,
+    reviewLayout: mf["review_layout"],
+    requiredViews: Array.isArray(mf["required_views"])
+      ? mf["required_views"].filter((x): x is string => typeof x === "string")
+      : [],
+    linkedViews: mf["linked_views"],
   };
-  return { finding: finding("G3", problems), manifest };
+  return { finding: finding("G3", problems), manifest, globalValues };
 }
 
 // --- G4: JS statically valid + referenced element IDs exist ----------------
@@ -746,7 +772,125 @@ async function checkG8(
   return { finding: finding("G8", problems), fidelity };
 }
 
-/** Run G1-G8 against a review-site folder. */
+// --- G9: spatial-multipane layout (slice-scrubber ingredients) ---------------
+// Fires ONLY when the manifest declares `review_layout: "spatial-multipane"`
+// (review-ui-testing.md "G9 is the spatial-layout check"); a values-table
+// review omits the field and G9 is N/A → auto-pass, so single-pane protocols
+// are unaffected. When it fires it statically asserts the INGREDIENTS of the
+// linked slice scrubber — required-view elements, per-axis slider + canvas
+// markers, a slice-data global wired to real data, linked_views + landmarks.
+// It never executes JS: that the linking BEHAVES is the worker's file:// self-
+// check and the human reviewer's job, not the static linter's.
+const SLICE_VIEW = /^slice-(axial|coronal|sagittal)$/;
+const SLICE_DATA_GLOBALS = ["REVIEW_VOLUME", "REVIEW_SLICES"] as const;
+
+function checkG9(
+  manifest: ManifestInfo | null,
+  htmls: readonly HtmlFile[],
+  globalValues: ReadonlyMap<string, unknown>,
+): Finding {
+  // N/A auto-pass. A null manifest is G3's failure to report, and without a
+  // readable manifest no `review_layout: "spatial-multipane"` was declared.
+  if (manifest === null || manifest.reviewLayout !== "spatial-multipane") {
+    return finding("G9", []);
+  }
+  const problems: string[] = [];
+
+  // Static DOM markers, aggregated across pages (the single-document contract
+  // means index.html in practice) — the same parsed elements every gate uses.
+  const views = new Set<string>();
+  const sliders = new Set<string>();
+  const canvases = new Set<string>();
+  for (const page of htmls) {
+    for (const el of page.elements) {
+      const view = el.attrs.get("data-review-view");
+      if (view !== undefined) views.add(view);
+      const canvas = el.attrs.get("data-review-slice-canvas");
+      if (canvas !== undefined) canvases.add(canvas);
+      const slider = el.attrs.get("data-review-slice-slider");
+      const isRange = el.tag === "input" && (el.attrs.get("type") ?? "").trim().toLowerCase() === "range";
+      if (slider !== undefined && isRange) sliders.add(slider);
+    }
+  }
+
+  // 1. every required view has its element; 2. each slice view has BOTH the
+  // range slider and the canvas marker for its axis.
+  if (manifest.requiredViews.length === 0) {
+    problems.push("spatial-multipane manifest declares no required_views");
+  }
+  for (const view of manifest.requiredViews) {
+    if (!views.has(view)) {
+      problems.push(`required view "${view}" has no [data-review-view="${view}"] element`);
+    }
+    const slice = SLICE_VIEW.exec(view);
+    const axis = slice?.[1];
+    if (axis !== undefined) {
+      if (!sliders.has(axis)) {
+        problems.push(`slice view "${view}" has no <input type="range" data-review-slice-slider="${axis}">`);
+      }
+      if (!canvases.has(axis)) {
+        problems.push(`slice view "${view}" has no [data-review-slice-canvas="${axis}"] element`);
+      }
+    }
+  }
+
+  // 3. the scrubber is wired to REAL slice data: a slice-data global declared
+  // in data_globals, backed by a produced_from-hashed data_sources artifact
+  // (G8's "path@<sha256>" idiom — G8 owns format/file verification) or by a
+  // non-empty static literal (the fully-inlined form).
+  const sliceGlobal = SLICE_DATA_GLOBALS.find((g) => manifest.dataGlobals.includes(g));
+  if (sliceGlobal === undefined) {
+    problems.push("no slice-data global (REVIEW_VOLUME or REVIEW_SLICES) in data_globals");
+  } else {
+    const ds = manifest.dataSources;
+    const entry =
+      ds !== null && typeof ds === "object"
+        ? (ds as Record<string, unknown>)[sliceGlobal]
+        : undefined;
+    const artifact =
+      entry !== null && typeof entry === "object"
+        ? (entry as Record<string, unknown>)["artifact"]
+        : undefined;
+    if (typeof artifact === "string" && artifact.length > 0) {
+      if (!producedFromPaths(manifest.producedFrom).has(artifact)) {
+        problems.push(
+          `slice-data global ${sliceGlobal} artifact "${artifact}" has no produced_from "path@<sha256>" entry`,
+        );
+      }
+    } else {
+      const value = globalValues.get(sliceGlobal);
+      const inlined =
+        value !== undefined &&
+        !(typeof value === "string" && (value.length === 0 || INJECT_SENTINEL.test(value)));
+      if (!inlined) {
+        problems.push(
+          `slice-data global ${sliceGlobal} has no data_sources entry with a produced_from hash and is not a non-empty static literal`,
+        );
+      }
+    }
+  }
+
+  // 4. linked views declared, with landmark data to link on: a landmark global
+  // in data_globals, or landmarks carried inside the slice-data literal.
+  if (manifest.linkedViews !== true) {
+    problems.push("manifest linked_views is not true (spatial-multipane requires linked views)");
+  }
+  const hasLandmarkGlobal = manifest.dataGlobals.some((g) => g.toUpperCase().includes("LANDMARK"));
+  const sliceValue = sliceGlobal !== undefined ? globalValues.get(sliceGlobal) : undefined;
+  const literalHasLandmarks =
+    sliceValue !== null &&
+    typeof sliceValue === "object" &&
+    "landmarks" in (sliceValue as Record<string, unknown>);
+  if (!hasLandmarkGlobal && !literalHasLandmarks) {
+    problems.push(
+      "no landmark data (no landmark global in data_globals and no landmarks in the slice-data literal)",
+    );
+  }
+
+  return finding("G9", problems);
+}
+
+/** Run G1-G9 against a review-site folder. */
 export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<ReviewSiteReport> {
   const siteDir = resolve(opts.siteDir);
 
@@ -808,13 +952,14 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
 
   const g1 = await checkG1(siteDir);
   const g2 = await checkG2(siteDir, htmls);
-  const { finding: g3, manifest } = checkG3(jsSources);
+  const { finding: g3, manifest, globalValues } = checkG3(jsSources);
   const g4 = checkG4(htmls, allJs);
   const g5 = checkG5(jsSources, htmls, opts);
   const g6 = checkG6(htmls, opts.cdnAllowlist);
   const g7 = checkG7(manifest);
   const { finding: g8, fidelity } = await checkG8(manifest, opts);
+  const g9 = checkG9(manifest, htmls, globalValues);
 
-  const findings = [g1, g2, g3, g4, g5, g6, g7, g8];
+  const findings = [g1, g2, g3, g4, g5, g6, g7, g8, g9];
   return { ok: findings.every((f) => f.ok), siteDir, fidelity, findings };
 }
