@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, user-scalable=yes">
+<title>Femur — voxbone review</title>
+<link rel="stylesheet" href="shared.css">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <header><h1>Femur</h1><span class="sub" id="sub"></span>
+    <span class="grow"></span><button class="icnbtn" id="themeBtn">🌙</button></header>
+  <main>
+    <section class="pane on" id="pslices">
+      <div class="bonebar">
+        <a class="b on" href="femur.html">Femur</a><a class="b" href="tibia.html">Tibia</a></div>
+      <div class="mprgrid">
+        <div class="cell coronal"><h3>Coronal (frontal)</h3><span class="tag" id="tag_coronal"></span>
+          <canvas class="mpr" id="c_coronal"></canvas><input type="range" id="s_coronal" min="0" max="1" value="0"></div>
+        <div class="cell"><h3>Sagittal</h3><span class="tag" id="tag_sagittal"></span>
+          <canvas class="mpr" id="c_sagittal"></canvas><input type="range" id="s_sagittal" min="0" max="1" value="0"></div>
+        <div class="cell"><h3>Axial</h3><span class="tag" id="tag_axial"></span>
+          <canvas class="mpr" id="c_axial"></canvas><input type="range" id="s_axial" min="0" max="1" value="0"></div>
+      </div>
+      <div id="mini3d"><span class="mlab">live 3D</span></div>
+      <div id="savebar"><button class="save" id="btnSaveLmk">✓ Save</button><button class="cancel" id="btnCancelLmk">✕ Cancel</button></div>
+    </section>
+    <section class="pane" id="pmeasure"><div class="scroll">
+      <div class="card"><h2>Femur width / length ratio</h2><div class="big" id="wlbig">—</div><div class="hint" id="wlhint"></div></div>
+      <div class="card"><h2>Live measurements (3D straight-line)</h2><div id="measbox"></div></div>
+      <div class="card"><h2>Display</h2>
+        <span class="chip on" id="tglOver">◧ Mask</span><span class="chip on" id="tglCross">✛ Crosshair</span>
+        <span class="chip on" id="tglLmk">◉ Landmarks</span><span class="chip" id="tglPlace">☐ Place mode</span></div>
+      <div class="card"><h2>Landmarks — tap to jump, Place mode to move</h2>
+        <div id="lmlist"></div>
+        <button class="btn sec" id="btnResetLmk">↺ Reset to auto</button></div>
+    </div></section>
+  </main>
+  <nav>
+    <a class="t" href="index.html"><span class="ic">🧊</span>3D</a>
+    <button class="t on" data-p="pslices"><span class="ic">🔲</span>Slices</button>
+    <button class="t" data-p="pmeasure"><span class="ic">📏</span>Measure</button>
+    <a class="t" href="index.html#prev"><span class="ic">✓</span>Review</a>
+  </nav>
+</div>
+<script src="data/meta.js"></script>
+<script src="data/femur.js"></script>
+<script src="shared.js"></script>
+<script>
+(async function(){ BM.initTheme(); const meta=await BM.loadMeta();
+  document.getElementById('sub').textContent=meta.sample_id+' · aligned '+meta.align.femur_tilt+'° residual';
+  document.querySelectorAll('nav .t[data-p]').forEach(t=>t.onclick=()=>{
+    document.querySelectorAll('nav .t').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+    document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));
+    document.getElementById(t.dataset.p).classList.add('on');});
+  await BM.MPR('femur');
+})();
+</script>
+</body>
+</html>
