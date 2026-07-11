@@ -2,6 +2,7 @@
 .claude/
 .mars/
 .meridian/
+.meridian-prompts/
 .meridian-scratch/
 .meridian-export/
 mars.lock
