@@ -43,7 +43,7 @@ function TaskCard({ task, active, onSelect }) {
  * null whenever it navigates to the dashboard, so no task's id can equal it
  * while the Dashboard entry itself is the one that should be highlighted.
  */
-export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard }) {
+export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard, onGoSkills }) {
   return html`
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -58,6 +58,14 @@ export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard }) {
         >
           <span class="sidebar-nav-icon" aria-hidden="true">⌂</span>
           Dashboard
+        </button>
+        <button
+          type="button"
+          class="sidebar-nav-item ${screen === "skills" ? "active" : ""}"
+          onClick=${onGoSkills}
+        >
+          <span class="sidebar-nav-icon" aria-hidden="true">⚯</span>
+          Claude Science
         </button>
       </nav>
       <div class="task-list">

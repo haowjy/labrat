@@ -179,7 +179,7 @@ describe("review-site route (booted app over HTTP)", () => {
   ): Promise<{ base: string; server: http.Server; tasksDir: string }> {
     const tasksDir = await make();
     dirs.push(tasksDir);
-    const app = createApp({ tasksDir, user: "tester", port: 0, devReplay: false });
+    const app = createApp({ tasksDir, scienceHome: "/nonexistent", user: "tester", port: 0, devReplay: false });
     const server = await new Promise<http.Server>((resolve) => {
       const s = app.listen(0, () => resolve(s));
     });
