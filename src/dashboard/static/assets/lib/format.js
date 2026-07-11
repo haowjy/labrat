@@ -40,6 +40,53 @@ export function statePill(s) {
   }
 }
 
+/**
+ * Triage rank for a `TaskSummary` — lower means a human is needed sooner.
+ * Derived ONLY from summary fields (the fleet board never fetches per-task
+ * detail): `failed`/`paused` runs sit stopped with a `reason` a human must
+ * clear; `running` then `queued` are the pipeline working on its own; `done`
+ * asks for nothing. "Awaiting human review" is deliberately NOT its own rank:
+ * the summary carries no gate/human-verdict fields, and the one shape that
+ * looks like a wait (`running` + `currentPhase: null` with phases complete)
+ * is actually the automated gate reviewing a just-finished phase — flagging
+ * it would cry wolf on every healthy phase boundary.
+ */
+export function taskUrgency(task) {
+  switch (task.state) {
+    case "failed":
+    case "paused":
+      return 0;
+    case "done":
+      return 3;
+    case "queued":
+      return 2;
+    default:
+      return 1; // running (and anything unrecognized: treat as in flight)
+  }
+}
+
+/** The fleet board's section headers, in display order (Dashboard.js). */
+export const TASK_GROUPS = ["Needs attention", "In progress", "Complete"];
+
+/** TaskSummary -> which board section it belongs to (always a TASK_GROUPS
+ * member): rank 0 needs a human, rank 3 is finished, everything between is
+ * the pipeline doing its own work. */
+export function taskGroup(task) {
+  const rank = taskUrgency(task);
+  if (rank === 0) return TASK_GROUPS[0];
+  if (rank === 3) return TASK_GROUPS[2];
+  return TASK_GROUPS[1];
+}
+
+/** Urgency-sorted copy of a TaskSummary list — attention-needing samples
+ * first, done last. Array.prototype.sort is stable, so the API's id order is
+ * preserved within a rank (cards don't shuffle on every SSE re-fetch; they
+ * move only when their state actually changes). App.js applies this ONCE to
+ * the shared list so the Dashboard board and the Sidebar read one order. */
+export function sortTasksByUrgency(tasks) {
+  return [...tasks].sort((a, b) => taskUrgency(a) - taskUrgency(b));
+}
+
 /** timeline entry -> phase-dot CSS state. */
 export function dotClass(entry) {
   if (entry.gate) {
@@ -99,23 +146,31 @@ export const STATE_EVENTS = [
   "task-paused",
 ];
 
-/** One-line human description of an SSE state event, for the live ticker. */
+/** One-line human description of an SSE state event, for the live ticker.
+ * Leads with the task id (every state event carries one — schema/sse.ts): the
+ * strip renders on the fleet board, where "which sample?" is the whole
+ * question, and even inside a sample the last event may be about a DIFFERENT
+ * one (App.js sets it for every event, not just the open sample's). The
+ * description is built once at event time and cached in state, so it can't
+ * consult the current screen later — always naming the sample is both simpler
+ * and more correct than a screen-conditional label. */
 export function describeEvent(ev) {
+  const subject = ev.taskId ?? "task";
   switch (ev.type) {
     case "gate-result":
-      return `${ev.phase}: gate ${ev.decision}`;
+      return `${subject} · ${ev.phase}: gate ${ev.decision}`;
     case "phase-started":
-      return `${ev.phase}: started`;
+      return `${subject} · ${ev.phase}: started`;
     case "phase-complete":
-      return `${ev.phase}: complete`;
+      return `${subject} · ${ev.phase}: complete`;
     case "task-started":
-      return `task started (${ev.protocol})`;
+      return `${subject} started (${ev.protocol})`;
     case "task-done":
-      return "task done";
+      return `${subject} done`;
     case "task-failed":
-      return `task failed: ${ev.reason}`;
+      return `${subject} failed: ${ev.reason}`;
     case "task-paused":
-      return `task paused: ${ev.reason}`;
+      return `${subject} paused: ${ev.reason}`;
     default:
       return ev.type;
   }

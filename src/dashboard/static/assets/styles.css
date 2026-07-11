@@ -129,6 +129,15 @@ a { color:var(--accent); }
    SIDEBAR block above) on a card-family-scoped selector, since a board card
    and a sidebar row are different DOM shapes sharing one animation. */
 .sample-card-pulse { animation:card-pulse 0.9s ease-out; }
+/* F1 — the board is split into urgency sections; only non-empty ones render
+   (Dashboard.js), so "Needs attention" simply isn't there on a clean fleet. */
+.sample-groups { display:flex; flex-direction:column; gap:1.25rem; }
+.sample-group { display:flex; flex-direction:column; }
+/* The one "look here first" header — the section a stuck sample lands in.
+   Both classes in the selector so it beats .section-label regardless of
+   source order (equal single-class specificity would otherwise let the
+   later .section-label rule win). */
+.section-label.section-label-alert { color:var(--alert); }
 
 /* === PHASE TABS — the Phase-review phase selector (PhaseReviewView.js).
    Same pill-tab visual the old chain view's scroll-spy jump-nav used
@@ -158,6 +167,8 @@ a { color:var(--accent); }
 .phase-index-name { font-family:var(--mono); font-weight:700; font-size:0.8rem; }
 .attempt { font-size:0.65rem; color:var(--muted2); font-weight:400; margin-left:0.4rem; }
 .phase-index-pills { display:flex; align-items:center; gap:0.4rem; margin-left:auto; flex-wrap:wrap; justify-content:flex-end; }
+/* F4 — one-line tally of the index below it, same pills the rows use. */
+.phase-summary { display:flex; flex-wrap:wrap; gap:0.4rem; margin:0.75rem 0 0.25rem; }
 
 .section-label { font-family:var(--mono); font-size:0.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin:0.6rem 0 0.3rem; }
 
@@ -175,6 +186,13 @@ a { color:var(--accent); }
 .review-embed { display:flex; flex-direction:column; gap:0.6rem; flex:1; min-height:0; }
 .review-embed-head { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem 1rem; flex-wrap:wrap; flex-shrink:0; }
 .quarantine-note { font-size:0.7rem; color:var(--muted); }
+.gate-note { flex-shrink:0; border:1px solid var(--accent-line); border-radius:6px; background:var(--surface); padding:0.5rem 0.7rem; max-height:8.5rem; overflow-y:auto; }
+.gate-note-pass { border-color:var(--pass); background:var(--pass-soft); }
+.gate-note-concerns { border-color:var(--warn); background:var(--warn-soft); }
+.gate-note-fail { border-color:var(--alert); background:var(--alert-soft); }
+.gate-note-head { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem; }
+.gate-note-body { margin:0; font-size:0.74rem; line-height:1.45; color:var(--ink); white-space:pre-wrap; }
+.gate-note-empty { color:var(--muted); font-style:italic; }
 /* .review-stage is position:relative so the floated VerdictOverlay (below)
    can sit ON TOP of the iframe via position:absolute + z-index, instead of
    as a bar pushing it around in flow. The empty-placeholder variant (a
@@ -209,6 +227,14 @@ a { color:var(--accent); }
 .verdict-finish-row { display:flex; align-items:center; justify-content:flex-end; gap:0.75rem; margin-top:0.7rem; flex-wrap:wrap; }
 .verdict-finish-error { color:var(--alert); font-size:0.72rem; font-family:var(--mono); }
 .verdict-finish-done { color:var(--pass); font-size:0.78rem; font-family:var(--mono); font-weight:700; }
+/* F3 — secondary verdict controls fold behind this so the panel lands short
+   over the iframe; Pass/Fail + Finish stay outside it (VerdictPanel.js). */
+.verdict-more { margin:0.1rem 0; }
+.verdict-more-summary { font-family:var(--mono); font-size:0.66rem; color:var(--muted); cursor:pointer; list-style:none; padding:0.3rem 0; user-select:none; }
+.verdict-more-summary::-webkit-details-marker { display:none; }
+.verdict-more-summary::before { content:"\25B8"; display:inline-block; margin-right:0.4rem; transition:transform 0.12s ease; }
+.verdict-more[open] .verdict-more-summary::before { transform:rotate(90deg); }
+.verdict-more-summary:hover { color:var(--ink); }
 
 /* === VERDICT OVERLAY (VerdictOverlay.js) — floats the trusted VerdictPanel
    above on TOP of the iframe (.review-stage is its positioned ancestor).
@@ -216,9 +242,12 @@ a { color:var(--accent); }
    via a descendant selector so its own component/CSS stay byte-identical
    to the non-floated original. width:min(...) keeps it from spanning edge-
    to-edge even on a narrow phone viewport without a separate media query. */
-.verdict-overlay { position:absolute; top:0.6rem; right:0.6rem; z-index:20; width:min(340px, calc(100% - 1.2rem)); max-height:calc(100% - 1.2rem); overflow-y:auto; }
-.verdict-overlay .verdict-panel { box-shadow:0 8px 28px rgba(0,0,0,0.22); }
-.verdict-overlay-bar { display:flex; justify-content:flex-end; margin-bottom:0.3rem; }
+.verdict-overlay { position:absolute; bottom:0.6rem; right:0.6rem; z-index:20; width:min(340px, calc(100% - 1.2rem)); max-height:calc(100% - 1.2rem); overflow-y:auto; }
+.verdict-overlay .verdict-panel { box-shadow:0 8px 28px rgba(0,0,0,0.22); padding:0.7rem 0.8rem; }
+.verdict-overlay .verdict-panel-head { margin-bottom:0.35rem; }
+.verdict-overlay .verdict-actions { margin-bottom:0; }
+.verdict-overlay .verdict-finish-row { margin-top:0.5rem; }
+.verdict-overlay-bar { display:flex; justify-content:flex-end; margin-bottom:0.15rem; }
 .verdict-collapse-btn { width:24px; height:24px; display:flex; align-items:center; justify-content:center; border:1px solid var(--accent-line); border-radius:4px; background:var(--surface); color:var(--muted); font-family:var(--mono); font-size:0.85rem; line-height:1; cursor:pointer; box-shadow:0 2px 10px rgba(0,0,0,0.18); }
 .verdict-collapse-btn:hover { background:var(--accent-soft); color:var(--ink); }
 .verdict-overlay-collapsed { width:auto; max-height:none; }
@@ -276,5 +305,6 @@ a { color:var(--accent); }
   .phase-tab { min-height:44px; }
   .verdict-collapse-btn { min-width:44px; min-height:44px; }
   .verdict-chip { min-height:44px; }
+  .verdict-more-summary { min-height:44px; display:flex; align-items:center; }
   .content, .content-review, .content-dashboard { padding:1rem; }
 }
