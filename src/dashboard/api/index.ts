@@ -6,14 +6,17 @@ import {
   isValidTaskId,
   latestMarksBySubphase,
   validateGateFile,
+  validateMonitorReport,
   validateProvenanceManifest,
   validateReviewVerdictRecord,
   validateSubphasesJson,
   validateSuggestionsJson,
   validateTaskJson,
   type GateFile,
+  type MonitorReportSummary,
   type ProvenanceArtifactRef,
   type ProvenanceManifest,
+  type ProvenanceManifestEntry,
   type ReviewVerdictRecord,
   type SubphaseMark,
   type SubphaseConfidence,
@@ -128,6 +131,79 @@ async function readManifest(
     return null;
   }
   const res = validateProvenanceManifest(parsed ?? []);
+  return res.ok ? res.value : null;
+}
+
+/**
+ * The gate-reviewer's OWN parsed recomputation JSON under
+ * review/verification/{phase}/ — the independent-check side of the review
+ * chain (worker `measurements` vs. this). Only *.json files are read
+ * structurally (the reviewer's *.py/*.md are surfaced by filename via
+ * `verification`); each is returned untyped, like `measurements`, because the
+ * recomputation shape is per-protocol. Read-only, inside the task tree.
+ */
+async function readReviewerVerification(
+  tasksDir: string,
+  id: string,
+  phase: string,
+): Promise<readonly { readonly file: string; readonly data: unknown }[]> {
+  const dir = path.join(taskDir(tasksDir, id), "review", "verification", phase);
+  const out: { file: string; data: unknown }[] = [];
+  for (const file of await listDir(dir)) {
+    if (!file.endsWith(".json")) continue;
+    const data = await readJsonFile(path.join(dir, file));
+    if (data !== null) out.push({ file, data });
+  }
+  return out;
+}
+
+/**
+ * Archived FAILING gates for a phase (review/gates/{phase}.attempt-N.json,
+ * oldest first) — the correction HISTORY the harness preserves when a gate
+ * fails and the phase rewinds/retries (harness/orchestrator/invalidation.ts).
+ * The chain view narrates "caught and corrected" from these. Excludes the live
+ * {phase}.json (that is `gate`) and the .trust-boundary sidecar.
+ */
+async function readGateHistory(
+  tasksDir: string,
+  id: string,
+  phase: string,
+): Promise<readonly GateFile[]> {
+  const dir = path.join(taskDir(tasksDir, id), "review", "gates");
+  const escaped = phase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${escaped}\\.attempt-(\\d+)\\.json$`);
+  const matched: { attempt: number; file: string }[] = [];
+  for (const file of await listDir(dir)) {
+    const m = re.exec(file);
+    if (m) matched.push({ attempt: Number(m[1]), file });
+  }
+  matched.sort((a, b) => a.attempt - b.attempt);
+  const out: GateFile[] = [];
+  for (const { file } of matched) {
+    const raw = await readJsonFile(path.join(dir, file));
+    if (raw === null) continue;
+    const res = validateGateFile(raw);
+    if (res.ok) out.push(res.value);
+  }
+  return out;
+}
+
+/**
+ * The third-agent monitor's verdict on this phase's REVIEWER
+ * (review/monitor/{phase}.json) — "reviewer audit: passed/failed" in the
+ * chain. Distinct from `gate` (the reviewer's own decision on the worker):
+ * the monitor audits whether the reviewer actually recomputed.
+ */
+async function readMonitorReport(
+  tasksDir: string,
+  id: string,
+  phase: string,
+): Promise<MonitorReportSummary | null> {
+  const raw = await readJsonFile(
+    path.join(taskDir(tasksDir, id), "review", "monitor", `${phase}.json`),
+  );
+  if (raw === null) return null;
+  const res = validateMonitorReport(raw);
   return res.ok ? res.value : null;
 }
 
@@ -314,6 +390,35 @@ export type PhaseDetail = {
   /** Reviewer verification filenames under review/verification/{phase}/. */
   readonly verification: readonly string[];
   /**
+   * The gate-reviewer's OWN parsed recomputation JSON under
+   * review/verification/{phase}/ — the independent-check side of the review
+   * chain (worker `measurements` vs. this). Untyped per file: the shape is
+   * per-protocol. Empty when the reviewer wrote only scripts/prose.
+   */
+  readonly reviewerVerification: readonly {
+    readonly file: string;
+    readonly data: unknown;
+  }[];
+  /**
+   * Archived FAILING gates (review/gates/{phase}.attempt-N.json), oldest
+   * first — the correction history behind a now-passing phase. Empty when the
+   * phase passed on the first attempt.
+   */
+  readonly gateHistory: readonly GateFile[];
+  /**
+   * The third-agent monitor's verdict on the reviewer
+   * (review/monitor/{phase}.json), or null when no monitor ran.
+   */
+  readonly monitorVerdict: MonitorReportSummary | null;
+  /**
+   * This phase's latest provenance manifest entry (append-only, last write
+   * wins) — the artifact paths + integrity hashes + agent/session ids the
+   * chain's provenance links resolve to. Null before the phase records one.
+   * Same source getTask reads; surfaced here so the per-phase review layer has
+   * the hashes without a second fetch.
+   */
+  readonly provenance: ProvenanceManifestEntry | null;
+  /**
    * The persisted human review verdict for this phase
    * (review/verdict/{phase}.json), or null when no human has finished
    * reviewing it yet. This is what lets the chain view show the completed
@@ -370,6 +475,10 @@ export async function getPhase(
     path.join(dir, "review", "verification", phase),
   );
   const humanVerdict = await readReviewVerdict(tasksDir, id, phase);
+  const reviewerVerification = await readReviewerVerification(tasksDir, id, phase);
+  const gateHistory = await readGateHistory(tasksDir, id, phase);
+  const monitorVerdict = await readMonitorReport(tasksDir, id, phase);
+  const provenance = latestManifestEntry(await readManifest(tasksDir, id), phase);
 
   return {
     phase,
@@ -381,6 +490,10 @@ export async function getPhase(
     evidence,
     verification,
     humanVerdict,
+    reviewerVerification,
+    gateHistory,
+    monitorVerdict,
+    provenance,
   };
 }
 

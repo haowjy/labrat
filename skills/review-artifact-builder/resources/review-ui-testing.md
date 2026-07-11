@@ -43,7 +43,7 @@ change to catch structural violations before the harness runs.
 | G6 | Every external origin ⊆ `cdn_allowlist` from `protocol.yaml` | Referencing a CDN not in the allowlist |
 | G7 | `verdict_schema` field present in manifest | Missing schema declaration |
 | G8 | Provenance: `sample_id` matches harness task id; every `produced_from` entry's hash matches actual file on disk (iterates all keys, not just `measurement`) | Stale hash after regeneration; `data_sources` artifact with no `produced_from` hash |
-| G9 | *(spatial reviews only, when `review_layout: "spatial-multipane"`)* required views present: every `required_views` entry has a `[data-review-view]` element; each `slice-*` view has a `[data-review-slice-canvas]` + `<input type="range" data-review-slice-slider>`; a slice-data global (`REVIEW_VOLUME`/`REVIEW_SLICES`) is declared with a `produced_from` hash; `linked_views: true` with landmark data present | Shipped the 3D mesh but no linked orthogonal slice scrubber; a slice pane with no slider; slice-data global not declared |
+| G9 | *(spatial reviews only, when `review_layout: "spatial-multipane"`)* **3D-first**: `scene3d` is in `required_views` and has a `[data-review-view="scene3d"]` element with a `<canvas>`; the inlined script contains a **real three.js scene** — `WebGLRenderer` + `OrbitControls` + a camera (a static painted 2D canvas is rejected); `REVIEW_EVIDENCE.landmarks` present. Slices are **optional**: only when a `slice-*` view is declared must it carry its `[data-review-slice-canvas]` + `<input type="range" data-review-slice-slider>`, a slice-data global, and `linked_views: true` | Shipped a painted "3D mesh" canvas with no three.js/OrbitControls (p80); no `scene3d` view; a *declared* slice view with no slider |
 
 **G5 is the strictest.** It hard-fails on `eval`, `Function()`,
 `new Function()`, `import()`, and inline `on*` handlers. This rules
@@ -59,26 +59,37 @@ stronger: the server also verifies the hash at splice time, so
 provenance is guaranteed by construction rather than by the worker's
 transcription accuracy.
 
-**G9 is the spatial-layout check.** It fires only when the manifest declares
+**G9 is the 3D-first spatial check.** It fires only when the manifest declares
 `review_layout: "spatial-multipane"` — a `values-table` review omits that field
 and G9 is N/A (auto-pass), so single-pane protocols are unaffected. When it fires,
-it statically asserts the *ingredients* of the linked slice scrubber (it can't
-execute the wiring, so it checks the structural markers the pattern prescribes in
-`review-ui-threejs-and-layout.md`):
+it statically asserts that the **primary view is a real 3D scene** (it can't
+execute the scene, so it checks the structural markers + distinctive three.js
+tokens the pattern prescribes in `review-ui-threejs-and-layout.md`):
 
-- every `required_views` entry has a matching `[data-review-view="<id>"]` element;
-- each `slice-<axis>` view has an `<input type="range" data-review-slice-slider="<axis>">`
-  and a `[data-review-slice-canvas="<axis>"]` (axis ∈ axial/coronal/sagittal);
-- a slice-data global (`REVIEW_VOLUME` or `REVIEW_SLICES`) is in `data_globals`
-  with a `data_sources` entry + `produced_from` hash (or a non-empty static literal);
-- `linked_views: true` and landmark data is present (in `REVIEW_VOLUME.landmarks`
-  or the geometry global).
+- `scene3d` is in `required_views`, has a `[data-review-view="scene3d"]` element,
+  and the page has a `<canvas>` to render into;
+- the inlined script contains a **real three.js scene**: `WebGLRenderer`
+  (GPU 3D, not a 2D canvas paint), `OrbitControls` (drag rotates the camera),
+  and a camera (`PerspectiveCamera`/`OrthographicCamera`). A static painted 2D
+  canvas has none of these and is rejected — this is the exact defect p80 found
+  ("orbit does nothing");
+- `REVIEW_EVIDENCE.landmarks` is a non-empty array (the named landmark markers
+  render from it).
 
-Pass = all present. Fail = a declared view with no element, a slice view missing
-its slider or canvas, or no slice-data source — the detail names the missing piece.
-G9 proves the scrubber *exists and is wired to real data*; that the linking
-*behaves* correctly is the worker's `file://` self-check and the human reviewer's
-job, not the static linter's.
+Slices are **optional drill-down evidence**, not the hero view. An artifact with
+no `slice-*` view — and no `REVIEW_VOLUME`/`REVIEW_SLICES` — still passes. But a
+*declared* `slice-<axis>` view must be complete: an `<input type="range"
+data-review-slice-slider="<axis>">`, a `[data-review-slice-canvas="<axis>"]`
+(axis ∈ axial/coronal/sagittal), a slice-data global in `data_globals`
+(with a `data_sources` `produced_from` hash or a non-empty static literal), and
+`linked_views: true`.
+
+Pass = the 3D scene is present and real (slices, if any, complete). Fail = a
+painted canvas with no three.js/OrbitControls, no `scene3d` view, missing
+landmark data, or a declared slice view missing its slider/canvas/data — the
+detail names the missing piece. G9 proves the 3D scene *exists*; that the orbit
+*behaves* is the worker's `file://` drag-check and the human reviewer's job, not
+the static linter's.
 
 ### What the report looks like
 
@@ -136,8 +147,11 @@ you can't run the dashboard locally.
      values-table (no injection), passes all gates clean.
    - `validation/fixtures/review-site-injected/` — sentinel
      placeholders + `data_sources`, passes all gates clean.
-   - `validation/fixtures/review-site-spatial/index.html` — spatial
-     multipane layout with G9 markers, passes all gates including G9.
+   - `validation/fixtures/review-site-spatial/index.html` — the 3D-first
+     spatial review: inlined three.js + OrbitControls, femur/tibia meshes,
+     named landmark markers, measurement lines + derived ratio, guided tour,
+     and adjust-landmark mode. No slice panes (slices optional). Passes all
+     gates including the revised G9. Mirror its structure for 3D reviews.
    Compare your artifact against their structure.
 
 ## What the harness does automatically
@@ -187,10 +201,12 @@ Before submitting a review-artifact phase resource:
 
 - [ ] Run `tsx src/review-site/cli.ts check-review-site <site-dir>` — all gates pass
 - [ ] Open via `file://` — evidence banner shows decisive ratios with
-      correct states; 3D scene renders with measurement-line overlays;
-      guided tour walks flagged landmarks with operational rules; slice
-      scrubber links to landmark selection (inline real data temporarily;
-      sentinel templates show broken renders via `file://`, which is expected)
+      correct states; the 3D scene renders and **a mouse-drag rotates it**
+      (OrbitControls — verify this, it is the p80 defect); measurement-line
+      overlays with values + derived ratio; guided tour walks flagged
+      landmarks with operational rules; adjust-landmark mode recomputes live.
+      If slices are present, they link to landmark selection (inline real data
+      temporarily; sentinel templates show broken renders via `file://`)
 - [ ] Check mobile layout — touch targets >=44px, tour chips at thumb reach
 - [ ] `window.REVIEW_MANIFEST` is a static literal (not computed)
 - [ ] `window.REVIEW_EVIDENCE` is a static literal with `decisive[]`,

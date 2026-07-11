@@ -772,17 +772,37 @@ async function checkG8(
   return { finding: finding("G8", problems), fidelity };
 }
 
-// --- G9: spatial-multipane layout (slice-scrubber ingredients) ---------------
+// --- G9: spatial 3D review (real Three.js scene; slices optional) -----------
 // Fires ONLY when the manifest declares `review_layout: "spatial-multipane"`
-// (review-ui-testing.md "G9 is the spatial-layout check"); a values-table
-// review omits the field and G9 is N/A → auto-pass, so single-pane protocols
-// are unaffected. When it fires it statically asserts the INGREDIENTS of the
-// linked slice scrubber — required-view elements, per-axis slider + canvas
-// markers, a slice-data global wired to real data, linked_views + landmarks.
-// It never executes JS: that the linking BEHAVES is the worker's file:// self-
-// check and the human reviewer's job, not the static linter's.
+// (design demo-readiness §2 "3D-first layout"); a values-table review omits the
+// field and G9 is N/A → auto-pass, so single-pane protocols are unaffected.
+//
+// The PRIMARY, required view is a REAL 3D scene: a `[data-review-view="scene3d"]`
+// element with a `<canvas>`, driven by an inlined three.js WebGL scene with
+// OrbitControls (drag rotates the camera). A static painted 2D canvas is NOT a
+// 3D review and fails here — p80 found exactly that shipped ("orbit does
+// nothing"). The linter can't execute the scene, so it statically requires the
+// distinctive three.js scene primitives (WebGLRenderer + OrbitControls + a
+// camera) in the inlined script; that the orbit BEHAVES is the worker's file://
+// drag-check and the human reviewer's job.
+//
+// Orthogonal slices are OPTIONAL drill-down evidence: an artifact with no
+// slice-* views (and no REVIEW_VOLUME/REVIEW_SLICES) still passes. But when a
+// slice-* view IS declared it must carry its per-axis slider + canvas, be wired
+// to a slice-data global, and set `linked_views: true` — an incomplete scrubber
+// is worse than none. Landmark data (REVIEW_EVIDENCE.landmarks) is always
+// required: the named landmark markers render from it.
 const SLICE_VIEW = /^slice-(axial|coronal|sagittal)$/;
 const SLICE_DATA_GLOBALS = ["REVIEW_VOLUME", "REVIEW_SLICES"] as const;
+// Distinctive three.js scene primitives a static painted 2D canvas lacks.
+// Word-boundary matched against the inlined script text (never executed);
+// presence is the static bar — the p80 painted canvas has none of them.
+const THREE_SCENE_TOKENS: readonly { readonly re: RegExp; readonly need: string }[] = [
+  { re: /\bWebGLRenderer\b/, need: "a WebGLRenderer (real GPU 3D rendering, not a 2D canvas paint)" },
+  { re: /\bOrbitControls\b/, need: "OrbitControls (drag must rotate the camera — the exact thing a painted canvas cannot do)" },
+  { re: /\b(?:Perspective|Orthographic)Camera\b/, need: "a camera (PerspectiveCamera/OrthographicCamera)" },
+];
+const SCENE3D_VIEW = "scene3d";
 
 function checkG9(
   manifest: ManifestInfo | null,
@@ -796,11 +816,15 @@ function checkG9(
   }
   const problems: string[] = [];
 
-  // Static DOM markers, aggregated across pages (the single-document contract
-  // means index.html in practice) — the same parsed elements every gate uses.
+  // Static DOM markers + inline JS text, aggregated across pages (the single-
+  // document contract means index.html in practice) — the same parsed elements
+  // every gate uses. The inline <script> text is scanned (not executed) for the
+  // three.js scene primitives.
   const views = new Set<string>();
   const sliders = new Set<string>();
   const canvases = new Set<string>();
+  let canvasCount = 0;
+  const jsChunks: string[] = [];
   for (const page of htmls) {
     for (const el of page.elements) {
       const view = el.attrs.get("data-review-view");
@@ -810,76 +834,31 @@ function checkG9(
       const slider = el.attrs.get("data-review-slice-slider");
       const isRange = el.tag === "input" && (el.attrs.get("type") ?? "").trim().toLowerCase() === "range";
       if (slider !== undefined && isRange) sliders.add(slider);
+      if (el.tag === "canvas") canvasCount++;
+      if (el.tag === "script" && el.attrs.get("src") === undefined && el.rawText) jsChunks.push(el.rawText);
+    }
+  }
+  const jsText = jsChunks.join("\n");
+
+  // 1. The 3D scene is the primary, required view: declared and present, with a
+  // canvas to render into.
+  if (!manifest.requiredViews.includes(SCENE3D_VIEW)) {
+    problems.push(`spatial-multipane manifest must declare "${SCENE3D_VIEW}" in required_views (the 3D scene is the primary review view)`);
+  }
+  if (!views.has(SCENE3D_VIEW)) {
+    problems.push(`no [data-review-view="${SCENE3D_VIEW}"] element (the 3D scene is the primary review view)`);
+  } else if (canvasCount === 0) {
+    problems.push(`the ${SCENE3D_VIEW} view has no <canvas> to render the 3D scene into`);
+  }
+
+  // 2. A REAL three.js scene with OrbitControls — reject a static painted canvas.
+  for (const { re, need } of THREE_SCENE_TOKENS) {
+    if (!re.test(jsText)) {
+      problems.push(`no ${need} in the inlined script — a static painted 2D canvas is not a 3D review`);
     }
   }
 
-  // 1. every required view has its element; 2. each slice view has BOTH the
-  // range slider and the canvas marker for its axis.
-  if (manifest.requiredViews.length === 0) {
-    problems.push("spatial-multipane manifest declares no required_views");
-  }
-  for (const view of manifest.requiredViews) {
-    if (!views.has(view)) {
-      problems.push(`required view "${view}" has no [data-review-view="${view}"] element`);
-    }
-    const slice = SLICE_VIEW.exec(view);
-    const axis = slice?.[1];
-    if (axis !== undefined) {
-      if (!sliders.has(axis)) {
-        problems.push(`slice view "${view}" has no <input type="range" data-review-slice-slider="${axis}">`);
-      }
-      if (!canvases.has(axis)) {
-        problems.push(`slice view "${view}" has no [data-review-slice-canvas="${axis}"] element`);
-      }
-    }
-  }
-
-  // 3. the scrubber is wired to REAL slice data: a slice-data global declared
-  // in data_globals, backed by a produced_from-hashed data_sources artifact
-  // (G8's "path@<sha256>" idiom — G8 owns format/file verification) or by a
-  // non-empty static literal (the fully-inlined form).
-  const sliceGlobal = SLICE_DATA_GLOBALS.find((g) => manifest.dataGlobals.includes(g));
-  if (sliceGlobal === undefined) {
-    problems.push("no slice-data global (REVIEW_VOLUME or REVIEW_SLICES) in data_globals");
-  } else {
-    const ds = manifest.dataSources;
-    const entry =
-      ds !== null && typeof ds === "object"
-        ? (ds as Record<string, unknown>)[sliceGlobal]
-        : undefined;
-    const artifact =
-      entry !== null && typeof entry === "object"
-        ? (entry as Record<string, unknown>)["artifact"]
-        : undefined;
-    if (typeof artifact === "string" && artifact.length > 0) {
-      if (!producedFromPaths(manifest.producedFrom).has(artifact)) {
-        problems.push(
-          `slice-data global ${sliceGlobal} artifact "${artifact}" has no produced_from "path@<sha256>" entry`,
-        );
-      }
-    } else {
-      const value = globalValues.get(sliceGlobal);
-      const inlined =
-        value !== undefined &&
-        !(typeof value === "string" && (value.length === 0 || INJECT_SENTINEL.test(value)));
-      if (!inlined) {
-        problems.push(
-          `slice-data global ${sliceGlobal} has no data_sources entry with a produced_from hash and is not a non-empty static literal`,
-        );
-      }
-    }
-  }
-
-  // 4. linked views declared, with landmark data to link on: a landmark global
-  // in data_globals, or landmarks carried inside the slice-data literal.
-  if (manifest.linkedViews !== true) {
-    problems.push("manifest linked_views is not true (spatial-multipane requires linked views)");
-  }
-  // Landmark data now lives in REVIEW_EVIDENCE.landmarks (evidence-led artifact
-  // contract): the global must be declared in data_globals and its inlined
-  // literal must carry a non-empty landmarks array for the linked views to
-  // synchronise on. (Was: a "*LANDMARK*"-named global or landmarks nested in
-  // the slice-data literal — both retired when landmarks moved into evidence.)
+  // 3. Landmark markers render from REVIEW_EVIDENCE.landmarks (always required).
   const EVIDENCE_GLOBAL = "REVIEW_EVIDENCE";
   if (!manifest.dataGlobals.includes(EVIDENCE_GLOBAL)) {
     problems.push(`no ${EVIDENCE_GLOBAL} global in data_globals (landmark/evidence data)`);
@@ -890,7 +869,63 @@ function checkG9(
         ? (evidence as Record<string, unknown>)["landmarks"]
         : undefined;
     if (!Array.isArray(landmarks) || landmarks.length === 0) {
-      problems.push(`${EVIDENCE_GLOBAL}.landmarks is missing or empty (linked views need landmark data)`);
+      problems.push(`${EVIDENCE_GLOBAL}.landmarks is missing or empty (the 3D scene needs named landmark markers)`);
+    }
+  }
+
+  // 4. Slices are OPTIONAL drill-down evidence. Validate ONLY the slice-* views
+  // that are actually declared; an artifact with none still passes (REVIEW_VOLUME
+  // optional). When a slice view IS declared, its slider + canvas markers are
+  // required (the scrubber the G9 gate statically asserts).
+  const sliceViews = manifest.requiredViews.filter((v) => SLICE_VIEW.test(v));
+  for (const view of sliceViews) {
+    if (!views.has(view)) {
+      problems.push(`declared slice view "${view}" has no [data-review-view="${view}"] element`);
+    }
+    const axis = SLICE_VIEW.exec(view)?.[1];
+    if (axis !== undefined) {
+      if (!sliders.has(axis)) {
+        problems.push(`slice view "${view}" has no <input type="range" data-review-slice-slider="${axis}">`);
+      }
+      if (!canvases.has(axis)) {
+        problems.push(`slice view "${view}" has no [data-review-slice-canvas="${axis}"] element`);
+      }
+    }
+  }
+
+  // 5. When slices ARE shown, they must be wired to real slice data (a slice-data
+  // global backed by a produced_from hash or a non-empty inlined literal) and
+  // linked to the 3D scene. Skipped entirely when no slice view is declared.
+  if (sliceViews.length > 0) {
+    const sliceGlobal = SLICE_DATA_GLOBALS.find((g) => manifest.dataGlobals.includes(g));
+    if (sliceGlobal === undefined) {
+      problems.push("slice views are declared but no slice-data global (REVIEW_VOLUME or REVIEW_SLICES) is in data_globals");
+    } else {
+      const ds = manifest.dataSources;
+      const entry =
+        ds !== null && typeof ds === "object"
+          ? (ds as Record<string, unknown>)[sliceGlobal]
+          : undefined;
+      const artifact =
+        entry !== null && typeof entry === "object"
+          ? (entry as Record<string, unknown>)["artifact"]
+          : undefined;
+      if (typeof artifact === "string" && artifact.length > 0) {
+        if (!producedFromPaths(manifest.producedFrom).has(artifact)) {
+          problems.push(`slice-data global ${sliceGlobal} artifact "${artifact}" has no produced_from "path@<sha256>" entry`);
+        }
+      } else {
+        const value = globalValues.get(sliceGlobal);
+        const inlined =
+          value !== undefined &&
+          !(typeof value === "string" && (value.length === 0 || INJECT_SENTINEL.test(value)));
+        if (!inlined) {
+          problems.push(`slice-data global ${sliceGlobal} has no data_sources entry with a produced_from hash and is not a non-empty static literal`);
+        }
+      }
+    }
+    if (manifest.linkedViews !== true) {
+      problems.push("slice views are declared but linked_views is not true (the 3D scene and slices must share one position)");
     }
   }
 
