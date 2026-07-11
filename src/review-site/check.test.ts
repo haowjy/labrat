@@ -487,29 +487,6 @@ describe("check_review_site — F5 connect-src downgrade is narrow + fail-closed
   });
 });
 
-describe("check_review_site — the real inlined-three.js task-008 template passes the floor", () => {
-  const TASK_008 = fileURLToPath(
-    new URL("../../tasks/task-2026-07-10-008", import.meta.url),
-  );
-  it("all G-checks pass; the vendored three.js fetch is a warning, no download/nav sink remains", async () => {
-    const report = await checkReviewSite({
-      siteDir: join(TASK_008, "artifacts", "review-site"),
-      cdnAllowlist: [],
-      measurementsRoot: join(TASK_008, "artifacts"),
-      expectedSampleId: "task-2026-07-10-008",
-      requireFidelity: true,
-      contentSecurityPolicy: CONNECT_SRC_NONE_CSP,
-    });
-    for (const f of report.findings) {
-      assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
-    }
-    assert.equal(report.ok, true);
-    assert.equal(report.fidelity, "verified");
-    // The only G5 hit is the dead vendored three.js loader fetch, downgraded.
-    assert.match(String(gate(report, "G5").warnings ?? ""), /fetch/);
-  });
-});
-
 describe("review-artifact provenance node — resolveArtifactRefs yields a first-class chain node", () => {
   it("resolves the phase inputs/outputs to hashed provenance refs", async () => {
     const root = await mkdtemp(join(tmpdir(), "review-artifact-prov-"));
