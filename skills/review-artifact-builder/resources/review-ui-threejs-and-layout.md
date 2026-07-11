@@ -99,7 +99,8 @@ the context they need to verify each one.
 ### Tour data — from `REVIEW_EVIDENCE`
 
 Each landmark in `REVIEW_EVIDENCE.landmarks` carries:
-- `name`, `voxel` (position), `confidence`, `color`
+- `name`, `position` (mesh-frame XYZ for the 3D marker), `confidence`, `color`
+  (and `voxel` only when slices are shipped)
 - `operational_rule` — the specific placement rule from the protocol
   (e.g. "proximal-most sustained anterior-midline concavity, proximal to
   the condylar bulge — not where the condyles merge")
@@ -173,25 +174,30 @@ guided tour → agent conclusion → supporting data.
 ┌──────────────────────────────────────────────────┐
 │  Evidence Banner (always visible, ~60-80px)       │
 │  [■ W/L 1.33 vs 1.30 ▲concern] [■ IIOC 0.309…] │
-├────────────────────────────┬─────────────────────┤
-│                            │  slice-axial        │
-│     3D Scene (scene3d)     ├─────────────────────┤
-│     + measurement overlays │  slice-coronal      │
-│     + landmark markers     ├─────────────────────┤
-│                            │  slice-sagittal     │
-├────────────────────────────┴─────────────────────┤
-│  Tour bar: [notch] [groove●] [lat-edge] [...]    │
-│  Card: "Groove top — proximal to condylar bulge" │
+├──────────────────────────────────────────────────┤
+│  [ 3D scene ] [ Advanced slices ] [ Values ]      │  ← tabs
+├──────────────────────────────────────────────────┤
+│                                                    │
+│     3D Scene (scene3d) — the hero, fills the area  │
+│     + measurement overlays + derived ratio         │
+│     + named landmark markers + orientation aid     │
+│                                                    │
+├──────────────────────────────────────────────────┤
+│  Tour bar: Step N of M · [notch] [groove●] [...]  │
+│  Card: "Groove top — proximal to condylar bulge"  │
+│  [Adjust landmark] [‹ Prev] [Next ›]              │
 └──────────────────────────────────────────────────┘
 ```
 
-**Desktop:** 3D scene takes ~65% width; three slice panes stack on the
-right (~35%). Evidence banner spans full width at the top. Tour bar and
-card at the bottom.
+**Desktop:** the 3D scene fills the main area — it is the review surface,
+not one pane among four. The evidence banner spans full width at the top;
+the tour bar (step indicator, chips, Prev/Next, Adjust landmark) sits at
+the bottom. Orthogonal slices, when shipped, live behind the **"Advanced
+slices" tab**, not beside the scene.
 
-**Mobile:** evidence banner stays at top. Below it, a single pane fills
-the viewport; tap preview thumbnails to switch between 3D / axial /
-coronal / sagittal. Tour card collapses to a bottom sheet.
+**Mobile:** the same 3D scene fills the width (drag to orbit, pinch to
+zoom); evidence banner at top, tour bar at the bottom, verdict panel near
+the bottom edge. The Advanced-slices tab collapses to a bottom sheet.
 
 **Tabs for secondary content:** "Values" tab shows the full measurement
 table. "Interpretation" tab shows the OA-progression read. These are
@@ -199,10 +205,10 @@ secondary — the evidence banner + spatial views are the primary surface.
 
 **Layout priorities:**
 1. Evidence banner: fixed top, always visible across all views
-2. 3D canvas + measurement overlays: fills main area
-3. Slice panes: linked, adjacent to 3D
-4. Tour bar + card: fixed bottom
-5. Values/interpretation: tab, not competing with spatial views
+2. 3D canvas + measurement overlays: fills the main area (the hero)
+3. Tour bar + card: fixed bottom (step indicator, chips, Adjust landmark)
+4. Advanced slices: a tab (optional), not competing with the 3D scene
+5. Values/interpretation: a tab, shown after the spatial evidence
 
 ## Mobile patterns
 
@@ -288,7 +294,10 @@ window.REVIEW_EVIDENCE = {
   landmarks: [
     {
       name: "intercondylar_notch",
-      voxel: [120, 85, 64],         // ZYX in the downsampled volume frame
+      position: [0.0, 0.35, -0.1],  // XYZ in the mesh frame (mm) — where the
+                                    // 3D marker sits; the PRIMARY placement
+      voxel: [120, 85, 64],         // ZYX in the downsampled volume frame —
+                                    // only when slices are shipped (optional)
       confidence: "high",
       operational_rule: "Distal-most midline bone point (eroded-notch fallback: notch-entrance edge at healthy bone)",
       color: [255, 100, 100],
@@ -328,11 +337,14 @@ window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";
 Injected via `data_sources`. Meshes decimated to ~10K vertices per
 structure. Landmarks are NOT nested here — they live in `REVIEW_EVIDENCE`.
 
-### `REVIEW_VOLUME` — downsampled slice data (injected)
+### `REVIEW_VOLUME` — downsampled slice data (injected, OPTIONAL)
 
-The 2D slices need grayscale pixels the mesh doesn't carry. The worker
-exports one injected artifact — a downsampled volume — from
-`segmentation/filtered.nii.gz` + `labels.nii.gz`:
+Only needed when the optional Advanced-slices tab ships. The 3D scene does
+not use it. The 2D slices need grayscale pixels the mesh doesn't carry, so
+the worker exports one injected artifact — a downsampled volume — from
+`segmentation/filtered.nii.gz` + `labels.nii.gz`. Downsampling the full
+NIfTI is the hardest extraction step; the demo's first pass ships 3D without
+it and adds slices later:
 
 ```js
 window.REVIEW_VOLUME = "__REVIEW_INJECT:REVIEW_VOLUME__";
@@ -362,48 +374,69 @@ stride).
 
 ### Manifest for an evidence-led spatial review
 
+The 3D scene is the primary view; `scene3d` is the only required view.
+Ship the **3D scene alone first** — it needs only `REVIEW_GEOMETRY` (mesh)
+and `REVIEW_EVIDENCE` (numbers, landmarks, rules). Slices are optional
+drill-down evidence: add the `slice-*` views, `REVIEW_VOLUME`, and
+`linked_views: true` only when the downsampled volume is exported.
+
 ```js
 window.REVIEW_MANIFEST = {
   sample_id: "<task-id>",
   produced_from: {
     measurement: "measurements/results.json@<sha256>",
-    geometry: "review/geometry.json@<sha256>",
-    volume: "review/volume.json@<sha256>"
+    geometry: "review/geometry.json@<sha256>"
+    // volume: "review/volume.json@<sha256>"   // only if slices are shipped
   },
   verdict_schema: "review-verdict/1",
   review_layout: "spatial-multipane",
-  required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
-  linked_views: true,
-  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE",
-                 "REVIEW_GEOMETRY", "REVIEW_VOLUME"],
+  required_views: ["scene3d"],                  // 3D is the hero; slices optional
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],
   data_sources: {
-    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" },
-    REVIEW_VOLUME:   { artifact: "review/volume.json",   transform: "identity" }
+    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" }
   }
+  // When slices ARE shipped, add to the above:
+  //   required_views: [..., "slice-axial", "slice-coronal", "slice-sagittal"],
+  //   linked_views: true,
+  //   data_globals: [..., "REVIEW_VOLUME"],
+  //   data_sources.REVIEW_VOLUME: { artifact: "review/volume.json", transform: "identity" },
+  //   produced_from.volume: "review/volume.json@<sha256>"
 };
 ```
 
 G3 validates all `data_globals` exist. G8 validates all `produced_from`
-hashes. G9 validates the spatial layout markers. `REVIEW_EVIDENCE` is
-inlined (no `data_sources` entry) — G3 confirms it is a non-empty static
-literal.
+hashes. G9 validates the 3D scene (real three.js + OrbitControls) and, when
+present, the optional slice markers. `REVIEW_EVIDENCE` is inlined (no
+`data_sources` entry) — G3 confirms it is a non-empty static literal.
 
-## Orthogonal slice scrubber (spatial reviews)
+**Inline / vendor three.js — no CDN.** The artifact runs in an opaque-origin
+CSP sandbox that drops every external subresource, so the three.js UMD build
+and OrbitControls are inlined in `<script>` blocks (not `<script src>`).
+Vendor a build that passes strict CSP: no `eval`/`new Function` (rules out
+Plotly; three.js is clean). The `validation/fixtures/review-site-spatial`
+fixture inlines the r137 UMD build + classic `OrbitControls` this way.
 
-A segmentation or landmark review is **not complete with the 3D mesh
-alone**. A clean-looking 3D surface can hide a label bleeding through a
-slice or a landmark sitting one slice off the bone. The reviewer needs the
-**linked orthogonal slice scrubber**: three 2D panes (axial, coronal,
-sagittal) they can scrub, with the 3D scene and the slices sharing one
-position. This is required and gated (G9).
+## Orthogonal slice scrubber (optional drill-down)
 
-### The panes — required static markers
+The 3D scene is the review surface. Orthogonal slices are **optional
+secondary evidence** behind an **"Advanced slices" tab** — not the hero
+view. They earn their place when they add something the surface hides: a
+clean-looking 3D surface can mask a label bleeding through a slice or a
+landmark sitting one slice off the bone. Ship them when the downsampled
+volume is exported; the demo's first pass ships 3D alone.
 
-Each view carries a stable `data-review-view` attribute; each slice pane
-carries a canvas and a range slider with `data-review-slice-*` attributes.
-These markers are what the **G9 gate** checks statically (it can't execute
-the wiring), so they are not optional decoration — a missing marker fails
-the gate:
+When slices ARE shipped they must be **linked**: three 2D panes (axial,
+coronal, sagittal) the reviewer can scrub, with the 3D scene and the slices
+sharing one position. G9 gates that a *declared* slice view is complete and
+linked — an incomplete scrubber is worse than none.
+
+### The panes — static markers (when slices are shown)
+
+The `scene3d` view is always required. Each slice pane, when shipped,
+carries a `data-review-view` plus a canvas and range slider with
+`data-review-slice-*` attributes. These markers are what the **G9 gate**
+checks statically (it can't execute the wiring), so once a slice view is
+declared they are not optional decoration — a missing marker fails the gate:
 
 ```html
 <section data-review-view="scene3d"><canvas id="scene3d-canvas"></canvas></section>
@@ -418,8 +451,8 @@ the gate:
 ```
 
 Slider thumbs must be ≥44px (default range thumbs are far under — style
-them up). On mobile the four panes collapse to preview thumbnails; tap to
-fullscreen.
+them up). On mobile the slice panes collapse to preview thumbnails behind the
+Advanced-slices tab; tap to fullscreen.
 
 ### Render and link
 
