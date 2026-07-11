@@ -76,7 +76,7 @@ describe("schema validators round-trip", () => {
         substrate: "microct_analysis",
         deps: ["nibabel", "python:scipy", "binary:freesurfer"],
       },
-      parent_skills: ["microct-3d-analysis"],
+      parent_skills: ["understand-3d-medical-volume"],
       agents: {
         worker: {
           tools: ["Bash", "Read", "record_phase", "mark_subphase"],

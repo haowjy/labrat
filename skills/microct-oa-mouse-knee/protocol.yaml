@@ -21,11 +21,15 @@ phases:
 
   - id: segmentation
     # seed-review is its own phase below, not a segmentation skill — it loads
-    # only when watershed returns needs-seeds (was double-loaded here; F7).
+    # only when watershed returns needs-seeds.
+    # reference-pack is loaded here: the structure-assignment subphase NAMES the
+    # blobs by comparing the scene to the pack (no pretrained model for this
+    # anatomy).
     skills:
       - resources/threshold
       - resources/watershed
-      - resources/bone-assignment
+      - resources/structure-assignment
+      - resources/reference-pack
     inputs:
       - input/
       - intake/volume_metadata.json
@@ -38,21 +42,21 @@ phases:
       - segmentation/metadata.json
       - segmentation/stage_report.json
       - masks/
-      - bone_assignments.json
+      - structure_assignments.json
     subphases:
       - id: threshold
       - id: watershed
         depends_on: [threshold]
-      - id: bone-assignment
+      - id: structure-assignment
         depends_on: [watershed]
 
   - id: seed-review
     skills:
       - resources/seed-review
     # components.nii.gz is intentionally NOT declared: it exists only when
-    # watershed returns needs-seeds, and a clean pass deletes it, so declaring
-    # it would make the common path look like it's missing an input (gh #13).
-    # The seed-review resource reads it when present.
+    # watershed returns needs-seeds, and a clean pass deletes it, so declaring it
+    # would make the common path look like it's missing an input. The seed-review
+    # resource reads it when present.
     inputs:
       - labels.nii.gz
       - segmentation/seeds.json
@@ -60,12 +64,13 @@ phases:
     outputs:
       - labels.nii.gz
       - segmentation/seeds.json
-      - bone_assignments.json
+      - structure_assignments.json
       - segmentation/structure_assignments.json
 
   - id: landmarks
     skills:
       - resources/landmarks
+      - resources/reference-pack
     inputs:
       - labels.nii.gz
       - masks/
@@ -92,6 +97,8 @@ phases:
       - measurements_final.json
 
   - id: review-artifact
+    # composes the review-artifact-builder skill (the review-UI method) — see
+    # resources/review-artifact.md.
     skills:
       - resources/review-artifact
     inputs:
@@ -105,10 +112,13 @@ phases:
     cdn_allowlist: []
 
 runtime:
+  # An off-the-shelf conda environment (numpy, nibabel, pydicom, scikit-image,
+  # scipy, matplotlib) — see environment.yml. NOT a bespoke analysis package; the
+  # agent writes the analysis code against these libraries per the parent method.
   substrate: microct_analysis
 
 parent_skills:
-  - microct-3d-analysis
+  - understand-3d-medical-volume
 
 agents:
   worker:
