@@ -1,194 +1,110 @@
-# Review artifact — package the vetted OA indices into a review site
+# Review artifact — package the vetted OA indices for review
 
-## Methodology
+## Procedure
 
-This phase does **no science**. The `measurement` phase already gated every
-geometric index against `assets/ground_truth.json`; here the worker *packages*
-those vetted numbers into a contract-conformant **review site** — a small,
-self-contained, offline HTML page a human can open on a phone to
-confirm/correct/reject each index (design `review-template.md` §1, invariants
-I1-I7).
+This phase does **no science** — the `measurement` phase already vetted every
+index against its evidence. Here the worker *packages* the vetted numbers into a
+review site a human confirms. The method for building the site — the data
+contract, the single-inlined-file rule, the trust boundary, the G1-G8 linter — is
+the **`review-artifact-builder`** skill (loaded for this phase). This resource
+adds only what is specific to this protocol: which values become rows.
 
-The CONTRACT and the gate linter are **generic** (identical for every
-protocol's review site); only the rows are microct — the Tang OA geometric
-indices (femoral W/L, tibial IIOC H/W, the distances they derive from). This is
-the reusable **inlined values-review-site** pattern: a values table with an
-honesty flag per index and a per-index verdict control. The site exports
-NOTHING — verdict export/write lives in the trusted shell (F2), and an in-iframe
-download sink is a gate hard-fail (G5).
+**The rows.** Read the vetted numbers from `measurements/results.json` (each
+entry's `name`, `value`, `unit`) and the phenotype calls from
+`measurements_final.json`. Show the six geometric indices and three volumes:
 
-Emit exactly ONE inlined file:
+| `id` (results.json name) | Label | Unit |
+|--------------------------|-------|------|
+| `distal_femoral_length` | Distal femoral length | mm |
+| `distal_femoral_width` | Distal femoral width | mm |
+| `distal_femoral_ratio` | Distal femoral W/L (osteophyte index) | ratio |
+| `tibial_width` | Tibial width | mm |
+| `tibial_iioc_height` | Tibial IIOC height | mm |
+| `tibial_iioc_ratio` | Tibial IIOC height/width | ratio |
+| `patella_volume` | Patella volume | mm³ |
+| `medial_meniscus_volume` | Medial peri-meniscal volume | mm³ |
+| `lateral_meniscus_volume` | Lateral peri-meniscal volume | mm³ |
 
-```
-review-site/
-  index.html   entry point (I1): a <style> block, then inline <script> data
-               blocks (window.REVIEW_MANIFEST, window.REVIEW_DATA — data
-               globals FIRST), then the inline app <script> (renders the
-               table, holds verdict state in memory — no export/download)
-```
+**Honesty flag per row** (truthful — do not launder uncertainty): `confirmed`
+when the QC overlay shows the measurement on the right anatomy and the derivation
+reproduces; `low-margin` when a ratio sits near its phenotype cutoff (W/L 1.28,
+IIOC H/W ~0.28, incl. the 0.28–0.30 inconclusive band) — the reviewer needs to
+know a borderline call is borderline; `criss-cross` when landmark lines cross
+between bones; `review-needed` when the stage flagged
+`requires_user_confirmation`. There is no expected-value bound to be "out of" — a
+wrong measurement surfaces on the overlay, not as an out-of-range flag.
 
-**Single document — no separate files.** An opaque-origin sandboxed iframe (how
-the dashboard embeds the site) refuses every external subresource: a `<script
-src>` or `<link href>` to a separate file is silently dropped and the page
-renders blank (probe R4). So inline everything into `index.html` — CSS in
-`<style>`, data and app logic in `<script>` blocks. The served CSP therefore
-carries `script-src 'self' 'unsafe-inline'` so the inline blocks execute.
+**The interpretation — how far the OA has progressed.** The rows are the
+evidence; the artifact's capstone is a synthesis that places this specimen on the
+OA-progression spectrum, so the reviewer signs off on a *reading*, not bare
+numbers. This is interpretation applied after — never a gate, never a placement
+target. Produce one short progression statement, three parts:
 
-`validation/fixtures/review-site/index.html` in the repo is a hand-written,
-contract-clean reference for this exact single-file structure — **mirror it**
-(its `<style>`, its data-blocks-then-app-script order). It exports nothing — the
-trusted shell owns export. The fixture already renders the OA indices; you are
-rebuilding it from THIS run's real numbers.
+1. **Stage, from the magnitude — not the binary cutoff.** Position the specimen
+   on the paper's severity gradient, not just above/below a line: femoral W/L
+   ≈1.19 normal → ≈1.33 (4 wk MMS, established) → ≈1.42 (8 wk, advanced); tibial
+   IIOC H/W ≈0.304 normal → ≈0.25 → ≈0.24. A W/L of 1.30 reads as *early*; 1.42
+   reads as *advanced*, near the 8-week phenotype.
+2. **Concordance across signals.** The osteophyte index (W/L, rising), the
+   subchondral-collapse index (IIOC H/W, falling), and the enlargement volumes
+   (patella, peri-meniscal) should tell **one** story. Three concordant signals
+   support the read; a lone elevated index is weaker — when they disagree, say so
+   and lower confidence.
+3. **Confidence, and its basis.** State how far you trust the read and *why*:
+   each ratio's distance from its cutoff, whether IIOC H/W sits in the 0.28–0.30
+   inconclusive band, the per-row honesty flags, and the single-specimen limit
+   (no contralateral control here — the paper reads injured vs contralateral).
+   "Given only these indices" is an honest hedge, not a hollow one.
 
-**Exact steps for the worker** (cwd IS the task dir; paths are literal):
+Example, well-supported: *"Established–advanced OA. W/L 1.40 sits near the 8-week
+phenotype, IIOC H/W 0.23 is well below cutoff, patella enlarged — three signals
+agree, high confidence."* Example, hedged: *"Probable early OA, low confidence:
+W/L 1.29 is barely over cutoff and IIOC H/W 0.29 is in the inconclusive band; the
+signals only weakly agree and this is a single specimen."*
 
-1. `mkdir -p artifacts/review-site`.
-2. Read the vetted numbers from `artifacts/measurements/results.json` (each
-   entry's `name`, `value`, `unit`) and the phenotype calls / gate outcomes
-   from `artifacts/measurements_final.json` (`fields.<name>.ground_truth_gate`,
-   `phenotype_calls`). These are the rows to review. The core indices to show:
-   `distal_femoral_length`, `distal_femoral_width`, `distal_femoral_ratio`
-   (femoral W/L — the OA phenotype driver), `tibial_width`,
-   `tibial_iioc_height`, `tibial_iioc_ratio` (tibial IIOC H/W).
-3. Compute the fidelity hash of the source measurement so the site names the
-   run it was built from (contract I3 / gate G8):
-   ```
-   sha256sum artifacts/measurements/results.json
-   ```
-   Take the 64-hex digest as `<HASH>`.
-4. In `index.html`, add an inline `<script>` (BEFORE the app script) assigning
-   `window.REVIEW_MANIFEST`. Set `sample_id` to the **task id from your prompt**
-   (e.g. `task-2026-07-10-008`) — the gate verifies it against the harness's
-   authoritative run id (G8/H1b), so it must be the task id, not the
-   specimen label (`measurements_final.json`'s `sample_id`, e.g. `OA6-1RK`):
-   ```js
-   window.REVIEW_MANIFEST = {
-     sample_id: "<the task id from your prompt>",
-     produced_from: { measurement: "measurements/results.json@<HASH>" },
-     verdict_schema: "review-verdict/1",
-     data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],
-   };
-   ```
-   Assign every `window.*` global with a **static object/array literal** — the
-   gate reads the manifest by parsing it statically and NEVER executes it, so
-   computed/dynamic assignments are invisible to G3/G8. Point `produced_from`
-   at `measurements/results.json` (the numbers' source), NOT
-   `measurements_final.json` — the linter hashes exactly that file (G8).
-5. In a second inline `<script>` (still before the app script) assign
-   `window.REVIEW_DATA = { items: [...] }` — one item per index, each
-   `{ id, label, value, unit, honesty_flag, honesty_detail }`:
-   - `id`: the results.json `name` (e.g. `distal_femoral_ratio`).
-   - `label`: a human name (e.g. "Distal femoral W/L ratio", "Tibial IIOC
-     height/width").
-   - `value`: the numeric `value` (round to a sensible precision, e.g. 3-4 sig
-     figs); `unit`: the results.json `unit` (`mm`, or `ratio`/`dimensionless`).
-   - `honesty_flag` + `honesty_detail`: a short, TRUTHFUL confidence note the
-     reviewer needs — do not launder uncertainty. Set `clean` only when the
-     index passed its ground-truth gate comfortably; otherwise flag it (e.g.
-     `low-margin` when a ratio sits near the OA/normal threshold — femoral W/L
-     normal `< 1.28` vs OA `> 1.30`, tibial IIOC H/W cutoff `0.28`; `out-of-gate`
-     when `ground_truth_gate.pass` is false; `criss-cross` when landmark lines
-     cross between bones). See the fixture's items for the shape.
-6. Build the rest of `index.html` (I1): a `<meta viewport>`, an inline `<style>`
-   block (self-contained — no external fonts/CDN), and the values table. No
-   export/download control — the trusted shell owns export. No `<script src>`,
-   no `<link href>`, no external origins (this phase's `cdn_allowlist` is `[]`) —
-   everything inlined. Mobile: touch targets ≥44px, the whole review fits one
-   viewport (I6).
-7. In the final inline `<script>` (the app), read
-   `window.REVIEW_MANIFEST`/`window.REVIEW_DATA` (never `fetch` local JSON —
-   I3/G5), render the rows, and hold per-row verdict state in memory. The site
-   must NOT export/download or navigate: no download anchor (`a.download` /
-   `.click()`), no `new Image()`/`createElement("img")`, no `RTCPeerConnection`,
-   no `window.location`/`location.assign`/`window.open`/`form.submit()`, no
-   inline `on*` handlers, no `<meta refresh>` — the linter hard-fails every one
-   of these (G5). Mirror the fixture's app script (which exports nothing).
-8. **Match the fixture and re-read your file.** The gate is run by the harness,
-   not by you: after you `record_phase`, the harness runs the deterministic
-   `check_review_site` linter (G1-G8) with its own authoritative inputs and the
-   reviewer gates on the result. If a gate fails, the gate feedback names the
-   failing `Gx` and its detail — fix exactly that and the phase re-runs. Keep
-   the site a **single inlined `index.html`** (no separate `<script src>`/`<link
-   href>`, no `..`/absolute/`data:`/`blob:`/`javascript:` sources, no external
-   origins beyond `cdn_allowlist`), ship data as inline `.js` globals (never
-   `fetch`), no navigation/download/`on*`-handler/`<meta refresh>` sink, and
-   keep the manifest's `verdict_schema` string (G7). The site exports nothing.
-9. Call `record_phase` with phase `review-artifact` and a short summary.
+**Data contract (built by `review-artifact-builder`):** `REVIEW_MANIFEST` with
+`sample_id` = the **task id from your prompt** (not the specimen label like
+OA6-1RK), `produced_from.measurement = "measurements/results.json@<sha256>"`
+(hash the file you actually read — G8 recomputes it), `verdict_schema`, and
+`data_globals`. `REVIEW_DATA.items` = one entry per row above:
+`{ id, label, value, unit, honesty_flag, honesty_detail }`. Plus
+`REVIEW_DATA.interpretation = { stage, confidence, basis }` — the OA-progression
+read (short strings), rendered as the capstone panel above the table.
 
-## Expected outputs / how to verify
+This is the **values-table** pattern (a single-pane review). See
+`review-artifact-builder/resources/review-ui-design-principles.md` for when a
+protocol instead needs a multi-pane 3D layout — this one does not. Mirror the
+contract-clean fixture at `validation/fixtures/review-site/index.html`.
 
-**Correct output looks like:** a single `artifacts/review-site/index.html`
-exists; it is self-contained (everything inlined), renders the run's OA indices
-as a values table with per-index honesty flags and verdict controls, and passes
-the review-site linter G1-G8 clean.
+## Verification
 
-**Reviewer READS the harness-run linter result (does NOT run it or rebuild the site):**
+**Look first.** Open `artifacts/review-site/index.html` via `file://`. It should
+lead with the **OA-progression read** as a headline panel (stage, confidence,
+basis), then render the nine rows as a values table, each with its honesty flag
+and a per-index verdict control, and fit one mobile viewport. The site exports
+nothing — verdict capture is the trusted shell's job.
 
-The gate for this phase is **structural + fidelity**, not scientific — do NOT
-recompute the OA indices here (that was gated upstream against
-`ground_truth.json`), and do NOT hand-run a linter or hand-type the policy. The
-**harness** runs the deterministic `check_review_site` linter (G1-G8) with its
-own authoritative inputs — the phase `cdn_allowlist`, the run's `artifacts/`
-measurement root, and the task id as the expected `sample_id` — and writes the
-report to:
+**Then the structural + fidelity gate.** This phase's gate is **not** scientific
+— do not recompute the indices. The harness runs the deterministic
+`check_review_site` linter (G1–G8) with its own authoritative inputs and writes
+`review/verification/review-artifact/check_review_site.json`. Read that file;
+gate `pass` only if `"ok": true` and every one of the eight findings is
+`"ok": true`. If it is missing or `false`, FAIL and quote the failing findings'
+`detail`. The gate detail (what each G1–G8 checks, common failures) is in
+`review-artifact-builder/resources/review-ui-testing.md`.
 
-```
-review/verification/review-artifact/check_review_site.json
-```
+**Confirm the interpretation is honest — not that it's "right."** There is no
+ground truth for the OA stage, so the reviewer checks only that the progression
+read *follows from the shown indices*: the stage matches their magnitudes, and
+the stated confidence matches how well the signals concord and what the honesty
+flags say. An over-confident read on discordant or low-margin indices fails back
+to the worker for the same reason laundered uncertainty would. **The final
+verdict comment states this progression read** — how far the OA has progressed,
+or how far the evidence supports thinking it has — so the human signs off on a
+reading, not a bare table.
 
-Read that file. It is `{ "ok": bool, "fidelity": "verified"|"unverified",
-"findings": [{ "gate": "G1".."G8", "ok": bool, "detail": "…" }] }`.
-
-The linter checks: **G1** `index.html` resolves and is non-empty; **G2** single
-inlined document, self-contained — no separate-file `<script src>`/`<link href>`
-(they blank in the sandbox), and every `href`/`src`/CSS `url()` a relative
-in-folder file, no `..`, absolute, `file://`, `data:`/`blob:`/`javascript:` exec
-source, or dangling ref; **G3** an inline `<script>` assigns
-`window.REVIEW_MANIFEST` and every declared `window.*` data global is present
-and non-empty (parsed **statically**, never executed); **G4** every inline
-`<script>` is syntactically valid and each `getElementById` targets an id that
-exists in the page; **G5** no exfil beyond the contract — the network class
-(`fetch`/`XMLHttpRequest`/`sendBeacon`/`WebSocket`/`EventSource`) is a warning
-only when the served CSP is confirmed exactly `connect-src 'none'` (else it
-hard-fails, fail-closed), while these stay HARD-FAILS regardless: any
-navigation/download/self-export sink (`window.location`/`location.assign`/
-`window.open`/`form.submit()`/`a.download`+`.click()`), dynamic image
-(`new Image()`/`createElement("img")`), `RTCPeerConnection`, `import()`, inline
-`on*` handler, `<meta refresh>`, `eval`/`Function`/string-timer; **G6** every
-external origin is in this phase's `cdn_allowlist`; **G7** the manifest declares
-a `verdict_schema` the trusted shell will emit the verdict under (the site
-itself exports nothing); **G8** the manifest's `sample_id` equals the run id and
-its `produced_from` hash matches `measurements/results.json` on disk (the site
-describes THIS run, not a stale one).
-
-**Gate `pass` only if** `check_review_site.json` has `"ok": true` and every one
-of the eight findings is `"ok": true`. If the file is missing or `"ok": false`,
-FAIL and quote the failing findings' `detail` in your `submit_gate_decision`
-feedback. (Note: the harness also enforces this as a deterministic floor — a
-non-`ok` report fails the gate regardless — so passing a non-`ok` report is a
-rubber stamp the harness's review-site floor catches directly, before the
-monitor runs.)
-
-**The boundary is not the linter alone — the linter is not redundant with the
-CSP.** The linter is best-effort **structural + self-containment** analysis
-(single inlined document, no external loads, faithful provenance). The enforcing
-boundary is THREE cooperating parts. They divide the work: the **sandbox + CSP**
-(Lane A) contain external subresource loads and network connections
-(`connect-src 'none'`); the **linter** contains the DIRECT navigation and
-inline-handler forms (G5) — because the site needs `script-src 'unsafe-inline'`
-to render at all (R4), and under `'unsafe-inline'` the CSP no longer blocks
-inline handlers, and `connect-src` never blocked navigation (`window.location =
-evil`; no `navigate-to` directive); and the **trusted-but-verified producer**
-(worker authors, gate reviewer re-checks) carries the residual. No layer alone
-is the boundary. The linter's JS exfil detection (G5) is explicitly BEST-EFFORT,
-not a proof — static analysis closes the direct literal forms of the known exfil
-classes, not every obfuscation (aliasing, computed non-literal dispatch).
-
-**Failure modes to flag:** any gate `ok: false` — e.g. `index.html` missing
-(G1), a separate-file `<script src>`/absolute/`..` path (G2), a missing data
-global (G3), a `getElementById` with no matching element (G4), a
-navigation/download/image/WebRTC sink or inline `on*` handler/`<meta refresh>`
-or an un-neutralized `fetch` (G5), an external origin not in `cdn_allowlist`
-(G6), a missing manifest `verdict_schema` (G7), or a `produced_from` hash /
-`sample_id` that does not match the run (G8, a stale/mismatched or swapped
-site).
+**Failure modes:** any gate `ok: false` — e.g. a separate-file `<script src>`
+(G2), a missing `REVIEW_DATA` global (G3), a navigation/download/`on*`-handler
+sink (G5), or a `produced_from` hash / `sample_id` that doesn't match this run
+(G8, a stale or swapped site); or an OA-progression read whose confidence
+overclaims what the concordance and honesty flags support.

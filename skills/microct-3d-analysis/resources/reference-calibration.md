@@ -10,7 +10,7 @@ intelligence has to come from you — the agent — reasoning over the actual
 voxels of this specimen, and writing detection code on the fly.**
 
 ## Why a frozen heuristic is not enough (a real failure)
-The packaged `bonemorph` ships a single-pass femoral-groove detector ("march
+The packaged `voxbone` ships a single-pass femoral-groove detector ("march
 from the notch to where the condyles merge"). On the demo sample it returned a
 femur length of **1.08 mm** and passed every axis-alignment check — yet the
 distal femur length read off the paper's Fig 2E/4A scatter axes is **~2.3–2.4
@@ -39,7 +39,7 @@ Treat each landmark/measurement as an **agentic loop**, not a function call:
 6. Re-render and confirm before trusting the number.
 ```
 
-The frozen heuristics in `bonemorph/geometry.py` are **first-guess seeds** for
+The frozen heuristics in `voxbone/geometry.py` are **first-guess seeds** for
 step 3 — a starting point to refine, never the final answer.
 
 ## Worked example (the groove, done right)

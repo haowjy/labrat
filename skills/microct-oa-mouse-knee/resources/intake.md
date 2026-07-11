@@ -1,81 +1,79 @@
-# Intake — Tang mouse-knee OA (Scanco VivaCT)
+# Intake — load the scan and derive calibration
 
-## Methodology
+## Procedure
 
 Load the incoming DICOM series and derive scanner-aware calibration metadata.
 Intake does **not** resample or emit a full intensity volume — resampling is
-deferred to segmentation (`bonemorph-map` Stage 1).
+deferred to segmentation. The general method for ingesting and protecting a
+volume (coordinate frames, spacing, laterality) is in `microct-3d-analysis`
+(loaded alongside); this resource adds the Scanco/Tang specifics.
 
-**Subprocess environment** (proven on OA6-1RK):
-
-```bash
-PY=/home/jimyao/.claude-science/conda/envs/microct_analysis/bin/python
-export PYTHONPATH=/home/jimyao/gitrepos/prompts/microct-analysis/src
-export MPLBACKEND=Agg
-```
+Use the Python interpreter and subprocess environment from your task context —
+do not hardcode interpreter or `PYTHONPATH` values.
 
 **Primary driver:**
 
 ```python
 from microct_analysis.stages.intake import run_intake
 
-metadata = run_intake(dicom_path="input/OA6-1RK", output_dir=".")
+metadata = run_intake(dicom_path="input/<series-dir>", output_dir=".")
 ```
 
-**Functions the stage uses internally:**
+Internally the stage uses `processing.dicom.load_dicom`,
+`processing.profiles.detect`, and
+`processing.calibration.{analyze_histogram, analyze_segmentation_histogram,
+derive_thresholds, derive_segmentation_thresholds}`.
 
-- `microct_analysis.processing.dicom.load_dicom` — DICOM → `ScanVolume`
-- `microct_analysis.processing.profiles.detect` — Scanco VivaCT profile
-- `microct_analysis.processing.calibration.analyze_histogram`
-- `microct_analysis.processing.calibration.analyze_segmentation_histogram`
-- `microct_analysis.processing.calibration.derive_thresholds`
-- `microct_analysis.processing.calibration.derive_segmentation_thresholds`
+**Study-specific expectations:**
 
-**Study-specific expectations (from `SKILL.md` + `assets/ground_truth.json`):**
+- Scanner: Scanco VivaCT 40, 10.5 µm isotropic voxels.
+- Scanco thresholds are unitless attenuation values (220 bone/soft-tissue, 320
+  for 3D, 270 cortical/plate) — not Amira HU (>2500). See SKILL.md; don't
+  conflate the two scales.
 
-- Scanner: Scanco VivaCT 40, **10.5 µm** isotropic voxels (`voxel_size_um.value`)
-- Scanco thresholds are **unitless** attenuation values: **220** bone/soft-tissue,
-  **320** 3D segmentation, **270** cortical/plate — not Amira HU (>2500)
-- Demo fixture OA6-1RK: **877** slices, shape roughly `(877, 520, 517)` ZYX
-
-**Worker artifacts to write for downstream phases:**
+**Artifacts to write for downstream phases:**
 
 | Path | Source |
 |------|--------|
-| `intake/volume_metadata.json` | `IntakeArtifacts.volume_metadata` from driver |
+| `intake/volume_metadata.json` | `IntakeArtifacts.volume_metadata` |
 | `intake/orientation_report.md` | human-readable load summary |
 | `intake/stage_report.json` | confidence, flags, `recommended_action` |
-| `spacing.json` | extract `spacing` from `volume_metadata.json` for harness handoff |
+| `spacing.json` | `spacing` extracted from `volume_metadata.json` |
 
-Copy `phases/intake/evidence/histogram.png` from a matplotlib histogram of the
-loaded volume if the harness expects phase evidence (driver does not auto-render).
+Render a histogram PNG of the loaded volume into `phases/intake/evidence/` if
+the harness expects phase evidence (the driver does not auto-render).
 
 ## Verification
 
-**Correct output looks like:**
+**Look first.** Open the intake histogram. It should be bimodal — a soft-tissue
+peak and a separate mineralized-bone peak. A single peak or a flat field means
+the load or calibration is wrong, and no downstream threshold will separate
+bone. This is the primary evidence; the numbers below only confirm it.
 
-- `intake/volume_metadata.json` exists with `spacing`, `scanner`/`scanner_profile`,
-  `fingerprint`, `segmentation_threshold_analysis`, and `segmentation_thresholds`
-- `intake/stage_report.json` has `confidence` in `{high, medium, low}` and
-  `recommended_action` in `{proceed, flag, pause}`
-- `spacing.json` isotropic ≈ **0.0105 mm** per axis (10.5 µm)
+**Then confirm the derivation produced usable metadata:**
 
-**Reviewer computes:**
+- `intake/volume_metadata.json` has `spacing`, `scanner_profile`, `fingerprint`,
+  `segmentation_threshold_analysis`, `segmentation_thresholds`.
+- `intake/stage_report.json` has `confidence ∈ {high, medium, low}` and
+  `recommended_action ∈ {proceed, flag, pause}`.
 
-1. **Slice count gate** — `provenance.slice_count` or Z dimension ≥ `expects.min_slices` (100); OA6-1RK must be **877**.
-2. **Voxel size gate** — all spacing axes within **10.5 µm ± 2%** (0.01029–0.01071 mm); matches `ground_truth.json` → `voxel_size_um.value`.
-3. **Scanner profile** — `scanner_profile` detects Scanco (not `unknown-scanner-profile` without justification).
-4. **Threshold readiness** — `segmentation_ready: true` OR documented flags in
-   `threshold_flags` with a remediation plan for segmentation.
-5. **Bimodality status** — read `segmentation_threshold_analysis.status`; flag
-   `histogram-not-bimodal` if present (segmentation may still proceed with seeds).
+**Load and calibration checks** (they verify the load and scanner calibration,
+not the specimen's biology):
 
-**Failure modes:**
+1. Slice count ≥ `expects.min_slices` (100).
+2. Spacing isotropic ≈ 0.0105 mm per axis (10.5 µm ± 2%), the Scanco scanner
+   spec (SKILL.md).
+3. Scanner profile detects Scanco (not `unknown-scanner-profile` without cause).
+4. `segmentation_ready: true`, or documented `threshold_flags` plus a
+   remediation plan for segmentation.
+5. If `segmentation_threshold_analysis.status: not-bimodal`, expect the
+   `needs-seeds` path at segmentation — record it here, don't fail.
 
-- `LoadError` from `load_dicom` — corrupt/missing DICOM, wrong modality
-- `unknown-scanner-profile` — thresholds may be unreliable; escalate at segmentation
-- `segmentation_threshold_analysis.status: not-bimodal` — expect `needs-seeds` path later
-- Empty or single-slice stack — fail intake immediately
+**Demo fixture (OA6-1RK):** 877 slices, shape ≈ (877, 520, 517) ZYX. Those are
+*this specimen's* values — on another scan read the shape from the scan's own
+metadata; do not assert 877.
 
-**Ground-truth gates applying here:** `voxel_size_um` only (mm measurement gates
-apply at landmarks/measurement).
+**Failure modes:** `LoadError` (corrupt/missing DICOM, wrong modality);
+`unknown-scanner-profile` (thresholds unreliable — escalate at segmentation);
+`not-bimodal` histogram (expect `needs-seeds`); empty or single-slice stack
+(fail intake immediately).

@@ -20,11 +20,12 @@ phases:
       - spacing.json
 
   - id: segmentation
+    # seed-review is its own phase below, not a segmentation skill — it loads
+    # only when watershed returns needs-seeds (was double-loaded here; F7).
     skills:
       - resources/threshold
       - resources/watershed
       - resources/bone-assignment
-      - resources/seed-review
     inputs:
       - input/
       - intake/volume_metadata.json
@@ -48,11 +49,14 @@ phases:
   - id: seed-review
     skills:
       - resources/seed-review
+    # components.nii.gz is intentionally NOT declared: it exists only when
+    # watershed returns needs-seeds, and a clean pass deletes it, so declaring
+    # it would make the common path look like it's missing an input (gh #13).
+    # The seed-review resource reads it when present.
     inputs:
       - labels.nii.gz
       - segmentation/seeds.json
       - segmentation/structure_assignments.json
-      - segmentation/components.nii.gz
     outputs:
       - labels.nii.gz
       - segmentation/seeds.json
@@ -96,12 +100,9 @@ phases:
       - landmarks/positions.json
     outputs:
       - review-site/index.html
-    # Protocol-scoped external-origin policy the gate reads for G6 (design
-    # review-template.md §2). Empty = fully offline, only 'self' — this minimal
-    # inlined values-review-site vendors nothing external.
+    # External-origin policy the gate reads for G6. Empty = fully offline, only
+    # 'self'; this inlined values-review-site vendors nothing external.
     cdn_allowlist: []
-
-sanity_checks: assets/ground_truth.json
 
 runtime:
   substrate: microct_analysis
@@ -126,8 +127,8 @@ agents:
     subagents:
       reviewer:
         description: >-
-          Independent subphase verification — run quantitative checks from the
-          Verification section before marking a subphase pass.
+          Independent subphase verification — run the quantitative checks from
+          the Verification section before marking a subphase pass.
         tools: [Bash, Read, Write, Grep, Glob]
         writable: [review/verification/]
     writable:
