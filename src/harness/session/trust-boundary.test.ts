@@ -61,7 +61,7 @@ describe("trust boundary", () => {
     }
   });
 
-  it("flags writes to task.json, review/gates/, and provenance/manifest.yaml", async () => {
+  it("flags writes to task.json, review/gates/, review/verdict/, review/monitor/, and provenance/manifest.yaml", async () => {
     const taskDir = await makeTaskDir();
     try {
       const before = await snapshotTrustBoundary(taskDir);
@@ -70,13 +70,36 @@ describe("trust boundary", () => {
         join(taskDir, "review", "gates", "intake.json"),
         JSON.stringify({ phase: "intake", decision: "pass-with-concerns" }),
       );
+      // A reviewer (who has Bash) writing a verdict file directly would forge a
+      // HUMAN decision — the dashboard reads review/verdict/ as legitimate.
+      await mkdir(join(taskDir, "review", "verdict"), { recursive: true });
+      await writeFile(
+        join(taskDir, "review", "verdict", "segmentation.json"),
+        JSON.stringify({ phase: "segmentation", verdict: "approve" }),
+      );
+      await mkdir(join(taskDir, "review", "monitor"), { recursive: true });
+      await writeFile(
+        join(taskDir, "review", "monitor", "segmentation.json"),
+        JSON.stringify({ phase: "segmentation", status: "clean" }),
+      );
       await writeFile(join(taskDir, "provenance", "manifest.yaml"), "entries: [x]\n");
       const after = await snapshotTrustBoundary(taskDir);
       const result = diffTrustBoundary(before, after);
 
       assert.equal(result.ok, false);
       const areas = result.violations.map((v) => v.area).sort();
-      assert.deepEqual(areas, ["provenance-manifest", "review-gates", "task-json"]);
+      assert.deepEqual(areas, [
+        "provenance-manifest",
+        "review-gates",
+        "review-monitor",
+        "review-verdict",
+        "task-json",
+      ]);
+      assert.ok(
+        result.violations.some(
+          (v) => v.area === "review-verdict" && v.path === "segmentation.json" && v.kind === "added",
+        ),
+      );
     } finally {
       await rm(taskDir, { recursive: true, force: true });
     }

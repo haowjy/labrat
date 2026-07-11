@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -619,13 +620,26 @@ function checkG7(manifest: ManifestInfo | null): Finding {
 }
 
 // --- G8: provenance fidelity ------------------------------------------------
-/** Resolve the manifest's declared measurement path under `root`, guarded. */
+/**
+ * Resolve the manifest's declared measurement path under `root`, guarded the
+ * same way `resolveTaskFile` (dashboard) guards serves: the lexical check
+ * rejects `..`/absolute paths, but only `realpathSync` + containment on the
+ * REAL path catches a symlink in the (worker-authored) artifacts tree pointing
+ * outside it — otherwise G8 would hash a file outside the task tree and
+ * "verify" fidelity against the wrong bytes. Fail closed: a missing target or
+ * any realpath error returns null.
+ */
 function resolveMeasurement(root: string, declaredPath: string): string | null {
   if (declaredPath.length === 0 || isAbsolute(declaredPath)) return null;
-  const abs = resolve(root, declaredPath);
-  const rel = relative(root, abs);
-  if (rel.startsWith("..") || rel.startsWith(`..${sep}`)) return null;
-  return abs;
+  const candidate = resolve(root, declaredPath);
+  try {
+    const resolved = realpathSync(candidate);
+    const realRoot = realpathSync(root);
+    if (resolved !== realRoot && !resolved.startsWith(realRoot + sep)) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
 }
 
 async function checkG8(

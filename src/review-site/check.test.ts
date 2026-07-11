@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rename, rm, symlink, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -753,6 +753,33 @@ describe("check_review_site — serve-time injection fixture (data_sources place
       }
       assert.equal(report.ok, true);
       assert.equal(report.fidelity, "verified");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("G8: a measurement symlink escaping measurementsRoot is rejected (fidelity fails, not verified)", async () => {
+    const { siteDir, artifactsRoot, cleanup } = await scratchInjectedFixture();
+    try {
+      // Move the (hash-matching) measurement OUTSIDE the artifacts tree and
+      // leave a symlink at the declared path. Every path segment is lexically
+      // safe, so only realpath containment stops G8 from hashing a file
+      // outside the tree and "verifying" fidelity against it.
+      const declared = join(artifactsRoot, "landmarks", "geometry.json");
+      const outside = join(artifactsRoot, "..", "outside-geometry.json");
+      await rename(declared, outside);
+      await symlink(outside, declared, "file");
+
+      const report = await checkReviewSite({
+        siteDir,
+        cdnAllowlist: [],
+        measurementsRoot: artifactsRoot,
+        expectedSampleId: "oa-knee-0007",
+        requireFidelity: true,
+      });
+      assert.equal(report.fidelity, "unverified");
+      assert.equal(gate(report, "G8").ok, false, gate(report, "G8").detail);
+      assert.match(gate(report, "G8").detail, /fidelity required/);
     } finally {
       await cleanup();
     }
