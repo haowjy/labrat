@@ -999,7 +999,7 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
       // + data_sources) — the scrubber then has no declared data to be wired to.
       await edit(dir, "index.html", (s) =>
         s
-          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_LANDMARKS"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_LANDMARKS"]')
+          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE"]')
           .replace(/data_sources: \{\s*REVIEW_VOLUME: \{[^}]*\},\s*\},/, ""),
       );
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
@@ -1029,6 +1029,25 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
       assert.equal(gate(report, "G9").ok, false);
       assert.match(gate(report, "G9").detail, /linked_views is not true/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a spatial-multipane manifest with no REVIEW_EVIDENCE global fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Landmark data lives in REVIEW_EVIDENCE now; undeclare it and the linked
+      // views have no landmark data to synchronise on.
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]',
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME"]',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /no REVIEW_EVIDENCE global in data_globals/);
     } finally {
       await cleanup();
     }

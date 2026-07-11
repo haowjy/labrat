@@ -875,16 +875,23 @@ function checkG9(
   if (manifest.linkedViews !== true) {
     problems.push("manifest linked_views is not true (spatial-multipane requires linked views)");
   }
-  const hasLandmarkGlobal = manifest.dataGlobals.some((g) => g.toUpperCase().includes("LANDMARK"));
-  const sliceValue = sliceGlobal !== undefined ? globalValues.get(sliceGlobal) : undefined;
-  const literalHasLandmarks =
-    sliceValue !== null &&
-    typeof sliceValue === "object" &&
-    "landmarks" in (sliceValue as Record<string, unknown>);
-  if (!hasLandmarkGlobal && !literalHasLandmarks) {
-    problems.push(
-      "no landmark data (no landmark global in data_globals and no landmarks in the slice-data literal)",
-    );
+  // Landmark data now lives in REVIEW_EVIDENCE.landmarks (evidence-led artifact
+  // contract): the global must be declared in data_globals and its inlined
+  // literal must carry a non-empty landmarks array for the linked views to
+  // synchronise on. (Was: a "*LANDMARK*"-named global or landmarks nested in
+  // the slice-data literal — both retired when landmarks moved into evidence.)
+  const EVIDENCE_GLOBAL = "REVIEW_EVIDENCE";
+  if (!manifest.dataGlobals.includes(EVIDENCE_GLOBAL)) {
+    problems.push(`no ${EVIDENCE_GLOBAL} global in data_globals (landmark/evidence data)`);
+  } else {
+    const evidence = globalValues.get(EVIDENCE_GLOBAL);
+    const landmarks =
+      evidence !== null && typeof evidence === "object"
+        ? (evidence as Record<string, unknown>)["landmarks"]
+        : undefined;
+    if (!Array.isArray(landmarks) || landmarks.length === 0) {
+      problems.push(`${EVIDENCE_GLOBAL}.landmarks is missing or empty (linked views need landmark data)`);
+    }
   }
 
   return finding("G9", problems);
