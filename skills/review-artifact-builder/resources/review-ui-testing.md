@@ -133,16 +133,12 @@ you can't run the dashboard locally.
 
 3. **Check the canonical fixtures:**
    - `validation/fixtures/review-site/index.html` — fully inlined
-     (no injection), passes all 8 gates clean.
+     values-table (no injection), passes all gates clean.
    - `validation/fixtures/review-site-injected/` — sentinel
-     placeholders + `data_sources`, passes all 8 gates clean.
+     placeholders + `data_sources`, passes all gates clean.
+   - `validation/fixtures/review-site-spatial/index.html` — spatial
+     multipane layout with G9 markers, passes all gates including G9.
    Compare your artifact against their structure.
-
-4. **Check the three.js reference** — the file at
-   `tasks/task-2026-07-10-008/artifacts/review-site/index.html` is a
-   real task artifact with full three.js 3D landmark review (2759L,
-   real femur/tibia geometry, 8 landmarks, raycasting, postMessage
-   bridge). Use it as the reference for 3D review artifacts.
 
 ## What the harness does automatically
 
@@ -189,12 +185,16 @@ the iframe structurally cannot exfiltrate data or write verdicts.
 
 Before submitting a review-artifact phase resource:
 
-- [ ] Run `tsx src/review-site/cli.ts check-review-site <site-dir>` — all 8 gates pass
-- [ ] Open via `file://` — 3D scene renders, interactions work (inline
-      real data temporarily for this check; sentinel templates show
-      broken renders via `file://`, which is expected)
-- [ ] Check mobile layout — touch targets >=44px, tabs at thumb reach
+- [ ] Run `tsx src/review-site/cli.ts check-review-site <site-dir>` — all gates pass
+- [ ] Open via `file://` — evidence banner shows decisive ratios with
+      correct states; 3D scene renders with measurement-line overlays;
+      guided tour walks flagged landmarks with operational rules; slice
+      scrubber links to landmark selection (inline real data temporarily;
+      sentinel templates show broken renders via `file://`, which is expected)
+- [ ] Check mobile layout — touch targets >=44px, tour chips at thumb reach
 - [ ] `window.REVIEW_MANIFEST` is a static literal (not computed)
+- [ ] `window.REVIEW_EVIDENCE` is a static literal with `decisive[]`,
+      `landmarks[]`, and `interpretation`
 - [ ] Every `produced_from` hash matches the actual file (use
       `sha256sum`, never hand-copy)
 - [ ] No `eval`, `Function()`, `import()`, or inline `on*` handlers
@@ -205,3 +205,7 @@ Before submitting a review-artifact phase resource:
       `produced_from` hash
 - [ ] Total document size under 5MB (accounts for all data, including
       what the server will inject)
+- [ ] Measurement lines connect the correct landmarks (cross-check
+      against the protocol's landmark → measurement mapping)
+- [ ] Flagged items (`requires_human_review`) sort first in the banner
+- [ ] Interpretation is shown AFTER evidence, not before (no anchoring)

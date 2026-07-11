@@ -8,6 +8,7 @@
 
 export {
   createOrchestratorSignals,
+  type BackgroundTaskInfo,
   type CreateLabratToolServerOptions,
   type LabratToolContext,
   type LabratToolRole,

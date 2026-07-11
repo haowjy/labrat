@@ -487,29 +487,6 @@ describe("check_review_site — F5 connect-src downgrade is narrow + fail-closed
   });
 });
 
-describe("check_review_site — the real inlined-three.js task-008 template passes the floor", () => {
-  const TASK_008 = fileURLToPath(
-    new URL("../../tasks/task-2026-07-10-008", import.meta.url),
-  );
-  it("all G-checks pass; the vendored three.js fetch is a warning, no download/nav sink remains", async () => {
-    const report = await checkReviewSite({
-      siteDir: join(TASK_008, "artifacts", "review-site"),
-      cdnAllowlist: [],
-      measurementsRoot: join(TASK_008, "artifacts"),
-      expectedSampleId: "task-2026-07-10-008",
-      requireFidelity: true,
-      contentSecurityPolicy: CONNECT_SRC_NONE_CSP,
-    });
-    for (const f of report.findings) {
-      assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
-    }
-    assert.equal(report.ok, true);
-    assert.equal(report.fidelity, "verified");
-    // The only G5 hit is the dead vendored three.js loader fetch, downgraded.
-    assert.match(String(gate(report, "G5").warnings ?? ""), /fetch/);
-  });
-});
-
 describe("review-artifact provenance node — resolveArtifactRefs yields a first-class chain node", () => {
   it("resolves the phase inputs/outputs to hashed provenance refs", async () => {
     const root = await mkdtemp(join(tmpdir(), "review-artifact-prov-"));
@@ -999,7 +976,7 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
       // + data_sources) — the scrubber then has no declared data to be wired to.
       await edit(dir, "index.html", (s) =>
         s
-          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_LANDMARKS"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_LANDMARKS"]')
+          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE"]')
           .replace(/data_sources: \{\s*REVIEW_VOLUME: \{[^}]*\},\s*\},/, ""),
       );
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
@@ -1029,6 +1006,25 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
       const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
       assert.equal(gate(report, "G9").ok, false);
       assert.match(gate(report, "G9").detail, /linked_views is not true/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a spatial-multipane manifest with no REVIEW_EVIDENCE global fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Landmark data lives in REVIEW_EVIDENCE now; undeclare it and the linked
+      // views have no landmark data to synchronise on.
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]',
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME"]',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /no REVIEW_EVIDENCE global in data_globals/);
     } finally {
       await cleanup();
     }

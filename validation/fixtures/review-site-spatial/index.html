@@ -83,7 +83,7 @@ window.REVIEW_MANIFEST = {
       "volumes/volume.json@9d4c2f1a7b6e5d3c8a0f4e2b1d9c7a6f5e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b",
   },
   verdict_schema: "review-verdict/1",
-  data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_LANDMARKS"],
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"],
   data_sources: {
     REVIEW_VOLUME: {
       artifact: "volumes/volume.json",
@@ -110,11 +110,19 @@ window.REVIEW_VOLUME = {
 </script>
 
 <script>
-// Landmark data the linked views synchronise on (G9: linked_views needs
-// landmark data present).
-window.REVIEW_LANDMARKS = {
-  femoral_notch: [1.0, 2.0, 1.5],
-  tibial_spine: [2.0, 1.0, 0.5],
+// Evidence-led review data (REVIEW_EVIDENCE contract). Landmarks the linked
+// views synchronise on now live here in a non-empty .landmarks array (G9:
+// linked_views needs landmark data present).
+window.REVIEW_EVIDENCE = {
+  decisive: [
+    { id: "femur_wl", label: "Femoral W/L", value: 1.33, unit: "", cutoff: 1.30, state: "concern", requires_human_review: true },
+  ],
+  landmarks: [
+    { name: "femoral_notch", voxel: [1.0, 2.0, 1.5], confidence: "high", color: "#e11" },
+    { name: "tibial_spine", voxel: [2.0, 1.0, 0.5], confidence: "medium", color: "#1e1" },
+  ],
+  interpretation: { stage: "OA", confidence: "medium", basis: "femoral W/L above cutoff" },
+  structural: { segmentation_cc: 1, compartment_symmetry: 0.9 },
 };
 </script>
 

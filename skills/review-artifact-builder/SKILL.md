@@ -8,16 +8,20 @@ description: >-
   method (the contract, the trust boundary, the build loop, the layout patterns)
   with a protocol-specific resource that supplies the rows and views. Covers the
   values-table pattern and the interactive 3D pattern (three.js, incl. the
-  linked orthogonal slice scrubber), the REVIEW_MANIFEST/REVIEW_DATA data
-  contract, and the G1-G9 linter.
+  linked orthogonal slice scrubber), the REVIEW_MANIFEST/REVIEW_EVIDENCE
+  data contract (and the legacy REVIEW_DATA pattern for values-table-only
+  protocols), and the G1-G9 linter.
 ---
 
 # Review Artifact Builder
 
-**Leading word: confirm.** Automated results are auto-*proposed*, never final.
-The review artifact is where a human confirms, corrects, or rejects them. Your
-job is to package a phase's vetted outputs into a component that makes that
-judgment fast and honest.
+**Leading word: verify.** Automated results are auto-*proposed*, never final.
+The review artifact is where a human verifies the call — not explores a scene.
+Your job is to package a phase's vetted outputs into an **evidence-led**
+component: the decisive numbers lead, the spatial views serve as drill-down
+evidence, and a guided tour walks the reviewer through each flagged item with
+its operational rule. The reviewer verifies the call in seconds, then drills
+into spatial detail only where the evidence demands it.
 
 ## What you build (and what you don't)
 
@@ -34,8 +38,9 @@ in-iframe export/download/navigation sink is a linter hard-fail (G5), by design
 
 ## The generic contract
 
-The contract and the linter are **identical for every protocol**. Only the rows
-and views are protocol-specific. Emit exactly one self-contained file:
+The contract and the linter are **identical for every protocol**. Only the
+evidence, views, and operational rules are protocol-specific. Emit exactly one
+self-contained file:
 
 ```
 review-site/
@@ -50,25 +55,25 @@ review-site/
 in an opaque-origin sandboxed iframe that silently drops every external
 subresource: a `<script src>` or `<link href>` to a separate file renders the
 page blank. So inline everything — CSS in `<style>`, data and app logic in
-`<script>` blocks. Ship data as `window.*` globals. **Small data** (a values table with a few
-rows) can be a static object/array literal assigned directly. **Large data**
-(geometry meshes, full measurement arrays) goes via serve-time injection: assign
-a sentinel placeholder `window.<NAME> = "__REVIEW_INJECT:<NAME>__";` and
-declare the source in the manifest's `data_sources` — the server fills the
-placeholder with the hashed artifact at serve time, so the browser receives the
-same self-contained document either way. The linter parses the manifest
-statically and never executes it — computed assignments are invisible to it.
-Never `fetch` local JSON; `file://` and the CSP block it.
+`<script>` blocks. Ship data as `window.*` globals. **Small data** (evidence
+ratios, flags, landmark metadata) is a static object/array literal assigned
+directly — specifically `REVIEW_EVIDENCE`. **Large data** (geometry meshes,
+volume slices) goes via serve-time injection: assign a sentinel placeholder
+`window.<NAME> = "__REVIEW_INJECT:<NAME>__";` and declare the source in the
+manifest's `data_sources` — the server fills the placeholder with the hashed
+artifact at serve time. The linter parses the manifest statically and never
+executes it — computed assignments are invisible to it. Never `fetch` local
+JSON; `file://` and the CSP block it.
 
 ```js
 window.REVIEW_MANIFEST = {
   sample_id: "<the task id from your prompt>",   // the run id, not the specimen label
   produced_from: { measurement: "<source-file>@<sha256>" },  // hashed by G8
   verdict_schema: "review-verdict/1",
-  data_globals: ["REVIEW_MANIFEST", "REVIEW_DATA"],
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", ...],
   // When using serve-time injection for large data:
   data_sources: {
-    REVIEW_DATA: { artifact: "<path-under-artifacts>", transform: "identity" }
+    REVIEW_GEOMETRY: { artifact: "<path-under-artifacts>", transform: "identity" }
   }
 };
 ```
@@ -77,6 +82,12 @@ window.REVIEW_MANIFEST = {
 from, hashed — the linter (G8) recomputes it to prove the site describes *this*
 run, not a stale or swapped one.
 
+**`REVIEW_EVIDENCE`** is the new core global. It carries the decisive numbers
+(ratios vs. cutoffs, states, flags), measurement-line geometry (which landmarks
+connect), per-landmark operational rules and confidence, and the interpretation.
+It is always inlined as a static literal — small enough that injection is
+unnecessary. The full shape is in `resources/review-ui-threejs-and-layout.md`.
+
 ## The build loop — the worker owns the template
 
 The review artifact is worker-authored per run. The template is a starting
@@ -84,27 +95,31 @@ pattern, not a locked form — you have authority to adjust the layout, add
 views, and customize the display so it reads well for the reviewer. The loop:
 
 1. **Read the approved outputs** from the earlier phases (the vetted numbers,
-   masks, landmark positions). The upstream measurement phase already gated the
-   science; this phase does **no science** — it packages.
-2. **Declare the data contract.** For large data (geometry, full measurement
-   arrays), add `data_sources` entries in the manifest pointing at the artifact
-   files and write sentinel placeholders
-   (`window.<NAME> = "__REVIEW_INJECT:<NAME>__";`). Small data (a few
-   values-table rows) can be inlined as static literals. Either way,
-   `produced_from` must name each source file with its sha256 — G8 enforces
-   provenance.
-3. **Generate `index.html`** — the layout the protocol's review resource
-   specifies, with CSS and app logic inlined. Data globals are either static
-   literals or sentinel placeholders; the server fills placeholders with the
-   hashed artifact at serve time.
-4. **Inspect it.** Does it render? Does the layout work? Are the right values
-   showing? While iterating on layout and render, temporarily inline real data
-   as static literals and open via `file://` to spot-check. Before final
-   submission, swap to sentinel placeholders
+   masks, landmark positions, flags). The upstream measurement phase already
+   gated the science; this phase does **no science** — it packages.
+2. **Build `REVIEW_EVIDENCE`.** Extract the decisive ratios, their cutoffs,
+   states, and flags from the measurement outputs. Map each ratio to its
+   contributing landmarks and the measurement lines connecting them. Attach
+   each landmark's operational rule from the protocol's resource. Build the
+   interpretation. This is the domain content the reviewer verifies — get it
+   right before touching the layout.
+3. **Declare the data contract.** `REVIEW_EVIDENCE` is inlined as a static
+   literal. Large data (geometry, volume) uses `data_sources` entries +
+   sentinel placeholders. `produced_from` must name each source file with its
+   sha256 — G8 enforces provenance.
+4. **Generate `index.html`** — evidence banner at top, spatial views in the
+   middle, tour bar at bottom, values/interpretation in a tab. CSS and app
+   logic inlined. Data globals are either static literals or sentinel
+   placeholders; the server fills placeholders at serve time.
+5. **Inspect it.** Does the evidence banner show the right flags? Do the
+   measurement lines connect the right landmarks? Does the tour walk through
+   flagged items first with correct operational rules? Temporarily inline real
+   data and open via `file://` to spot-check. Before final submission, swap
+   large data to sentinel placeholders
    (see `resources/review-ui-testing.md`).
-5. **Iterate** until it reads well. You check quality; the linter checks
+6. **Iterate** until it reads well. You check quality; the linter checks
    structure. Both must pass.
-6. **Run the linter.** The harness runs it automatically at the gate, but run
+7. **Run the linter.** The harness runs it automatically at the gate, but run
    it yourself while authoring:
    `tsx src/review-site/cli.ts check-review-site <site-dir> ...`
    (see `resources/review-ui-testing.md` — there is no `labrat` bin yet).
@@ -113,15 +128,20 @@ views, and customize the display so it reads well for the reviewer. The loop:
 
 | Generic (this skill) | Protocol-specific (the protocol's `resources/review-artifact.md`) |
 |---|---|
-| The contract (manifest/data globals, single inlined file) | Which values become rows; their labels, units, honesty flags |
+| The contract (manifest/data globals, single inlined file) | Which ratios are decisive; their cutoffs, states, flags |
 | The G1-G9 linter and how to pass it | Which views — values table, or 3D scene + linked slice scrubber, declared as `review_layout`/`required_views` |
-| The trust boundary (exports nothing) | The layout, and how phase outputs map to `REVIEW_DATA` |
+| The trust boundary (exports nothing) | The layout, and how phase outputs map to `REVIEW_EVIDENCE` |
 | The layout *patterns* (single-pane, multi-pane, 3D) | Which pattern this protocol uses |
+| The evidence banner + guided tour patterns | Which landmarks carry which ratios; the operational rules per landmark |
 | Data injection (`data_sources`, sentinel placeholders) | Which artifacts map to which globals; the `produced_from` entries |
+| `REVIEW_EVIDENCE` shape (decisive, landmarks, interpretation) | The specific decisive entries, landmark rules, and interpretation logic |
 
 The data contract must align end-to-end: what the earlier phases output is what
-`REVIEW_DATA` consumes. When authoring the protocol's resource, map each output
-field to a review item explicitly.
+the review globals consume. For spatial reviews, `REVIEW_EVIDENCE` carries the
+decisive ratios, flags, measurement lines, and per-landmark rules — all derived
+from measurement outputs. For simple values-table reviews, `REVIEW_DATA` carries
+the rows directly. When authoring the protocol's resource, map each output field
+to a review item explicitly.
 
 ## Resources
 
