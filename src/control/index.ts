@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   validateWatcherControlFile,
@@ -63,8 +63,20 @@ async function readValidated<T>(
   let raw: string;
   try {
     raw = await readFile(file, "utf8");
-  } catch {
-    return null; // Absent — a normal state, distinct from invalid.
+  } catch (err) {
+    // Only ENOENT is "absent — a normal state". Any other read failure
+    // (permissions, I/O) must surface as a failed result so callers fail
+    // closed AND diagnose it, instead of treating it as a missing file.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    return {
+      ok: false,
+      errors: [
+        {
+          path: "$",
+          message: `unreadable: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+    };
   }
   let parsed: unknown;
   try {
@@ -139,17 +151,87 @@ export type WatcherLease = {
   readonly heartbeat: string;
 };
 
-async function readLease(file: string): Promise<WatcherLease | null> {
+/** How a lease read resolved. `absent` and `valid` are the normal states;
+ * `malformed` (unparseable / wrong shape — e.g. a crashed writer left a
+ * partial file) must be RECOVERABLE by the next daemon, never a permanent
+ * EEXIST; `unreadable` (a non-ENOENT I/O failure) fails closed. */
+type LeaseRead =
+  | { readonly kind: "absent" }
+  | { readonly kind: "valid"; readonly lease: WatcherLease; readonly raw: string }
+  | { readonly kind: "malformed"; readonly raw: string }
+  | { readonly kind: "unreadable" };
+
+async function readLeaseFile(file: string): Promise<LeaseRead> {
+  let raw: string;
   try {
-    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-    if (parsed === null || typeof parsed !== "object") return null;
-    const rec = parsed as Record<string, unknown>;
-    if (typeof rec["uuid"] !== "string" || typeof rec["heartbeat"] !== "string") {
-      return null;
+    raw = await readFile(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+    return { kind: "unreadable" };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === "object") {
+      const rec = parsed as Record<string, unknown>;
+      if (typeof rec["uuid"] === "string" && typeof rec["heartbeat"] === "string") {
+        return { kind: "valid", lease: rec as unknown as WatcherLease, raw };
+      }
     }
-    return rec as unknown as WatcherLease;
   } catch {
-    return null;
+    // fall through — malformed
+  }
+  return { kind: "malformed", raw };
+}
+
+/**
+ * Atomically steal the lock file for inspection, then replace it with our
+ * lease. `rename` is atomic, so of N concurrent stealers exactly one wins
+ * and the losers get ENOENT — unlike `rm + create`, a loser can never
+ * delete the winner's fresh lease. After stealing we verify the content is
+ * still the `expectedRaw` our takeover decision was based on; if a new
+ * holder slipped in between read and steal, we restore their lease and back
+ * off.
+ *
+ * DEFERRED (multi-supervisor): the restore path can itself race a third
+ * contender's `wx` create in the steal window. Full protection needs a
+ * fencing-generation protocol across all mutations (tracked follow-up); a
+ * single daemon recovering a stale/malformed lock (crash → restart) has no
+ * contention and is fully covered here.
+ */
+async function stealAndReplaceLease(
+  file: string,
+  expectedRaw: string,
+  lease: WatcherLease,
+): Promise<boolean> {
+  const tomb = `${file}.takeover-${lease.uuid}`;
+  try {
+    await rename(file, tomb);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false; // lost the steal race
+    throw err;
+  }
+  let stolenRaw: string | null = null;
+  try {
+    stolenRaw = await readFile(tomb, "utf8");
+  } catch {
+    stolenRaw = null;
+  }
+  if (stolenRaw !== expectedRaw) {
+    // Someone replaced the lease between our read and the steal — restore.
+    try {
+      await rename(tomb, file);
+    } catch {
+      await rm(tomb, { force: true });
+    }
+    return false;
+  }
+  await rm(tomb, { force: true });
+  try {
+    await writeFile(file, JSON.stringify(lease), { flag: "wx" });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
   }
 }
 
@@ -157,11 +239,15 @@ async function readLease(file: string): Promise<WatcherLease | null> {
  * Acquire or refresh the exclusive supervisor lease (contract R2). Exactly
  * one process may claim/drain/write status at a time:
  *
- * - no lock (or unreadable lock)      → exclusive create (`wx` — the atomic
+ * - no lock                            → exclusive create (`wx` — the atomic
  *   acquisition; a concurrent creator wins and we return false);
- * - lock with our uuid                → refresh the heartbeat (we own it);
- * - lock with a FRESH foreign uuid    → false (someone else supervises);
- * - lock with a STALE foreign uuid    → takeover: remove + exclusive create.
+ * - lock with our uuid                 → refresh the heartbeat (we own it);
+ * - lock with a FRESH foreign uuid     → false (someone else supervises);
+ * - lock with a STALE foreign uuid     → identity-verified takeover
+ *   (a heartbeat that does not parse counts as stale);
+ * - MALFORMED lock (partial/garbage)   → identity-verified takeover — a
+ *   crashed writer's residue must be recoverable, never a permanent EEXIST;
+ * - unreadable lock (I/O failure)      → false (fail closed).
  *
  * Staleness = heartbeat older than `staleMs` (callers use N× poll interval).
  */
@@ -173,39 +259,77 @@ export async function acquireOrRefreshLease(
   const file = resolveControlFile(tasksDir, WATCHER_LOCK_FILE)!;
   await mkdir(controlDir(tasksDir), { recursive: true });
 
-  const existing = await readLease(file);
+  const read = await readLeaseFile(file);
   const now = new Date().toISOString();
+  const fresh: WatcherLease = { uuid, pid: process.pid, startedAt: now, heartbeat: now };
 
-  if (existing?.uuid === uuid) {
-    // We own it — plain overwrite is safe (only the owner writes).
-    await writeFile(
-      file,
-      JSON.stringify({ ...existing, pid: process.pid, heartbeat: now }),
-    );
-    return true;
-  }
-
-  if (existing !== null) {
-    const age = Date.now() - Date.parse(existing.heartbeat);
-    if (!Number.isFinite(age) || age <= staleMs) return false;
-    await rm(file, { force: true }); // Stale holder — take over.
-  }
-
-  const lease: WatcherLease = { uuid, pid: process.pid, startedAt: now, heartbeat: now };
-  try {
-    await writeFile(file, JSON.stringify(lease), { flag: "wx" });
-    return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw err;
+  switch (read.kind) {
+    case "unreadable":
+      return false; // Can't determine ownership — fail closed.
+    case "valid": {
+      if (read.lease.uuid === uuid) {
+        // We own it — refresh, preserving startedAt.
+        // DEFERRED (multi-supervisor): a fencing generation would prevent
+        // this overwrite from clobbering a successor that took over our
+        // stale lease between the read and this write.
+        await writeFile(
+          file,
+          JSON.stringify({ ...read.lease, pid: process.pid, heartbeat: now }),
+        );
+        return true;
+      }
+      const age = Date.now() - Date.parse(read.lease.heartbeat);
+      // Non-finite = the heartbeat doesn't parse — as stale as ancient.
+      if (Number.isFinite(age) && age <= staleMs) return false;
+      return stealAndReplaceLease(file, read.raw, fresh);
+    }
+    case "malformed":
+      return stealAndReplaceLease(file, read.raw, fresh);
+    case "absent": {
+      try {
+        await writeFile(file, JSON.stringify(fresh), { flag: "wx" });
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw err;
+      }
+    }
   }
 }
 
-/** Release the lease iff we still own it. */
+/** Does `uuid` currently hold the lease? Ownership check for final status
+ * writes at shutdown — a former holder must not overwrite a successor's
+ * status (contract R2/R4). */
+export async function holdsLease(tasksDir: string, uuid: string): Promise<boolean> {
+  const file = resolveControlFile(tasksDir, WATCHER_LOCK_FILE)!;
+  const read = await readLeaseFile(file);
+  return read.kind === "valid" && read.lease.uuid === uuid;
+}
+
+/** Release the lease iff we still own it. Uses the same atomic
+ * steal-then-verify as takeover: renaming before deleting means we can
+ * inspect exactly what we removed and restore a successor's lease instead
+ * of deleting it (a plain read-then-rm could delete a lease written between
+ * the two calls). */
 export async function releaseLease(tasksDir: string, uuid: string): Promise<void> {
   const file = resolveControlFile(tasksDir, WATCHER_LOCK_FILE)!;
-  const existing = await readLease(file);
-  if (existing?.uuid === uuid) {
-    await rm(file, { force: true });
+  const read = await readLeaseFile(file);
+  if (read.kind !== "valid" || read.lease.uuid !== uuid) return;
+  const tomb = `${file}.release-${uuid}`;
+  try {
+    await rename(file, tomb);
+  } catch {
+    return; // Already gone or stolen — nothing of ours left to release.
+  }
+  const stolen = await readLeaseFile(tomb);
+  if (stolen.kind === "valid" && stolen.lease.uuid === uuid) {
+    await rm(tomb, { force: true });
+  } else {
+    // Not ours anymore — a successor took over in the window; put it back.
+    try {
+      await rename(tomb, file);
+    } catch {
+      await rm(tomb, { force: true });
+    }
   }
 }

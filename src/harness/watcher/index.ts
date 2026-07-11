@@ -29,17 +29,36 @@ import { join } from "node:path";
 /** Optional producer-written completion sentinel: `<drop-name>.complete`. */
 export const COMPLETE_SENTINEL_SUFFIX = ".complete";
 
+/** Default quiet period before a drop counts as settled. Deliberately
+ * CONSERVATIVE (contract R3: debounce is best-effort only) — a multi-hundred
+ *-file micro-CT copy can stall longer than a few seconds on a busy volume.
+ * Producers that stage-then-atomically-rename into `incoming/`, or write a
+ * `.complete` sentinel, are never delayed by this. */
+export const DEFAULT_DEBOUNCE_MS = 30_000;
+
+export type DropSignature = {
+  /** `dev:ino:files:bytes:maxMtime` — "no change" = this string is stable. */
+  readonly signature: string;
+  /** First entry anywhere in the drop that is neither a regular file nor a
+   * real directory (symlink/socket/FIFO/device), or null. A drop carrying
+   * one is NEVER eligible (contract R8) — the settle tracker refuses to
+   * settle it and the supervisor re-checks after claiming. */
+  readonly nonRegular: string | null;
+};
+
 /** What "no change" means for a drop: the root's `dev:ino` identity plus
  * file count + total bytes + newest mtime, computed over the entry
  * (recursively for a slice directory). The dev:ino prefix means a REPLACED
  * root (same name, new inode) can never alias the old one's signature.
  * Uses `lstat` throughout — a symlink inside a drop is counted as the link
  * itself and NEVER followed, so a drop cannot pull an outside tree (or a
- * symlink loop) into the walk. */
-export function signatureOf(path: string): string | null {
+ * symlink loop) into the walk — and any non-regular entry at any depth is
+ * reported in `nonRegular` (R8). Returns null when the entry vanished. */
+export function signatureOf(path: string): DropSignature | null {
   let files = 0;
   let bytes = 0;
   let maxMtime = 0;
+  let nonRegular: string | null = null;
   const walk = (p: string): void => {
     const st = lstatSync(p);
     maxMtime = Math.max(maxMtime, st.mtimeMs);
@@ -48,12 +67,16 @@ export function signatureOf(path: string): string | null {
     } else {
       files += 1;
       bytes += st.size;
+      if (!st.isFile()) nonRegular ??= p;
     }
   };
   try {
     const root = lstatSync(path);
     walk(path);
-    return `${root.dev}:${root.ino}:${files}:${bytes}:${maxMtime}`;
+    return {
+      signature: `${root.dev}:${root.ino}:${files}:${bytes}:${maxMtime}`,
+      nonRegular,
+    };
   } catch {
     // Entry vanished or is mid-rename; treat as "no signature yet".
     return null;
@@ -106,7 +129,7 @@ export type SettleTracker = {
  * per poll — so a slow walk over one large drop can neither age nor renew a
  * sibling's debounce window (the recovered skeleton's stale-clock bug).
  */
-export function createSettleTracker(debounceMs = 3000): SettleTracker {
+export function createSettleTracker(debounceMs = DEFAULT_DEBOUNCE_MS): SettleTracker {
   const pending = new Map<string, PendingEntry>();
 
   return {
@@ -126,8 +149,15 @@ export function createSettleTracker(debounceMs = 3000): SettleTracker {
         if (!isEligibleDrop(incomingDir, name)) continue;
         seen.add(name);
 
-        const signature = signatureOf(join(incomingDir, name));
-        if (signature === null) continue;
+        const sig = signatureOf(join(incomingDir, name));
+        if (sig === null) continue;
+        // R8: a drop containing a nested non-regular entry (symlink, FIFO,
+        // socket, device) never settles — not even with a sentinel.
+        if (sig.nonRegular !== null) {
+          pending.delete(name);
+          continue;
+        }
+        const signature = sig.signature;
         // Fresh timestamp per observation, AFTER the (possibly slow)
         // signature walk for this entry.
         const observedAt = Date.now();
