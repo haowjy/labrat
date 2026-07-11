@@ -18,6 +18,7 @@ import type { SseEvent } from "../schema/index.js";
 import { handleSse, publishEvent } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
 import { finishReview } from "./review/index.js";
+import { getWatcherStatus, updateWatcherControl } from "./watcher/index.js";
 import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
 
@@ -395,6 +396,26 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.status(201).json(result.value);
+  });
+
+  // Watcher control panel (watcher-control-panel contract). Status merges
+  // the supervisor's heartbeat (control/watcher-status.json, a SIBLING of the
+  // task tree) with live folder counts recomputed from disk; absent heartbeat
+  // synthesizes a stopped view rather than 404ing the panel.
+  app.get("/api/watcher/status", async (_req, res) => {
+    res.json(await getWatcherStatus(tasksDir));
+  });
+
+  // Desired-state write: validate + merge into control/watcher.json. The
+  // supervisor daemon (labrat watch) reads it on its next tick — this route
+  // never touches the harness process directly.
+  app.post("/api/watcher", async (req, res) => {
+    const result = await updateWatcherControl(tasksDir, req.body);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json(result.value);
   });
 
   // Claude Science skill browse (LabRat ↔ Claude Science import bridge).

@@ -1,4 +1,5 @@
-export { startWatcher } from "./watcher/index.js";
+export { createSettleTracker, signatureOf } from "./watcher/index.js";
+export { createSupervisor, type Supervisor } from "./watcher/supervisor.js";
 export { inspectInput } from "./inspector/index.js";
 export { selectProtocol } from "./router/index.js";
 export { enqueueTask, dequeueNext, updateTaskState } from "./queue/index.js";
