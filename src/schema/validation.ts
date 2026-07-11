@@ -87,6 +87,16 @@ export function expectNumber(
   return success(value);
 }
 
+export function expectPositiveInt(
+  value: unknown,
+  path: string,
+): ValidationResult<number> {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    return singleError(path, "expected positive integer");
+  }
+  return success(value);
+}
+
 export function expectBoolean(
   value: unknown,
   path: string,

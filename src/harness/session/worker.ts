@@ -22,7 +22,11 @@ import {
   createOrchestratorSignals,
   type LabratToolContext,
 } from "./signals.js";
-import { extractAssistantText, extractSessionId } from "./sdk-messages.js";
+import {
+  extractAssistantText,
+  extractBackgroundTasks,
+  extractSessionId,
+} from "./sdk-messages.js";
 
 export type WorkerSessionConfig = {
   readonly taskId: string;
@@ -37,11 +41,18 @@ export type WorkerSessionConfig = {
   readonly runSettings: LabratConfig;
 };
 
+export type StallExhaustedReason =
+  | "stall"              // Genuine stalls (no background work, no record_phase)
+  | "background-grace";  // Background work ran too long without record_phase
+
 export type WorkerSessionResult = {
   readonly sessionId: string;
   readonly phaseComplete: boolean;
   readonly blockedReason: string | null;
   readonly stallExhausted: boolean;
+  /** Set when stallExhausted is true — distinguishes genuine stalls from
+   *  background-grace exhaustion for accurate error reporting. */
+  readonly stallExhaustedReason: StallExhaustedReason | null;
 };
 
 function buildSdkAgents(
@@ -89,19 +100,24 @@ export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> 
   return env;
 }
 
+type PromptMode = "initial" | "stall-reminder" | "background-continue";
+
 function phaseUserPrompt(
   phaseId: string,
   taskId: string,
   inputRel: string,
-  isReminder: boolean,
+  mode: PromptMode,
 ): string {
-  const reminder = isReminder
-    ? "\n\nREMINDER: Your previous turn ended without calling record_phase. Finish remaining work and call record_phase when the phase is complete."
-    : "";
+  const suffix =
+    mode === "stall-reminder"
+      ? "\n\nREMINDER: Your previous turn ended without calling record_phase. Finish remaining work and call record_phase when the phase is complete."
+      : mode === "background-continue"
+        ? "\n\nYour background work has completed (or is still running). Check your background task output, continue any remaining work, and call record_phase when the phase is complete."
+        : "";
   return `Execute the **${phaseId}** phase for task ${taskId}.
 
 Input DICOM (relative to task dir): ${inputRel}
-Work in the task directory as cwd. Follow methodology, write phase records and artifacts, mark subphases as needed, then call record_phase for phase "${phaseId}".${reminder}`;
+Work in the task directory as cwd. Follow methodology, write phase records and artifacts, mark subphases as needed, then call record_phase for phase "${phaseId}".${suffix}`;
 }
 
 async function runOneQuery(
@@ -151,6 +167,12 @@ async function runOneQuery(
     },
   });
 
+  // Reset per-process state: background_tasks_changed is process-scoped and
+  // emits nothing at startup. Stale entries from a previous query() process
+  // would appear as phantom tasks. See SDK docs: "consumers must reset to the
+  // empty set whenever the session's CLI process (re)starts."
+  toolCtx.signals.activeBackgroundTasks = [];
+
   let sessionId = "";
   for await (const msg of q) {
     const sid = extractSessionId(msg);
@@ -165,6 +187,11 @@ async function runOneQuery(
         line: text.slice(0, 300),
         ephemeral: true,
       });
+    }
+    // Track background tasks (REPLACE semantics — each payload is the full set).
+    const bgTasks = extractBackgroundTasks(msg);
+    if (bgTasks) {
+      toolCtx.signals.activeBackgroundTasks = bgTasks;
     }
     if (toolCtx.signals.phaseComplete || toolCtx.signals.blockedReason) {
       break;
@@ -205,16 +232,34 @@ export async function runWorkerPhase(
 
   let sessionId = "";
   let stallCount = 0;
+  let bgGraceCount = 0;
+  let exhaustionReason: StallExhaustedReason = "stall";
   const maxStallRetries = config.runSettings.retries.workerStall;
+  const maxBgGrace = config.runSettings.retries.backgroundGraceRetries;
 
-  while (stallCount <= maxStallRetries) {
-    const isReminder = stallCount > 0;
+  // Total turn budget prevents infinite loops regardless of stall vs bg-grace.
+  const maxTotalTurns = maxStallRetries + maxBgGrace + 1;
+  let totalTurns = 0;
+
+  while (totalTurns < maxTotalTurns) {
+    totalTurns += 1;
+
+    // Determine prompt mode based on whether this is a fresh start, a
+    // background-work continuation, or a genuine stall reminder.
+    const mode: PromptMode =
+      stallCount === 0 && bgGraceCount === 0
+        ? "initial"
+        : toolCtx.signals.activeBackgroundTasks.length > 0
+          ? "background-continue"
+          : "stall-reminder";
+
     const userPrompt = phaseUserPrompt(
       config.phaseId,
       config.taskId,
       config.inputRel,
-      isReminder,
+      mode,
     );
+    const isContinuation = stallCount > 0 || bgGraceCount > 0;
 
     const sid = await runOneQuery(
       config,
@@ -222,7 +267,7 @@ export async function runWorkerPhase(
       systemPromptParts,
       toolCtx,
       userPrompt,
-      isReminder,
+      isContinuation,
     );
 
     if (sid) {
@@ -235,6 +280,7 @@ export async function runWorkerPhase(
         phaseComplete: false,
         blockedReason: toolCtx.signals.blockedReason,
         stallExhausted: false,
+        stallExhaustedReason: null,
       };
     }
 
@@ -244,10 +290,32 @@ export async function runWorkerPhase(
         phaseComplete: true,
         blockedReason: null,
         stallExhausted: false,
+        stallExhaustedReason: null,
       };
     }
 
-    stallCount += 1;
+    // Decide: is this a genuine stall, or is the worker waiting on
+    // background work it started (e.g. a long Python script)?
+    if (toolCtx.signals.activeBackgroundTasks.length > 0) {
+      bgGraceCount += 1;
+      if (bgGraceCount > maxBgGrace) {
+        // Background work is still running but we've waited too long.
+        exhaustionReason = "background-grace";
+        break;
+      }
+      notifyEvent({
+        type: "log",
+        taskId: config.taskId,
+        line: `[harness] background work active (${toolCtx.signals.activeBackgroundTasks.length} task(s)), grace ${bgGraceCount}/${maxBgGrace} — not counting as stall`,
+        ephemeral: true,
+      });
+    } else {
+      stallCount += 1;
+      if (stallCount > maxStallRetries) {
+        exhaustionReason = "stall";
+        break;
+      }
+    }
   }
 
   return {
@@ -255,5 +323,6 @@ export async function runWorkerPhase(
     phaseComplete: false,
     blockedReason: null,
     stallExhausted: true,
+    stallExhaustedReason: exhaustionReason,
   };
 }

@@ -31,6 +31,7 @@ describe("loadConfig", () => {
         workerStall: 3,
         reviewAttempts: 2,
         phaseAttempts: 2,
+        backgroundGraceRetries: 10,
       });
     });
   });
@@ -147,6 +148,45 @@ describe("loadConfig", () => {
     await withTmpDir(async (dir) => {
       const config = loadConfig({ LABRAT_REVIEW_ATTEMPTS: "-1" }, dir);
       assert.equal(config.retries.reviewAttempts, 2);
+    });
+  });
+
+  it("rejects fractional retry values in config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ retries: { workerStall: 2.5 } }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*positive integer/,
+      );
+    });
+  });
+
+  it("rejects negative retry values in config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ retries: { backgroundGraceRetries: -2 } }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*positive integer/,
+      );
+    });
+  });
+
+  it("rejects zero retry values in config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ retries: { phaseAttempts: 0 } }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*positive integer/,
+      );
     });
   });
 
