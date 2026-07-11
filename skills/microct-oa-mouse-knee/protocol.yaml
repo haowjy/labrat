@@ -5,7 +5,7 @@ version: 1
 expects:
   modality: CT
   body_part: [knee, hindlimb]
-  species: [mouse, rat]
+  species: [mouse]   # Tang et al. is mouse-specific; every landmark rule, cutoff, and scanner parameter is mouse-derived. Not validated for rat.
   min_slices: 100
 
 phases:
@@ -84,6 +84,7 @@ phases:
   - id: measurement
     skills:
       - resources/measurement
+      - resources/reference-pack
     inputs:
       - landmarks.json
       - landmarks/positions.json
@@ -101,6 +102,7 @@ phases:
     # resources/review-artifact.md.
     skills:
       - resources/review-artifact
+      - resources/reference-pack
     inputs:
       - measurements/results.json
       - measurements_final.json
@@ -140,7 +142,10 @@ agents:
           Independent subphase verification — run the quantitative checks from
           the Verification section before marking a subphase pass.
         tools: [Bash, Read, Write, Grep, Glob]
-        writable: [review/verification/]
+        # Distinct from the independent gate-reviewer's review/verification/ —
+        # the worker's own subphase checker must not share the gate-reviewer's
+        # write scope (keeps the trust boundary intact).
+        writable: [review/subphase-verification/]
     writable:
       - artifacts/
       - phases/
@@ -179,11 +184,12 @@ requires:
       - python:scikit-image
       - python:scipy
       - python:matplotlib
-      - env:PYTHONPATH
+      # MPLBACKEND is set unconditionally by the harness (headless PNG QC). No
+      # env:PYTHONPATH — this protocol is package-free; there is no bespoke source
+      # tree to point it at, and requiring it hard-fails task startup.
       - env:MPLBACKEND
   reviewer:
     runtime:
       - python:nibabel
       - python:numpy
       - python:scipy
-      - env:PYTHONPATH

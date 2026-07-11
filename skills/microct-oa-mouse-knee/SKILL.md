@@ -5,7 +5,7 @@ description: >-
   scene from a µCT stack and grade OA severity with geometric indices: the
   distal-femur width/length osteophyte ratio and the tibial IIOC height/width
   ratio, plus patella and peri-meniscal calcified-synovium volumes. Reach for it
-  when a task names mouse or rat knee OA, femoral W/L ratio, tibial IIOC,
+  when a task names mouse knee OA, femoral W/L ratio, tibial IIOC,
   osteophyte quantification, patella/meniscus volume, or knee-µCT segmentation
   and measurement.
 ---
@@ -196,5 +196,4 @@ study-specific facts = the full protocol. Each phase pulls the general technique
 from the methodology skill and the study parameters from this skill's
 `resources/<phase>.md`, grounded by `resources/reference-pack.md`. The terminal
 `review-artifact` phase composes `review-artifact-builder` to package the vetted
-indices into a self-contained review site a human confirms. These rules were
-produced by applying `paper-protocol-to-skill` to the source methods section.
+indices into a self-contained review site a human confirms.

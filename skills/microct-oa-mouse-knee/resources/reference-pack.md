@@ -60,7 +60,7 @@ not measure is what keeps the body you do measure honest.
   their sample IDs, orientations, and thresholds are not all known per the caption.
 - These are **reference context, not ground truth.** The ideal author-approved set
   (normal + severe, contrastive look-alikes, threshold-leakage and absent
-  growth-plate failures — `understand-3d-medical-volume`'s `oa-uct` notes list it)
-  is still to be built; until then, flag anatomy the pack doesn't cover for review.
+  growth-plate failure examples) is still to be built; until then, flag anatomy the
+  pack doesn't cover for review.
 - Color is display-arbitrary and inconsistent across references (the workflow
   reuses green for femur *and* patella — disambiguate by location, never by hue).

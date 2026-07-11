@@ -28,6 +28,15 @@ which is which.
   end; tibia = single plateau block; patella = anterior body; menisci at the joint
   line, medial/lateral; **ossa sesamoidea = small rounded posterior bodies** — the
   confounder (`figure2-scene__patella-sesamoid-vs-osteophyte__paper.png`).
+- **Fix the anterior–posterior axis before splitting sesamoid from osteophyte.**
+  The "posterior body = sesamoid" test depends on the AP axis, which comes from the
+  patella (anterior). If the patella is small, atrophied, or ambiguous — common in
+  the aged/OA specimens this protocol studies — resolve orientation first (the
+  parent method's orientation workflow) or escalate; do not apply the posterior
+  rule against a guessed axis, or a sesamoid can be folded into femoral width before
+  "posterior" was ever defined.
+- **Fibula** is labeled as context when visible (it anchors laterality) but is not
+  required for measurement — assign it if present, don't manufacture it if absent.
 - Write `labels.nii.gz`, per-structure `masks/<structure>.nii.gz`, and
   `structure_assignments.json`.
 
@@ -46,8 +55,8 @@ numbers.
 **Then the checks:**
 
 1. **Assignment JSON** — distinct positive labels; femur and tibia present
-   (measurement can't proceed without them); grounding structures present when
-   visible in the scan.
+   (measurement can't proceed without them); grounding structures (osteophytes,
+   sesamoids) and context (fibula) present when visible in the scan.
 2. **Connected-components gate (femur + tibia)** — re-apply the watershed CC check;
    each exactly 1. The independent-review moment — fail if either ≠ 1. Menisci /
    osteophytes / sesamoids may be multi-component.
