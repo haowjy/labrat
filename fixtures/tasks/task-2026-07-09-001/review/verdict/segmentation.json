@@ -1,0 +1,11 @@
+{
+  "phase": "segmentation",
+  "human_verdict": "pass",
+  "corrected": true,
+  "notes": "Confirmed femur=1 / tibia=2. Cleaned the femur speckle islands by hand before landmark placement; filed a suggestion to fold a largest-connected-component filter into the skill.",
+  "adjustments": [],
+  "agent_confidence": null,
+  "agent_gate_decision": "pass-with-concerns",
+  "agent_gate_feedback": "Femur mask split into 4 components; largest is 99.96% of voxels.",
+  "reviewed_at": "2026-07-09T10:50:00Z"
+}

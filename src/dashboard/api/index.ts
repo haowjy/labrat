@@ -211,6 +211,15 @@ function producesReviewSite(outputs: readonly ProvenanceArtifactRef[]): boolean 
 export type TaskDetail = {
   readonly task: TaskJson;
   readonly timeline: readonly TimelineEntry[];
+  /**
+   * Absolute path of this task's directory under tasksDir. The trusted shell
+   * surfaces it as "Copy folder path" so a scientist can paste the tree into
+   * Claude Science (the `paper-protocol-to-skill` skill) to improve the
+   * protocol. It names the task tree the dashboard already serves — not a
+   * reach outside it — so it is a value the client legitimately needs, not a
+   * boundary crossing.
+   */
+  readonly taskDir: string;
 };
 
 /** Latest manifest entry for a phase (append-only; last write wins). */
@@ -281,7 +290,7 @@ export async function getTask(
     });
   }
 
-  return { task, timeline };
+  return { task, timeline, taskDir: taskDir(tasksDir, id) };
 }
 
 export type SubphaseLatestMark = {
@@ -396,6 +405,79 @@ export async function getManifest(
 ): Promise<ProvenanceManifest | null> {
   if (!isValidTaskId(id)) return null;
   return readManifest(tasksDir, id);
+}
+
+/** One phase's slice of the review-chain export. */
+export type PhaseExport = {
+  readonly phase: string;
+  /** Automated gate decision + feedback (review/gates/{phase}.json). */
+  readonly gate: GateSummary | null;
+  /** Human verdict + notes (review/verdict/{phase}.json). */
+  readonly humanVerdict: ReviewVerdictRecord | null;
+  /** The phase's declared measurement artifacts (phases/{phase}/measurements.json). */
+  readonly measurements: unknown | null;
+  /** Suggestions filed against this phase (subset of suggestions.json). */
+  readonly suggestions: readonly SuggestionEntry[];
+};
+
+/**
+ * The downloadable review-chain bundle for one task (GET
+ * /api/tasks/:id/export). Composed entirely from the existing read loaders —
+ * getTask (task.json + gate/verdict per phase), getManifest (provenance),
+ * getPhase (measurements), getSuggestions — so it can never read outside the
+ * task tree or diverge from what the live views show. Read-only serialization,
+ * nothing here touches the harness.
+ */
+export type TaskExport = {
+  readonly taskId: string;
+  /** Absolute path of the task tree, for hand-off to Claude Science. */
+  readonly taskDir: string;
+  readonly exportedAt: string;
+  readonly task: TaskJson;
+  readonly provenance: ProvenanceManifest;
+  readonly phases: readonly PhaseExport[];
+};
+
+export async function getTaskExport(
+  tasksDir: string,
+  id: string,
+): Promise<TaskExport | null> {
+  if (!isValidTaskId(id)) return null;
+  const detail = await getTask(tasksDir, id);
+  if (!detail) return null;
+
+  const manifest = (await readManifest(tasksDir, id)) ?? [];
+  const suggestions = (await getSuggestions(tasksDir, id)) ?? [];
+
+  // The chain covers every phase on the timeline plus any phase a suggestion
+  // names (so an orphan suggestion is never silently dropped), in a stable
+  // order: timeline first, extra suggestion-only phases appended.
+  const phaseIds = detail.timeline.map((e) => e.phase);
+  for (const s of suggestions) {
+    if (!phaseIds.includes(s.phase)) phaseIds.push(s.phase);
+  }
+
+  const phases: PhaseExport[] = [];
+  for (const phase of phaseIds) {
+    const entry = detail.timeline.find((e) => e.phase === phase) ?? null;
+    const phaseDetail = await getPhase(tasksDir, id, phase);
+    phases.push({
+      phase,
+      gate: entry?.gate ?? null,
+      humanVerdict: entry?.humanVerdict ?? null,
+      measurements: phaseDetail?.measurements ?? null,
+      suggestions: suggestions.filter((s) => s.phase === phase),
+    });
+  }
+
+  return {
+    taskId: detail.task.id,
+    taskDir: detail.taskDir,
+    exportedAt: new Date().toISOString(),
+    task: detail.task,
+    provenance: manifest,
+    phases,
+  };
 }
 
 /**

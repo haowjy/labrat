@@ -9,6 +9,7 @@ import {
   getPhase,
   getSuggestions,
   getTask,
+  getTaskExport,
   listTasks,
   resolveTaskFile,
 } from "./api/index.js";
@@ -241,6 +242,25 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.json(detail);
+  });
+
+  // Review-chain export (demo sign-off): one downloadable JSON bundle of the
+  // task's task.json, provenance manifest, and per-phase gate/verdict/
+  // measurements/suggestions. Read-only — composed from the same disk loaders
+  // the views use; nothing here reaches the harness or outside the task tree.
+  app.get("/api/tasks/:id/export", async (req, res) => {
+    const bundle = await getTaskExport(tasksDir, req.params.id);
+    if (!bundle) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    // Filename uses the validated id from the bundle (getTaskExport returns
+    // null for an invalid id), so no unsanitized input reaches the header.
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${bundle.taskId}-review-chain.json"`,
+    );
+    res.json(bundle);
   });
 
   app.get("/api/tasks/:id/manifest", async (req, res) => {
