@@ -30,20 +30,20 @@ function TaskCard({ task, active, onSelect }) {
 /**
  * Sidebar: the shell's one persistent navigation surface (desktop: an
  * always-visible column; mobile: the MobileDrawer's off-canvas content —
- * see that file). Owns BOTH levels of cross-sample navigation now: a
- * "Dashboard" entry back to the level-1 fleet board, and the level-2 sample
- * list below it (unchanged "streaming cards" — SSE notification -> GET
- * /api/tasks re-fetch, componentized with a brief update pulse). Phase
- * review (level 3) has no entry of its own here — a reviewer reaches it
- * from a sample's phase index, and gets back to level 2 by re-selecting
- * that same sample from this same list (its `.active` row is still
- * highlighted the whole time they're anywhere inside it, review included).
+ * see that file). Owns both levels of the two-level shell: a "Dashboard"
+ * entry back to the level-1 fleet board, and the sample list below it
+ * (unchanged "streaming cards" — SSE notification -> GET /api/tasks
+ * re-fetch, componentized with a brief update pulse). Selecting a sample
+ * opens Phase review directly — there is no intermediate per-sample index
+ * anymore — and re-selecting the already-open sample re-lands it on that
+ * sample's default phase (App.js's `selectSample`); its `.active` row stays
+ * highlighted the whole time it's open.
  *
- * `active` never needs to also check `screen`: App.js clears `currentId` to
- * null whenever it navigates to the dashboard, so no task's id can equal it
- * while the Dashboard entry itself is the one that should be highlighted.
+ * Active states need nothing beyond `currentId`: App.js clears it to null
+ * whenever it navigates to the dashboard, so "no sample open" IS "the
+ * Dashboard entry is the current level".
  */
-export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard }) {
+export function Sidebar({ tasks, currentId, onSelect, onGoDashboard }) {
   return html`
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -53,7 +53,7 @@ export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard }) {
       <nav class="sidebar-nav">
         <button
           type="button"
-          class="sidebar-nav-item ${screen === "dashboard" ? "active" : ""}"
+          class="sidebar-nav-item ${currentId === null ? "active" : ""}"
           onClick=${onGoDashboard}
         >
           <span class="sidebar-nav-icon" aria-hidden="true">⌂</span>

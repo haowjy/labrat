@@ -9,6 +9,7 @@ import {
   runPhaseInIsolation,
   runStandaloneGate,
 } from "../harness/orchestrator/index.js";
+import { startWatcher } from "../harness/watcher/index.js";
 import { runCheckReviewSiteCli } from "../review-site/cli.js";
 
 function expandUserPath(p: string): string {
@@ -53,6 +54,29 @@ async function main(): Promise<void> {
       })),
     }, null, 2));
     return;
+  }
+
+  if (command === "watch") {
+    const config = loadConfig();
+    const incomingDir = args[1]
+      ? resolve(expandUserPath(args[1]))
+      : config.incomingDir;
+
+    console.log(`watching ${incomingDir} (protocol default: ${config.defaultProtocol ?? "none"})`);
+    startWatcher({
+      incomingDir,
+      defaultProtocol: config.defaultProtocol,
+      log: (message) => console.log(message),
+      onEnqueue: async (inputAbs, protocol) => {
+        const result = await enqueueAndRun(inputAbs, protocol, undefined, config);
+        console.log(
+          `enqueued ${result.taskId} (${inputAbs} protocol=${protocol}) state=${result.task.state}`,
+        );
+      },
+    });
+
+    // Stay running until killed; the watcher's interval keeps the loop alive.
+    await new Promise<never>(() => {});
   }
 
   if (command === "gate") {
@@ -128,6 +152,7 @@ async function main(): Promise<void> {
 
   console.error(`Unknown command: ${command}`);
   console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
+  console.error("       labrat watch [incoming-dir]");
   console.error("       labrat gate <task-id> <phase>");
   console.error("       labrat run-phase <task-id> <phase> [--gate]");
   console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");

@@ -35,6 +35,8 @@ export type LabratConfig = {
   readonly microctSrc: string | null;
   /** null means the caller must pass a protocol name explicitly. */
   readonly defaultProtocol: string | null;
+  /** Absolute path the folder-watcher polls for dropped inputs. */
+  readonly incomingDir: string;
   readonly dashboard: {
     readonly port: number;
     readonly url: string;
@@ -71,6 +73,7 @@ type LabratConfigFile = {
   readonly scienceHome?: string;
   readonly microctSrc?: string;
   readonly defaultProtocol?: string;
+  readonly incomingDir?: string;
   readonly dashboard?: {
     readonly port?: number;
     readonly url?: string;
@@ -89,6 +92,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "scienceHome",
   "microctSrc",
   "defaultProtocol",
+  "incomingDir",
   "dashboard",
   "retries",
 ]);
@@ -153,6 +157,13 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     (v, p) => expectString(v, p),
   );
   if (!defaultProtocol.ok) return defaultProtocol;
+
+  const incomingDir = expectOptional(
+    rec.value["incomingDir"],
+    "$.incomingDir",
+    (v, p) => expectString(v, p),
+  );
+  if (!incomingDir.ok) return incomingDir;
 
   let dashboard: LabratConfigFile["dashboard"];
   if (rec.value["dashboard"] !== undefined && rec.value["dashboard"] !== null) {
@@ -230,6 +241,7 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
       ...(defaultProtocol.value !== undefined
         ? { defaultProtocol: defaultProtocol.value }
         : {}),
+      ...(incomingDir.value !== undefined ? { incomingDir: incomingDir.value } : {}),
       ...(dashboard !== undefined ? { dashboard } : {}),
       ...(retries !== undefined ? { retries } : {}),
     },
@@ -316,6 +328,7 @@ export function loadConfig(
     scienceHome: DEFAULT_SCIENCE_HOME,
     microctSrc: null,
     defaultProtocol: null,
+    incomingDir: join(cwd, "incoming"),
     dashboard: {
       port: DEFAULT_DASHBOARD_PORT,
       url: DEFAULT_DASHBOARD_URL,
@@ -360,6 +373,9 @@ export function loadConfig(
     ),
     defaultProtocol:
       env["LABRAT_PROTOCOL"] ?? file.defaultProtocol ?? defaults.defaultProtocol,
+    incomingDir: expandTilde(
+      env["LABRAT_INCOMING_DIR"] ?? file.incomingDir ?? defaults.incomingDir,
+    ),
     dashboard: {
       port,
       url,

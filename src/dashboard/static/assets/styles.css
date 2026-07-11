@@ -36,8 +36,8 @@ a { color:var(--accent); }
 .sidebar-header .badge { font-family:var(--mono); font-size:0.6rem; background:var(--accent-soft); color:var(--accent); padding:0.15em 0.45em; border-radius:3px; font-weight:600; }
 
 /* Drawer-level nav (App.js/Sidebar.js): the one way back to the level-1
-   fleet board — see Sidebar.js for why the sample list below needs no
-   equivalent "back to level 2" entry of its own. */
+   fleet board — the sample list below it opens Phase review directly
+   (Sidebar.js). */
 .sidebar-nav { padding:0.5rem; border-bottom:1px solid var(--accent-line); }
 .sidebar-nav-item { display:flex; align-items:center; gap:0.5rem; width:100%; padding:0.55rem 0.75rem; border:none; border-radius:6px; background:none; color:var(--ink); font-family:var(--mono); font-size:0.78rem; font-weight:600; cursor:pointer; text-align:left; }
 .sidebar-nav-item:hover { background:var(--accent-soft); }
@@ -155,21 +155,6 @@ a { color:var(--accent); }
 .phase-tab-dot.paused { background:var(--warn); }
 .phase-tab-review-mark { font-size:0.6rem; opacity:0.8; }
 
-/* === PHASE INDEX (Overview) — a compact, clickable list of the task's
-   phases (PhaseOverview.js). No per-phase detail here on purpose: that
-   richness now lives inside each phase's own review-site iframe, not the
-   shell. Each row is a full-width <button> so it's keyboard-reachable like
-   any other nav control in this app. === */
-.phase-index { display:flex; flex-direction:column; gap:0.4rem; margin:0.5rem 0 1rem; }
-.phase-index-row { display:flex; align-items:center; gap:0.75rem; width:100%; min-height:44px; padding:0.6rem 0.9rem; border:1px solid var(--accent-line); border-radius:6px; background:var(--surface); color:inherit; font:inherit; text-align:left; cursor:pointer; }
-.phase-index-row:hover { background:var(--accent-soft); border-color:var(--accent); }
-.phase-index-row:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-.phase-index-name { font-family:var(--mono); font-weight:700; font-size:0.8rem; }
-.attempt { font-size:0.65rem; color:var(--muted2); font-weight:400; margin-left:0.4rem; }
-.phase-index-pills { display:flex; align-items:center; gap:0.4rem; margin-left:auto; flex-wrap:wrap; justify-content:flex-end; }
-/* F4 — one-line tally of the index below it, same pills the rows use. */
-.phase-summary { display:flex; flex-wrap:wrap; gap:0.4rem; margin:0.75rem 0 0.25rem; }
-
 .section-label { font-family:var(--mono); font-size:0.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin:0.6rem 0 0.3rem; }
 
 /* === PHASE REVIEW (sandboxed review-site embed, ReviewEmbed.js) ===
@@ -182,7 +167,11 @@ a { color:var(--accent); }
    below its content's natural size and the whole point of "fill, don't
    overflow" breaks. */
 .content-review { max-width:1100px; flex:1; display:flex; flex-direction:column; min-height:0; }
-.phase-review { display:flex; flex-direction:column; gap:0.4rem; flex:1; min-height:0; }
+/* flex-basis:100% (not flex:1) + flex-shrink:0 so the column claims exactly
+   the viewport-remainder height of .content-review even though the per-phase
+   suggestion box now sits after it as a sibling: the box lands below the
+   fold (reached by scrolling .main) instead of compressing the review stage. */
+.phase-review { display:flex; flex-direction:column; gap:0.4rem; flex:0 0 100%; min-height:0; }
 .review-embed { display:flex; flex-direction:column; gap:0.6rem; flex:1; min-height:0; }
 .review-embed-head { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem 1rem; flex-wrap:wrap; flex-shrink:0; }
 .quarantine-note { font-size:0.7rem; color:var(--muted); }
@@ -254,18 +243,14 @@ a { color:var(--accent); }
 .verdict-chip { display:flex; align-items:center; gap:0.4rem; padding:0.4rem 0.7rem; border:1px solid var(--accent-line); border-radius:999px; background:var(--surface); color:var(--ink); font-family:var(--mono); font-size:0.7rem; cursor:pointer; box-shadow:0 4px 18px rgba(0,0,0,0.2); }
 .verdict-chip:hover { background:var(--accent-soft); }
 
-/* === SUGGESTION BOX (moved to PhaseOverview.js, unchanged) === */
+/* === SUGGESTION BOX (PhaseReviewView.js — scoped to the active phase) === */
 .suggestion-box { margin-top:1.5rem; padding:1rem; background:var(--surface); border-radius:6px; border:1px solid var(--accent-line); }
 .suggestion-box h3 { font-family:var(--mono); font-size:0.72rem; font-weight:700; margin:0 0 0.5rem; color:var(--accent); }
 .suggestion-list { margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.4rem; }
 .suggestion-item { font-size:0.78rem; padding:0.5rem 0.6rem; background:var(--paper); border:1px solid var(--accent-line); border-radius:4px; }
 .suggestion-item .meta { font-family:var(--mono); font-size:0.62rem; color:var(--muted2); margin-top:0.3rem; }
-.suggestion-box .form-row { display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap; }
-.suggestion-box label { font-family:var(--mono); font-size:0.66rem; color:var(--muted); }
-.suggestion-box select, .suggestion-box textarea { border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:0.82rem; padding:0.4rem 0.5rem; }
-.suggestion-box select { font-family:var(--mono); font-size:0.75rem; }
-.suggestion-box textarea { width:100%; min-height:60px; resize:vertical; }
-.suggestion-box textarea:focus, .suggestion-box select:focus { outline:none; border-color:var(--accent); }
+.suggestion-box textarea { width:100%; min-height:60px; resize:vertical; border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:0.82rem; padding:0.4rem 0.5rem; }
+.suggestion-box textarea:focus { outline:none; border-color:var(--accent); }
 .suggestion-box .actions { display:flex; justify-content:flex-end; align-items:center; gap:0.75rem; margin-top:0.5rem; }
 .suggestion-box .note { font-size:0.68rem; color:var(--muted2); font-family:var(--mono); }
 .btn { display:inline-flex; align-items:center; gap:0.35rem; padding:0.45rem 0.8rem; border:1px solid var(--accent-line); border-radius:4px; background:var(--surface); color:var(--ink); font-family:var(--mono); font-size:0.72rem; cursor:pointer; }
@@ -296,9 +281,7 @@ a { color:var(--accent); }
      §1 I6) — every tap target a mobile reviewer needs to reach the review
      site, not just the site's own UI, meets the 44px minimum (WCAG 2.5.8 /
      Apple HIG). Scoped to mobile widths so the denser desktop chrome is
-     unchanged. (.phase-index-row already carries its own min-height:44px
-     unconditionally — it's the primary Overview->Phase-review nav control
-     at every width, not just mobile.) */
+     unchanged. */
   .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
   .sidebar-nav-item { min-height:44px; }
   .btn { min-height:44px; }

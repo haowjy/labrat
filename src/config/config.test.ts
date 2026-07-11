@@ -24,6 +24,7 @@ describe("loadConfig", () => {
       assert.equal(config.scienceHome, join(homedir(), ".claude-science"));
       assert.equal(config.microctSrc, null);
       assert.equal(config.defaultProtocol, null);
+      assert.equal(config.incomingDir, join(dir, "incoming"));
       assert.equal(config.dashboard.port, 4600);
       assert.equal(config.dashboard.url, "http://localhost:4600");
       assert.equal(config.dashboard.user, userInfo().username);

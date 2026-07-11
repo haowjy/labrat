@@ -4,6 +4,9 @@ url = "https://github.com/haowjy/meridian-dev-workflow"
 [dependencies.meridian-prompter]
 url = "https://github.com/haowjy/meridian-prompter"
 
+[dependencies.creative-writing-skills]
+url = "https://github.com/haowjy/creative-writing-skills"
+
 [settings]
 targets = [".claude"]
 models_cache_ttl_hours = 24

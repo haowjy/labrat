@@ -27,7 +27,7 @@ function dotClassForState(state) {
  * dot per completed phase, plus one more for the phase in flight if the
  * task isn't done. `phasesComplete` alone doesn't say whether a phase's
  * gate was a clean "pass" or "pass-with-concerns" (that detail lives in the
- * per-task GET, read once a sample is actually opened — see PhaseOverview),
+ * per-task GET, read once a sample is actually opened — see PhaseReviewView),
  * so every completed dot renders the same "done" color; the board's job is
  * a fleet-wide glance, not a gate audit.
  */
@@ -73,9 +73,9 @@ function SampleCard({ task, onSelect }) {
 
 /**
  * Level 1 — the actual "dashboard": a fleet board of every sample and the
- * phase each is currently on, not any one sample's detail (that's level 2,
- * PhaseOverview.js). The landing view and what "Dashboard" in the drawer
- * returns to (App.js).
+ * phase each is currently on, not any one sample's detail (clicking a card
+ * opens that sample's Phase review directly, PhaseReviewView.js). The
+ * landing view and what "Dashboard" in the drawer returns to (App.js).
  *
  * Reads the SAME `tasks` list (`GET /api/tasks` -> `TaskSummary[]`) the
  * Sidebar already renders — no new fetch, no backend change; a sample IS a
