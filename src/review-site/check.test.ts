@@ -12,6 +12,9 @@ const FIXTURE = fileURLToPath(new URL("../../validation/fixtures/review-site", i
 const INJECTED_FIXTURE = fileURLToPath(
   new URL("../../validation/fixtures/review-site-injected", import.meta.url),
 );
+const SPATIAL_FIXTURE = fileURLToPath(
+  new URL("../../validation/fixtures/review-site-spatial", import.meta.url),
+);
 
 /**
  * Lay out the serve-time-injection fixture as a real task's `artifacts/` tree:
@@ -47,11 +50,11 @@ function gate(report: ReviewSiteReport, id: GateId): Finding {
   return f;
 }
 
-/** Copy the clean Lane 0 fixture into a scratch dir a test can mutate. */
-async function scratchFixture(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+/** Copy a clean fixture (default: the Lane 0 one) into a scratch dir a test can mutate. */
+async function scratchFixture(src: string = FIXTURE): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), "review-site-check-"));
   const dir = join(root, "review-site");
-  await cp(FIXTURE, dir, { recursive: true });
+  await cp(src, dir, { recursive: true });
   return { dir, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -60,7 +63,7 @@ async function edit(dir: string, rel: string, fn: (s: string) => string): Promis
   await writeFile(p, fn(await readFile(p, "utf8")));
 }
 
-describe("check_review_site — clean Lane 0 fixture passes G1-G8", () => {
+describe("check_review_site — clean Lane 0 fixture passes G1-G9", () => {
   it("every gate is ok on the contract-clean fixture", async () => {
     const report = await checkReviewSite({ siteDir: FIXTURE, cdnAllowlist: [] });
     for (const f of report.findings) {
@@ -69,7 +72,7 @@ describe("check_review_site — clean Lane 0 fixture passes G1-G8", () => {
     assert.equal(report.ok, true);
     assert.deepEqual(
       report.findings.map((f) => f.gate),
-      ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+      ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9"],
     );
   });
 });
@@ -898,6 +901,134 @@ describe("check_review_site — G8 fidelity fails when required-but-unverifiable
       assert.equal(report.fidelity, "verified", "hash matched, so fidelity is verified");
       assert.equal(gate(report, "G8").ok, false, gate(report, "G8").detail);
       assert.match(gate(report, "G8").detail, /run id/);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("check_review_site — G9 spatial-multipane layout", () => {
+  it("the clean spatial fixture passes every gate, G9 included", async () => {
+    const report = await checkReviewSite({ siteDir: SPATIAL_FIXTURE, cdnAllowlist: [] });
+    for (const f of report.findings) {
+      assert.equal(f.ok, true, `${f.gate} should pass clean: ${f.detail}`);
+    }
+    assert.equal(report.ok, true);
+    assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+  });
+
+  it("REVIEW_SLICES as the slice-data global passes G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // G9 accepts REVIEW_SLICES in place of REVIEW_VOLUME as the slice-data
+      // global. Rename it everywhere (data_globals, the data_sources key, the
+      // inlined literal, and the render script) so the fixture stays coherent.
+      await edit(dir, "index.html", (s) => s.replaceAll("REVIEW_VOLUME", "REVIEW_SLICES"));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("N/A auto-pass: a values-table manifest (no review_layout) passes G9", async () => {
+    // The Lane 0 fixture declares no review_layout — single-pane protocols
+    // must be unaffected by G9.
+    const report = await checkReviewSite({ siteDir: FIXTURE, cdnAllowlist: [] });
+    assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+  });
+
+  it("a declared required_view with no [data-review-view] element fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) => s.replace(' data-review-view="mesh-3d"', ""));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /required view "mesh-3d" has no \[data-review-view="mesh-3d"\]/);
+      assert.equal(report.ok, false);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a slice view missing its range slider fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) => s.replace(' data-review-slice-slider="axial"', ""));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /slice view "slice-axial" has no <input type="range" data-review-slice-slider="axial">/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a slider that is not <input type=range> does not satisfy G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          /<input type="range" (data-review-slice-slider="coronal"[^>]*)\/>/,
+          '<div $1></div>',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /data-review-slice-slider="coronal"/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a slice view missing its canvas fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) => s.replace(' data-review-slice-canvas="sagittal"', ""));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /slice view "slice-sagittal" has no \[data-review-slice-canvas="sagittal"\]/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a spatial-multipane manifest with no slice-data global fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Drop REVIEW_VOLUME from the manifest declaration entirely (data_globals
+      // + data_sources) — the scrubber then has no declared data to be wired to.
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_LANDMARKS"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_LANDMARKS"]')
+          .replace(/data_sources: \{\s*REVIEW_VOLUME: \{[^}]*\},\s*\},/, ""),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /no slice-data global \(REVIEW_VOLUME or REVIEW_SLICES\) in data_globals/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a slice-data data_sources artifact with no produced_from hash fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) => s.replace(/^\s*volume:\n\s*"volumes\/volume\.json@[0-9a-f]{64}",\n/m, ""));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /artifact "volumes\/volume\.json" has no produced_from/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("linked_views: false (or missing landmark data) fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) => s.replace("linked_views: true", "linked_views: false"));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /linked_views is not true/);
     } finally {
       await cleanup();
     }

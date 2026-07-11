@@ -31,7 +31,8 @@ Placement on a broken mask is wasted — abort and fix segmentation if it doesn'
 
 Femoral length runs from the groove-top **midpoint** to the notch. The tibial
 measures need the long-axis reorientation first (the parent method's orientation
-workflow; the tibia-rotation correction is per-specimen).
+workflow; the tibia-rotation correction is per-specimen) — reference frames
+`tibial-orient-extract__3d__workflow.jpg` and `reorient-mask__multiplanar__workflow.jpg`.
 
 ## Verification
 

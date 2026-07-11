@@ -6,9 +6,11 @@ meets the contract.
 
 ## The review-site linter
 
-The harness runs 8 deterministic static checks on every review artifact
-before the gate reviewer sees it. The linter never executes the
-artifact's JavaScript — it parses and validates statically.
+The harness runs deterministic static checks (G1–G9) on every review artifact
+before the gate reviewer sees it. G1–G8 apply to every artifact; **G9 applies
+only to spatial reviews** (those that declare `review_layout:
+"spatial-multipane"`). The linter never executes the artifact's JavaScript — it
+parses and validates statically.
 
 ### CLI for hand-testing
 
@@ -29,7 +31,7 @@ error). Prints the JSON findings report to stdout.
 **Use this while authoring the review artifact.** Run it after every
 change to catch structural violations before the harness runs.
 
-### The 8 gates
+### The 9 gates
 
 | Gate | What it checks | Common failure |
 |------|---------------|----------------|
@@ -41,6 +43,7 @@ change to catch structural violations before the harness runs.
 | G6 | Every external origin ⊆ `cdn_allowlist` from `protocol.yaml` | Referencing a CDN not in the allowlist |
 | G7 | `verdict_schema` field present in manifest | Missing schema declaration |
 | G8 | Provenance: `sample_id` matches harness task id; every `produced_from` entry's hash matches actual file on disk (iterates all keys, not just `measurement`) | Stale hash after regeneration; `data_sources` artifact with no `produced_from` hash |
+| G9 | *(spatial reviews only, when `review_layout: "spatial-multipane"`)* required views present: every `required_views` entry has a `[data-review-view]` element; each `slice-*` view has a `[data-review-slice-canvas]` + `<input type="range" data-review-slice-slider>`; a slice-data global (`REVIEW_VOLUME`/`REVIEW_SLICES`) is declared with a `produced_from` hash; `linked_views: true` with landmark data present | Shipped the 3D mesh but no linked orthogonal slice scrubber; a slice pane with no slider; slice-data global not declared |
 
 **G5 is the strictest.** It hard-fails on `eval`, `Function()`,
 `new Function()`, `import()`, and inline `on*` handlers. This rules
@@ -55,6 +58,27 @@ must match the file on disk. With serve-time injection, G8 is strictly
 stronger: the server also verifies the hash at splice time, so
 provenance is guaranteed by construction rather than by the worker's
 transcription accuracy.
+
+**G9 is the spatial-layout check.** It fires only when the manifest declares
+`review_layout: "spatial-multipane"` — a `values-table` review omits that field
+and G9 is N/A (auto-pass), so single-pane protocols are unaffected. When it fires,
+it statically asserts the *ingredients* of the linked slice scrubber (it can't
+execute the wiring, so it checks the structural markers the pattern prescribes in
+`review-ui-threejs-and-layout.md`):
+
+- every `required_views` entry has a matching `[data-review-view="<id>"]` element;
+- each `slice-<axis>` view has an `<input type="range" data-review-slice-slider="<axis>">`
+  and a `[data-review-slice-canvas="<axis>"]` (axis ∈ axial/coronal/sagittal);
+- a slice-data global (`REVIEW_VOLUME` or `REVIEW_SLICES`) is in `data_globals`
+  with a `data_sources` entry + `produced_from` hash (or a non-empty static literal);
+- `linked_views: true` and landmark data is present (in `REVIEW_VOLUME.landmarks`
+  or the geometry global).
+
+Pass = all present. Fail = a declared view with no element, a slice view missing
+its slider or canvas, or no slice-data source — the detail names the missing piece.
+G9 proves the scrubber *exists and is wired to real data*; that the linking
+*behaves* correctly is the worker's `file://` self-check and the human reviewer's
+job, not the static linter's.
 
 ### What the report looks like
 

@@ -10,6 +10,7 @@ import {
   loadProtocolByName,
   type LoadedProtocol,
 } from "../protocol-loader/index.js";
+import { readHumanVerdict } from "../review-verdict/index.js";
 import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
 import { runGate } from "./gate.js";
@@ -21,6 +22,7 @@ export { runGate };
 export type { GateContext, RunGateResult };
 export {
   archiveAndResetPhase,
+  consumeSendBackVerdict,
   downstreamPhaseIds,
   invalidateFromPhase,
 } from "./invalidation.js";
@@ -825,14 +827,31 @@ export async function resetTaskToPhase(
   const config = loadConfig();
   const task = await loadTaskJson(taskDir);
   const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
-  const phaseIds = protocol.yaml.phases.map((p) => p.id);
+  return resetTaskToPhaseWithProtocol(taskDir, protocol.yaml, phaseId);
+}
+
+/**
+ * Protocol-injected core of `resetTaskToPhase`: given the protocol already
+ * loaded, invalidate `<phase>` + everything downstream and re-point
+ * task.json at it. Split out so callers that already hold the protocol (and
+ * tests that build one inline) don't re-run the loader — and so the
+ * human-send-back path can reuse the exact same invalidation the CLI
+ * `reset-to`/`rerun` use rather than a parallel mechanism.
+ */
+export async function resetTaskToPhaseWithProtocol(
+  taskDir: string,
+  protocolYaml: ProtocolYaml,
+  phaseId: string,
+): Promise<TaskJson> {
+  const phaseIds = protocolYaml.phases.map((p) => p.id);
   if (!phaseIds.includes(phaseId)) {
-    throw new Error(`Protocol "${task.protocol}" has no phase "${phaseId}"`);
+    throw new Error(`Protocol "${protocolYaml.name}" has no phase "${phaseId}"`);
   }
 
-  const downstream = downstreamPhaseIds(protocol.yaml, phaseId);
-  await invalidateFromPhase(taskDir, protocol.yaml, phaseId);
+  const downstream = downstreamPhaseIds(protocolYaml, phaseId);
+  await invalidateFromPhase(taskDir, protocolYaml, phaseId);
 
+  const task = await loadTaskJson(taskDir);
   const { reason: _droppedReason, ...rest } = task;
   const updated: TaskJson = {
     ...rest,
@@ -844,4 +863,92 @@ export async function resetTaskToPhase(
   await writeTaskJson(taskDir, updated);
 
   return loadTaskJson(taskDir);
+}
+
+/**
+ * The earliest phase (protocol declaration order) carrying a LIVE human
+ * `changes_requested` verdict on disk (`review/verdict/{phase}.json`), or
+ * null if none is pending. This is the "send back" MARK the human writes
+ * through the dashboard; `rerunTask` reads it to know where to re-enter.
+ * Only `changes_requested` counts — a `pass`/`fail` verdict is terminal and
+ * never re-runs a phase. Once the re-run re-passes its gate, the mark is
+ * consumed (archived to `{phase}.attempt-N.json` — `consumeSendBackVerdict`,
+ * called from the gate pass path), so it can't trigger a second rewind.
+ */
+export async function findSendBackPhase(
+  taskDir: string,
+  protocolYaml: ProtocolYaml,
+): Promise<string | null> {
+  for (const phase of protocolYaml.phases) {
+    const record = await readHumanVerdict(taskDir, phase.id);
+    if (record?.human_verdict === "changes_requested") {
+      return phase.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Send-back invalidation seam: resolve the phase to re-run (an explicit
+ * `fromPhase`, else the earliest `changes_requested` verdict on disk) and
+ * apply the SAME archive+reset invalidation retry/rewind/reset-to use. Does
+ * NOT run any compute — it only rewinds disk state so a subsequent `runTask`
+ * resumes there. Returns the resolved phase + updated task.json.
+ */
+export async function invalidateForSendBack(
+  taskDir: string,
+  protocolYaml: ProtocolYaml,
+  fromPhase?: string,
+): Promise<{ readonly phase: string; readonly task: TaskJson }> {
+  const phase = fromPhase ?? (await findSendBackPhase(taskDir, protocolYaml));
+  if (!phase) {
+    throw new Error(
+      "No phase to rerun: pass a phase, or send one back from the dashboard " +
+        "(writes a changes_requested verdict to review/verdict/{phase}.json).",
+    );
+  }
+  const task = await resetTaskToPhaseWithProtocol(taskDir, protocolYaml, phase);
+  return { phase, task };
+}
+
+/**
+ * `rerun <task-id> [fromPhase]`: the human-initiated re-entry into the SAME
+ * run loop the agent-FAIL retry uses. Invalidate from the send-back phase
+ * (or explicit `fromPhase`), then re-enter `runTask`, which resumes at the
+ * now-incomplete phase. The re-run worker's prompt carries the human's note
+ * (readHumanFeedbackNote, threaded in session/worker.ts); the independent
+ * reviewer re-gates from scratch — the human verdict never reaches it.
+ */
+export async function rerunTask(
+  taskId: string,
+  fromPhase?: string,
+  tasksRoot?: string,
+  config: LabratConfig = loadConfig(),
+  opts: { readonly force?: boolean } = {},
+): Promise<RunTaskResult & { readonly rerunFrom: string }> {
+  const { resolve } = await import("node:path");
+  const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
+  const taskDir = join(root, taskId);
+
+  configureEvents(config.dashboard.url);
+
+  const task = await loadTaskJson(taskDir);
+  if (task.state === "running" && !opts.force) {
+    throw new Error(
+      `Task ${taskId} is currently running — rerun would double-run against the same task tree. Wait for it to finish, or pass --force to override.`,
+    );
+  }
+  const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
+
+  const { phase } = await invalidateForSendBack(taskDir, protocol.yaml, fromPhase);
+
+  const result = await runTask({
+    taskId,
+    taskDir,
+    inputRel: task.input,
+    protocol,
+    config,
+  });
+
+  return { ...result, rerunFrom: phase };
 }

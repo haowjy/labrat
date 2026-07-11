@@ -88,6 +88,39 @@ function SuggestionBox({ taskId, phases }) {
   `;
 }
 
+/**
+ * Task-level sign-off actions (this task's addition): download the review
+ * chain and copy the task's folder path. Export is a plain download anchor —
+ * the endpoint sets Content-Disposition, so the browser saves the bundle with
+ * no JS. Copy folder path writes the server-provided absolute `taskDir` (from
+ * the shared task detail) to the clipboard so a scientist can paste the tree
+ * into Claude Science to improve the protocol — the demo's closing beat.
+ */
+function SignOffActions({ taskId, taskDir }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyPath() {
+    try {
+      await navigator.clipboard.writeText(taskDir);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return html`
+    <div class="signoff-actions">
+      <a class="btn" href=${`/api/tasks/${encodeURIComponent(taskId)}/export`} download>
+        Export review chain
+      </a>
+      <button type="button" class="btn" title=${taskDir} onClick=${copyPath}>
+        ${copied ? "Copied path" : "Copy folder path"}
+      </button>
+    </div>
+  `;
+}
+
 /** One row of the phase index — a name, its status/gate pill, whether it's
  * been human-reviewed, and whether it has an interactive review site to
  * open. Deliberately NOT the old PhaseRow.js: this is an index, not a
@@ -151,10 +184,12 @@ function PhaseSummary({ timeline }) {
  */
 export function PhaseOverview({ taskId, taskDetail, onSelectPhase }) {
   if (!taskDetail) return html`<div class="empty">Loading…</div>`;
-  const { task, timeline } = taskDetail;
+  const { task, timeline, taskDir } = taskDetail;
 
   return html`
     <div>
+      <${SignOffActions} taskId=${taskId} taskDir=${taskDir} />
+
       ${task.state === "paused" || task.state === "failed"
         ? html`
             <div class="banner ${task.state === "paused" ? "banner-paused" : "banner-failed"}">
