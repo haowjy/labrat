@@ -35,6 +35,11 @@ export type LabratConfig = {
   readonly microctSrc: string | null;
   /** null means the caller must pass a protocol name explicitly. */
   readonly defaultProtocol: string | null;
+  /** Per-protocol folder-watch roots: protocol id → absolute watchRoot the
+   * `labrat watch` supervisor polls (`incoming/ → in-progress/ → done/ |
+   * failed/` live under it). Baseline only — the dashboard-written
+   * `control/watcher.json` overrides per protocol at runtime. */
+  readonly watchRoots: Readonly<Record<string, string>>;
   readonly dashboard: {
     readonly port: number;
     readonly url: string;
@@ -71,6 +76,7 @@ type LabratConfigFile = {
   readonly scienceHome?: string;
   readonly microctSrc?: string;
   readonly defaultProtocol?: string;
+  readonly watchRoots?: Readonly<Record<string, string>>;
   readonly dashboard?: {
     readonly port?: number;
     readonly url?: string;
@@ -89,6 +95,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "scienceHome",
   "microctSrc",
   "defaultProtocol",
+  "watchRoots",
   "dashboard",
   "retries",
 ]);
@@ -153,6 +160,19 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     (v, p) => expectString(v, p),
   );
   if (!defaultProtocol.ok) return defaultProtocol;
+
+  let watchRoots: LabratConfigFile["watchRoots"];
+  if (rec.value["watchRoots"] !== undefined && rec.value["watchRoots"] !== null) {
+    const wrRec = expectRecord(rec.value["watchRoots"], "$.watchRoots");
+    if (!wrRec.ok) return wrRec;
+    const out: Record<string, string> = {};
+    for (const [protocol, root] of Object.entries(wrRec.value)) {
+      const rootStr = expectString(root, `$.watchRoots.${protocol}`);
+      if (!rootStr.ok) return rootStr;
+      out[protocol] = rootStr.value;
+    }
+    watchRoots = out;
+  }
 
   let dashboard: LabratConfigFile["dashboard"];
   if (rec.value["dashboard"] !== undefined && rec.value["dashboard"] !== null) {
@@ -230,6 +250,7 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
       ...(defaultProtocol.value !== undefined
         ? { defaultProtocol: defaultProtocol.value }
         : {}),
+      ...(watchRoots !== undefined ? { watchRoots } : {}),
       ...(dashboard !== undefined ? { dashboard } : {}),
       ...(retries !== undefined ? { retries } : {}),
     },
@@ -290,6 +311,37 @@ function isPermissionMode(
   return v !== undefined && (PERMISSION_MODE_VALUES as readonly string[]).includes(v);
 }
 
+/** `LABRAT_WATCH_ROOTS` env layer: a JSON object of protocol → watchRoot.
+ * Lenient like the enum env vars — a malformed value is ignored, falling
+ * back to the file/default layer. */
+function parseWatchRootsEnv(
+  raw: string | undefined,
+): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+    const out: Record<string, string> = {};
+    for (const [protocol, root] of Object.entries(parsed)) {
+      if (typeof root !== "string") return undefined;
+      out[protocol] = root;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+function expandWatchRoots(
+  roots: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(roots).map(([protocol, root]) => [protocol, expandTilde(root)]),
+  );
+}
+
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number.parseInt(raw, 10);
@@ -316,6 +368,7 @@ export function loadConfig(
     scienceHome: DEFAULT_SCIENCE_HOME,
     microctSrc: null,
     defaultProtocol: null,
+    watchRoots: {},
     dashboard: {
       port: DEFAULT_DASHBOARD_PORT,
       url: DEFAULT_DASHBOARD_URL,
@@ -360,6 +413,9 @@ export function loadConfig(
     ),
     defaultProtocol:
       env["LABRAT_PROTOCOL"] ?? file.defaultProtocol ?? defaults.defaultProtocol,
+    watchRoots: expandWatchRoots(
+      parseWatchRootsEnv(env["LABRAT_WATCH_ROOTS"]) ?? file.watchRoots ?? defaults.watchRoots,
+    ),
     dashboard: {
       port,
       url,
