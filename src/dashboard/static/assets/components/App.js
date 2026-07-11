@@ -4,7 +4,6 @@ import { STATE_EVENTS, describeEvent, sortTasksByUrgency } from "../lib/format.j
 import { Dashboard } from "./Dashboard.js";
 import { LiveStrip, LogStrip } from "./LiveStrip.js";
 import { MobileDrawer } from "./MobileDrawer.js";
-import { PhaseOverview } from "./PhaseOverview.js";
 import { PhaseReviewView } from "./PhaseReviewView.js";
 import { Sidebar } from "./Sidebar.js";
 import { SkillsView } from "./SkillsView.js";
@@ -16,17 +15,31 @@ function scrollMainToTop() {
   if (main) main.scrollTop = 0;
 }
 
-/** "Where am I" trail (goal doc: "Dashboard / <sample> /
- * <sample> · <phase>") — replaces the old mode-switch buttons entirely.
- * Ancestor crumbs are clickable shortcuts up a level (the same
- * `goToDashboard`/`selectSample` navigations the drawer offers — no third
- * navigation path, just closer to the pointer); the current level is plain
- * text. The drawer (Sidebar.js) remains the full navigation surface. */
+/** "Where am I" trail — replaces the old mode-switch buttons entirely.
+ * Two levels: Dashboard, then the sample's Phase review. Ancestor crumbs are
+ * clickable shortcuts up a level (the same `goToDashboard`/`selectSample`
+ * navigations the drawer offers — no third navigation path, just closer to
+ * the pointer); the current level is plain text. When a phase tab has been
+ * clicked, the sample crumb becomes a link that re-enters the sample's
+ * landing phase (`selectSample` again). The drawer (Sidebar.js) remains the
+ * full navigation surface. */
 function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample }) {
   if (screen === "dashboard") {
     return html`<div class="breadcrumb"><span class="crumb-current">Dashboard</span></div>`;
   }
-  if (screen === "sample") {
+  if (screen === "skills") {
+    return html`
+      <div class="breadcrumb">
+        <button type="button" class="crumb crumb-link" onClick=${onDashboard}>Dashboard</button
+        ><span class="crumb-sep"> / </span
+        ><span class="crumb-current">Skills</span>
+      </div>
+    `;
+  }
+  // Review: on landing `selectedPhase` is null (PhaseReviewView derives the
+  // phase itself), so the sample is the current crumb; once a phase is
+  // explicitly selected it gets its own crumb.
+  if (!selectedPhase) {
     return html`
       <div class="breadcrumb">
         <button type="button" class="crumb crumb-link" onClick=${onDashboard}>Dashboard</button
@@ -47,21 +60,21 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
 }
 
 /**
- * Root of the Preact trusted shell. Owns navigation across all three levels
- * (`screen`: "dashboard" | "sample" | "review", which sample is open, which
- * phase Phase review shows, the mobile drawer), the SSE connection, and the
+ * Root of the Preact trusted shell. Owns navigation across both levels
+ * (`screen`: "dashboard" | "review", which sample is open, which phase
+ * Phase review shows, the mobile drawer), the SSE connection, and the
  * one shared `GET /api/tasks/:id` fetch every view reads from.
  *
- * Three-level shell:
+ * Two-level shell — selecting a sample lands straight in Phase review:
  *   1. Dashboard (Dashboard.js) — a fleet board of every sample and the
  *      phase each is on. The landing view; `currentId` is null here.
- *   2. Sample (PhaseOverview.js) — one sample's compact phase index.
- *   3. Phase review (PhaseReviewView.js -> ReviewLayer.js) — the generic
- *      trusted review layer for one phase: the decisive evidence panel
- *      leads, then the sandboxed artifact with a full-screen toggle, then
- *      the verdict controls in normal flow (no floated overlay), per-phase
- *      feedback, and sign-off. The default landing when a phase is opened is
- *      this layer, not the full-screen artifact.
+ *   2. Phase review (PhaseReviewView.js -> ReviewLayer.js) — the generic
+ *      trusted review layer for one phase, with the tab strip as the
+ *      per-sample phase index: the decisive evidence panel leads, then the
+ *      sandboxed artifact with a full-screen toggle, then the verdict
+ *      controls in normal flow (no floated overlay), per-phase feedback,
+ *      and sign-off. The default landing when a phase is opened is this
+ *      layer, not the full-screen artifact.
  * Navigation lives in the drawer (Sidebar.js: a "Dashboard" entry plus the
  * sample list), not a topbar switcher — the topbar only shows a read-only
  * breadcrumb (above) so a reviewer always knows where they are.
@@ -73,9 +86,9 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
  * never a remount, so a reviewer's in-progress verdict (held in ReviewLayer's
  * useReviewBridge) survives an SSE tick untouched. It's only reset by an
  * actual navigation: switching phase or sample changes ReviewLayer's `key`
- * (PhaseReviewView.js), and switching to Dashboard or back to a sample's own
- * phase index unmounts it entirely — exactly how the old three-tab shell's
- * "Reviews" tab already behaved when a reviewer navigated away and back.
+ * (PhaseReviewView.js), and switching to Dashboard unmounts it entirely —
+ * exactly how the old three-tab shell's "Reviews" tab already behaved when
+ * a reviewer navigated away and back.
  */
 export function App() {
   const [tasks, setTasks] = useState([]);
@@ -100,15 +113,15 @@ export function App() {
     return list;
   }, []);
 
-  /** Open a sample's phase index (level 2) — from a Dashboard card or the
-   * drawer's sample list. Re-selecting the ALREADY-open sample still resets
-   * `screen` to "sample", which is how a reviewer gets back to level 2 from
-   * deep inside Phase review without a dedicated "back" control: the
-   * drawer's sample list stays visible with that sample highlighted the
-   * whole time (Sidebar.js). */
+  /** Open a sample straight into Phase review — from a Dashboard card or
+   * the drawer's sample list. `selectedPhase` resets to null so
+   * PhaseReviewView's resolveActivePhase re-derives the landing phase for
+   * the new sample (first phase with a review site, else the first phase)
+   * instead of carrying over a stale selection. */
   const selectSample = useCallback((id) => {
     setCurrentId(id);
-    setScreenState("sample");
+    setSelectedPhase(null);
+    setScreenState("review");
     location.hash = id;
     setDrawerOpen(false);
     scrollMainToTop();
@@ -134,10 +147,9 @@ export function App() {
     scrollMainToTop();
   }, []);
 
-  /** A Sample-index row click or a Phase-review tab click both mean the
-   * same thing — "show Phase review for this phase" — so one callback
-   * covers both entry points; setting screen to "review" again when
-   * already there is a harmless no-op. */
+  /** A Phase-review tab click — "show Phase review for this phase";
+   * setting screen to "review" again when already there is a harmless
+   * no-op. */
   const openPhaseReview = useCallback((phase) => {
     setSelectedPhase(phase);
     setScreenState("review");
@@ -145,9 +157,9 @@ export function App() {
   }, []);
 
   // Boot: load the task list once. A recognized id in location.hash
-  // deep-links straight to that sample's phase index (level 2); otherwise
-  // stay on the Dashboard (level 1, the default landing view) rather than
-  // guessing at a sample to open.
+  // deep-links straight to that sample's Phase review; otherwise stay on
+  // the Dashboard (the default landing view) rather than guessing at a
+  // sample to open.
   useEffect(() => {
     let cancelled = false;
     loadTasks().then((list) => {
@@ -266,15 +278,13 @@ export function App() {
             ? html`<${Dashboard} tasks=${sortedTasks} onSelectSample=${selectSample} />`
             : !currentId
               ? html`<div class="empty">No sample selected.</div>`
-              : screen === "sample"
-                ? html`<${PhaseOverview} taskId=${currentId} taskDetail=${taskDetail} onSelectPhase=${openPhaseReview} />`
-                : html`<${PhaseReviewView}
-                    taskId=${currentId}
-                    taskDetail=${taskDetail}
-                    selectedPhase=${selectedPhase}
-                    onSelectPhase=${openPhaseReview}
-                    onVerdictFinished=${refetchTaskDetail}
-                  />`}
+              : html`<${PhaseReviewView}
+                  taskId=${currentId}
+                  taskDetail=${taskDetail}
+                  selectedPhase=${selectedPhase}
+                  onSelectPhase=${openPhaseReview}
+                  onVerdictFinished=${refetchTaskDetail}
+                />`}
         </div>
 
         <${LogStrip} lines=${logLines} />

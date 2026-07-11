@@ -155,22 +155,6 @@ a { color:var(--accent); }
 .phase-tab-dot.paused { background:var(--warn); }
 .phase-tab-review-mark { font-size:0.6rem; opacity:0.8; }
 
-/* === PHASE INDEX (Overview) — a compact, clickable list of the task's
-   phases (PhaseOverview.js). No per-phase detail here on purpose: the
-   decisive evidence and the review artifact live in the per-phase review
-   layer a row opens (ReviewLayer.js), not the index. Each row is a
-   full-width <button> so it's keyboard-reachable like any other nav control
-   in this app. === */
-.phase-index { display:flex; flex-direction:column; gap:0.4rem; margin:0.5rem 0 1rem; }
-.phase-index-row { display:flex; align-items:center; gap:0.75rem; width:100%; min-height:44px; padding:0.6rem 0.9rem; border:1px solid var(--accent-line); border-radius:6px; background:var(--surface); color:inherit; font:inherit; text-align:left; cursor:pointer; }
-.phase-index-row:hover { background:var(--accent-soft); border-color:var(--accent); }
-.phase-index-row:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-.phase-index-name { font-family:var(--mono); font-weight:700; font-size:0.8rem; }
-.attempt { font-size:0.65rem; color:var(--muted2); font-weight:400; margin-left:0.4rem; }
-.phase-index-pills { display:flex; align-items:center; gap:0.4rem; margin-left:auto; flex-wrap:wrap; justify-content:flex-end; }
-/* F4 — one-line tally of the index below it, same pills the rows use. */
-.phase-summary { display:flex; flex-wrap:wrap; gap:0.4rem; margin:0.75rem 0 0.25rem; }
-
 .section-label { font-family:var(--mono); font-size:0.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin:0.6rem 0 0.3rem; }
 .evidence-panel > .section-label:first-child { margin-top:0; }
 
@@ -308,9 +292,7 @@ a { color:var(--accent); }
      §1 I6) — every tap target a mobile reviewer needs to reach the review
      site, not just the site's own UI, meets the 44px minimum (WCAG 2.5.8 /
      Apple HIG). Scoped to mobile widths so the denser desktop chrome is
-     unchanged. (.phase-index-row already carries its own min-height:44px
-     unconditionally — it's the primary Overview->Phase-review nav control
-     at every width, not just mobile.) */
+     unchanged. */
   .topbar { flex-wrap:wrap; gap:0.5rem; row-gap:0.4rem; padding:0.6rem 0.75rem; }
   .sidebar-nav-item { min-height:44px; }
   .btn { min-height:44px; }
