@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { ProtocolYaml, ReviewVerdictRecord, TaskJson } from "../../schema/index.js";
+import { readHumanFeedbackNote } from "../review-verdict/index.js";
 import {
+  consumeSendBackVerdict,
   findSendBackPhase,
   invalidateForSendBack,
-  readHumanFeedbackNote,
 } from "./index.js";
 
 async function exists(p: string): Promise<boolean> {
@@ -125,9 +126,11 @@ describe("send-back seam — a human changes_requested verdict re-runs the phase
       assert.equal(task.currentPhase, "segmentation");
       assert.equal(task.state, "running");
 
-      // The human verdict itself is NEVER archived/reset — it must survive so
-      // the re-run worker's prompt can still read the note (and so the human's
-      // decision is auditable). This is the read the reviewer must never do.
+      // The human verdict is NOT archived at invalidation time — it must
+      // survive the rewind so the re-run worker's prompt can still read the
+      // note. Consumption happens only AFTER delivery, when the phase
+      // re-passes its gate (consumeSendBackVerdict — lifecycle tests below).
+      // This is the read the reviewer must never do.
       assert.equal(
         await exists(join(taskDir, "review", "verdict", "segmentation.json")),
         true,
@@ -175,6 +178,143 @@ describe("send-back seam — a human changes_requested verdict re-runs the phase
         JSON.stringify(humanVerdict("segmentation", "changes_requested", "earlier phase")),
       );
       assert.equal(await findSendBackPhase(taskDir, protocolYaml), "segmentation");
+    } finally {
+      await rm(taskDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Re-materialize what a successful re-run leaves on disk after a send-back
+// rewind: the invalidated phases' dirs/artifacts and a "done" task.json.
+// (Attempt-N archives from the rewind stay where they are, as on a real run.)
+async function simulateRerunCompleted(taskDir: string): Promise<void> {
+  await mkdir(join(taskDir, "artifacts", "measurements"), { recursive: true });
+  await writeFile(join(taskDir, "artifacts", "labels.nii.gz"), "LABELS-v2");
+  await writeFile(join(taskDir, "artifacts", "measurements", "thickness.json"), '{"t":0.2}');
+  for (const id of ["segmentation", "measure"]) {
+    await mkdir(join(taskDir, "phases", id), { recursive: true });
+    await writeFile(join(taskDir, "phases", id, "summary.md"), `# ${id} (rerun)\n`);
+  }
+  const task: TaskJson = {
+    id: "task-2026-07-10-001",
+    protocol: "test-protocol",
+    input: "input/scan",
+    state: "done",
+    currentPhase: null,
+    phasesComplete: ["intake", "segmentation", "measure"],
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T01:00:00.000Z",
+  };
+  await writeFile(join(taskDir, "task.json"), JSON.stringify(task));
+}
+
+describe("send-back mark lifecycle — consumed once the re-run re-passes its gate", () => {
+  it("a consumed mark cannot trigger a second rewind: a later send-back of a downstream phase rewinds ONLY there", async () => {
+    const taskDir = await makeCompletedRun();
+    try {
+      // 1. Human sends back `segmentation`; rerun rewinds to it.
+      await writeFile(
+        join(taskDir, "review", "verdict", "segmentation.json"),
+        JSON.stringify(humanVerdict("segmentation", "changes_requested", "Fix the femur speckle.")),
+      );
+      const first = await invalidateForSendBack(taskDir, protocolYaml);
+      assert.equal(first.phase, "segmentation");
+
+      // 2. The re-run worker still sees the note (delivery precedes consumption).
+      assert.equal(
+        await readHumanFeedbackNote(taskDir, "segmentation"),
+        "Fix the femur speckle.",
+      );
+
+      // 3. Re-run completes and the phase re-passes its gate — the gate pass
+      //    path consumes the mark (archived, not deleted).
+      await simulateRerunCompleted(taskDir);
+      await consumeSendBackVerdict(taskDir, "segmentation");
+
+      assert.equal(
+        await exists(join(taskDir, "review", "verdict", "segmentation.json")),
+        false,
+      );
+      assert.equal(
+        await exists(join(taskDir, "review", "verdict", "segmentation.attempt-1.json")),
+        true,
+        "consumed mark is archived for audit, not deleted",
+      );
+      // No pending send-back left; the stale note cannot re-inject into an
+      // unrelated later re-run of segmentation (e.g. an agent-FAIL retry).
+      assert.equal(await findSendBackPhase(taskDir, protocolYaml), null);
+      assert.equal(await readHumanFeedbackNote(taskDir, "segmentation"), null);
+
+      // 4. Human now sends back the DOWNSTREAM `measure`; rerun must rewind
+      //    only to measure — before consumption existed, the stale
+      //    segmentation mark won the earliest-phase scan and re-archived the
+      //    good segmentation work.
+      await writeFile(
+        join(taskDir, "review", "verdict", "measure.json"),
+        JSON.stringify(humanVerdict("measure", "changes_requested", "Recheck thickness.")),
+      );
+      const second = await invalidateForSendBack(taskDir, protocolYaml);
+      assert.equal(second.phase, "measure");
+
+      // Segmentation's re-run work survives untouched.
+      assert.equal(await exists(join(taskDir, "phases", "segmentation")), true);
+      assert.equal(await exists(join(taskDir, "artifacts", "labels.nii.gz")), true);
+      assert.deepEqual(second.task.phasesComplete, ["intake", "segmentation"]);
+      assert.equal(second.task.currentPhase, "measure");
+      // Measure itself is rewound (attempt-2: attempt-1 was the first rewind).
+      assert.equal(await exists(join(taskDir, "phases", "measure")), false);
+      assert.equal(
+        await exists(join(taskDir, "phases", "measure.attempt-2")),
+        true,
+      );
+    } finally {
+      await rm(taskDir, { recursive: true, force: true });
+    }
+  });
+
+  it("consumption only touches changes_requested — terminal pass/fail verdicts stay live for the review chain", async () => {
+    const taskDir = await makeCompletedRun();
+    try {
+      await writeFile(
+        join(taskDir, "review", "verdict", "segmentation.json"),
+        JSON.stringify(humanVerdict("segmentation", "pass", "Looks right.")),
+      );
+      await consumeSendBackVerdict(taskDir, "segmentation");
+      assert.equal(
+        await exists(join(taskDir, "review", "verdict", "segmentation.json")),
+        true,
+      );
+      // Absent verdict: a plain gate pass with no human review is a no-op.
+      await consumeSendBackVerdict(taskDir, "measure");
+      assert.equal(
+        await exists(join(taskDir, "review", "verdict", "measure.attempt-1.json")),
+        false,
+      );
+    } finally {
+      await rm(taskDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repeat send-backs of the same phase archive under increasing attempt numbers", async () => {
+    const taskDir = await makeCompletedRun();
+    try {
+      for (const [n, note] of [
+        [1, "first"],
+        [2, "second"],
+      ] as const) {
+        await writeFile(
+          join(taskDir, "review", "verdict", "segmentation.json"),
+          JSON.stringify(humanVerdict("segmentation", "changes_requested", note)),
+        );
+        await consumeSendBackVerdict(taskDir, "segmentation");
+        assert.equal(
+          await exists(
+            join(taskDir, "review", "verdict", `segmentation.attempt-${n}.json`),
+          ),
+          true,
+        );
+      }
+      assert.equal(await findSendBackPhase(taskDir, protocolYaml), null);
     } finally {
       await rm(taskDir, { recursive: true, force: true });
     }

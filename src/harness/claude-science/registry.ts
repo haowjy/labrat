@@ -1,4 +1,4 @@
-import { cp, readdir, readFile, stat } from "node:fs/promises";
+import { cp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -236,6 +236,12 @@ export async function importSkill(
     );
   }
 
+  // --force means a true REPLACE: a bare cp(force) only overwrites matching
+  // paths and would leave stale files from a prior import that no longer
+  // exist in the source. Clear the target first so nothing orphaned survives.
+  if (exists) {
+    await rm(target, { recursive: true, force: true });
+  }
   await cp(skill.dir, target, { recursive: true, force: true });
   const files = await walkFiles(skill.dir);
 

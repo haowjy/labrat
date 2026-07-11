@@ -14,6 +14,7 @@ import { readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProtocolYaml } from "../../schema/index.js";
 import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
+import { readHumanVerdict } from "../review-verdict/index.js";
 
 async function existsAt(p: string): Promise<boolean> {
   try {
@@ -84,6 +85,37 @@ export async function archiveAndResetPhase(
   }
 
   return { attempt };
+}
+
+/**
+ * Consume a delivered send-back mark: archive a `changes_requested` human
+ * verdict (`review/verdict/{phase}.json`) to `{phase}.attempt-N.json` — the
+ * same attempt-N idiom `archiveAndResetPhase` uses for the gate sidecars.
+ *
+ * Called from the gate PASS path (orchestrator, after the trust-boundary
+ * check — never inside a reviewer session): by then the re-run worker has
+ * already read the human's note, so archiving here (a) keeps the verdict
+ * auditable, (b) stops `findSendBackPhase` from rewinding to this phase again
+ * on a later unrelated `rerun`, and (c) stops the stale note re-injecting
+ * into a later unrelated re-run of the phase. Terminal `pass`/`fail` human
+ * verdicts are NOT touched — they stay live for the review chain.
+ * Deliberately NOT part of `archiveAndResetPhase`: that runs during
+ * send-back invalidation, BEFORE the re-run worker reads the note.
+ */
+export async function consumeSendBackVerdict(
+  taskDir: string,
+  phaseId: string,
+): Promise<void> {
+  const record = await readHumanVerdict(taskDir, phaseId);
+  if (record?.human_verdict !== "changes_requested") {
+    return;
+  }
+  const verdictRoot = join(taskDir, "review", "verdict");
+  const attempt = await nextAttemptSuffix(verdictRoot, phaseId);
+  await rename(
+    join(verdictRoot, `${phaseId}.json`),
+    join(verdictRoot, `${phaseId}.attempt-${attempt}.json`),
+  );
 }
 
 /** Phases at or after `fromPhaseId` in protocol declaration order. */

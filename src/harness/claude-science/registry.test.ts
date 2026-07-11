@@ -128,6 +128,27 @@ describe("importSkill", () => {
     });
   });
 
+  it("force is a true replace — stale files from a prior import do not survive", async () => {
+    await withTmp(async (repoSkills) => {
+      // Simulate a prior import that vendored a file the source has since deleted.
+      await mkdir(join(repoSkills, "runnable-skill", "resources"), { recursive: true });
+      await writeFile(join(repoSkills, "runnable-skill", "stale.md"), "gone upstream");
+      await writeFile(join(repoSkills, "runnable-skill", "resources", "stale.py"), "x = 1");
+
+      await importSkill("runnable-skill", FIXTURE_REGISTRY, repoSkills, { force: true });
+
+      // Current source files landed…
+      await readFile(join(repoSkills, "runnable-skill", "SKILL.md"), "utf8");
+      // …and the orphans are gone, not merged over.
+      await assert.rejects(() =>
+        readFile(join(repoSkills, "runnable-skill", "stale.md"), "utf8"),
+      );
+      await assert.rejects(() =>
+        readFile(join(repoSkills, "runnable-skill", "resources", "stale.py"), "utf8"),
+      );
+    });
+  });
+
   it("throws a helpful error for an unknown skill", async () => {
     await withTmp(async (repoSkills) => {
       await assert.rejects(
