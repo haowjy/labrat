@@ -17,6 +17,15 @@ export type TaskPromptContext = {
   readonly inputRel: string;
   readonly runtime: RuntimeHandle;
   readonly priorPhaseSummaries: Readonly<Record<string, string>>;
+  /**
+   * The human reviewer's send-back note for THIS phase, when it is being
+   * re-run because a human sent it back (review/verdict/{phase}.json,
+   * human_verdict=changes_requested). Null on a normal first run. Rendered
+   * as a distinct, high-priority section so the re-run worker acts on the
+   * correction. WORKER-only — the independent reviewer never receives it
+   * (trust boundary).
+   */
+  readonly humanFeedback?: string | null;
 };
 
 /** Fresh gate-reviewer session context — no worker transcript, disk only. */
@@ -134,11 +143,22 @@ ${inputs.map((i) => `- ${i}`).join("\n") || "(none)"}
 Prior phase summaries:
 ${priorSummaryText}`;
 
+  const humanFeedbackBlock = taskCtx.humanFeedback
+    ? `## Human reviewer feedback (this phase was sent back)
+
+A human reviewer rejected the previous attempt at this phase and requested changes. Address this feedback directly in your re-run before calling record_phase:
+
+${taskCtx.humanFeedback.trim()}`
+    : null;
+
   const dynamicTail = [
     phaseSkillBlocks.join("\n\n---\n\n"),
     roleInstruction,
     taskContext,
-  ].join("\n\n");
+    humanFeedbackBlock,
+  ]
+    .filter((s): s is string => s !== null)
+    .join("\n\n");
 
   return [staticPrefix, dynamicTail];
 }

@@ -30,7 +30,14 @@ import {
  * and `review/verification/{phase}/`, not a collision with either).
  */
 
-export const HUMAN_VERDICTS = ["pass", "fail"] as const;
+/**
+ * `changes_requested` is the human "send back" verdict. Unlike `pass`/`fail`
+ * (which the chain view records but the harness does not act on), a
+ * `changes_requested` verdict is the on-disk MARK that `labrat rerun` reads to
+ * re-run the phase (harness/orchestrator `findSendBackPhase`/`rerunTask`),
+ * threading the human's `notes` into the re-run worker's prompt.
+ */
+export const HUMAN_VERDICTS = ["pass", "fail", "changes_requested"] as const;
 export type HumanVerdict = (typeof HUMAN_VERDICTS)[number];
 
 export type Point3D = {

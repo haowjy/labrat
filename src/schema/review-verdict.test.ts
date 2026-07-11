@@ -48,9 +48,15 @@ describe("validateReviewFinishInput (POST /api/tasks/:id/review/finish body)", (
     assert.equal(res.ok, false);
   });
 
-  it("rejects a human_verdict outside pass|fail (never inferred, must be explicit)", () => {
+  it("rejects a human_verdict outside the enum (never inferred, must be explicit)", () => {
     const res = validateReviewFinishInput({ ...valid, human_verdict: "pass-with-concerns" });
     assert.equal(res.ok, false);
+  });
+
+  it("accepts changes_requested — the human send-back verdict", () => {
+    const res = validateReviewFinishInput({ ...valid, human_verdict: "changes_requested" });
+    assert.equal(res.ok, true);
+    if (res.ok) assert.equal(res.value.human_verdict, "changes_requested");
   });
 
   it("rejects a missing phase", () => {

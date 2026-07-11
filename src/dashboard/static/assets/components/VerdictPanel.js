@@ -65,6 +65,39 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
     }
   }
 
+  // "Send back": the human-initiated re-run trigger. Writes a
+  // `changes_requested` human verdict (review/verdict/{phase}.json) through
+  // the SAME trusted `/review/finish` route — the on-disk mark an operator's
+  // `labrat rerun <task>` then reads to invalidate + re-run this phase with
+  // the note threaded into the worker's prompt. Requires a note: the whole
+  // point of a send-back is the correction the worker must act on.
+  async function handleSendBack() {
+    if (submitting || !notes.trim()) return;
+    setSubmitting(true);
+    setFinishError(null);
+    const body = {
+      phase,
+      human_verdict: "changes_requested",
+      corrected: verdict.corrected,
+      notes,
+      adjustments,
+    };
+    try {
+      const res = await postJSON(
+        `/api/tasks/${encodeURIComponent(taskId)}/review/finish`,
+        body,
+      );
+      setResult(res ?? {});
+      if (onFinished) onFinished();
+    } catch (err) {
+      setFinishError(err && err.message ? err.message : "Failed to send the phase back.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const canSendBack = phase != null && notes.trim() !== "" && !submitting && !result;
+
   return html`
     <div class="verdict-panel">
       <div class="verdict-panel-head">
@@ -129,6 +162,15 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
         ${result
           ? html`<span class="verdict-finish-done">Review finished — verdict saved.</span>`
           : html`
+              <button
+                type="button"
+                class="btn"
+                disabled=${!canSendBack}
+                title="Reject this phase and re-run it with your note (add a note first)"
+                onClick=${handleSendBack}
+              >
+                ${submitting ? "Sending…" : "Send back"}
+              </button>
               <button
                 type="button"
                 class="btn btn-primary"
