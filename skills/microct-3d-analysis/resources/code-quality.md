@@ -5,8 +5,7 @@ The cost of sloppy code is not the first generation — it is every later change
 every reviewer who can't tell the paper's method from an ad-hoc hack, every
 result nobody can reproduce. These principles adapt the general engineering
 values (consistency, deep modules, deletion; see the linked `dev-principles`
-skill) to scientific code, and are illustrated by the `voxbone` package that
-`microct-oa-mouse-knee` ships as a worked example.
+skill) to scientific code.
 
 ## Core beliefs (general)
 1. **Code is cheap; bad code is expensive.** The drag is on every later change.
@@ -20,7 +19,7 @@ skill) to scientific code, and are illustrated by the `voxbone` package that
    the edge case now; investigate when unclear instead of guessing.
 
 ## Deep modules, one concern each
-`voxbone` splits by *concern*, so each file is small and an agent reads only
+Split analysis code by *concern*, so each file is small and an agent reads only
 what it needs: `io` (load→HU), `segment` (clean/threshold/split), `geometry`
 (landmarks/distances), `align` (display reorientation), `morphometry`
 (trabecular), `refine3d` + `vision_check` (the 3D checks), `review` (UI),
@@ -33,8 +32,8 @@ concept, bundle them.
 
 **Validate the engine against something you know the answer to.** Before
 trusting a metric on real data, run it on an analytical phantom: a slab of known
-BV/TV and Tb.Th, a sphere of known surface-to-volume. `voxbone` ships
-`examples/validate_phantom.py`; it caught a marching-cubes surface bias
+BV/TV and Tb.Th, a sphere of known surface-to-volume. A phantom check like
+this can catch a marching-cubes surface bias
 (+8.9% BS/BV) that would otherwise look like biology. A number you have never
 checked against ground truth is a hypothesis, not a result.
 
@@ -47,7 +46,7 @@ silent failure.
 
 **Docstrings must separate the protocol from your engineering choices.** The
 most dangerous scientific-code error is presenting a heuristic as the reference
-method. Every `voxbone` module that deviates says so in the docstring: per-bone
+method. Every module that deviates must say so in the docstring: e.g. per-bone
 alignment is "an engineering choice, NOT the paper's single-rotation protocol";
 the common-plane landmark re-pick is "a heuristic … not the paper's protocol".
 When you write a function that implements a published method, cite it; when you

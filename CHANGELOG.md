@@ -15,7 +15,7 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 ### Changed
 - Runtime provisioning is now driven by a per-skill `environment.yml` (micromamba/conda env spec) instead of a hardcoded `microct_analysis` special-case (#2). `protocol.runtime.substrate` is required (no silent default); `protocol.runtime.deps` is declarative only.
 - Walked phase list comes from `protocol.yaml` instead of a hardcoded two-phase constant.
-- Dashboard config derives from the shared config seam; SSE dev-replay reads a real task on disk (`LABRAT_REPLAY_TASK`) instead of a hardcoded voxbone run.
+- Dashboard config derives from the shared config seam; SSE dev-replay reads a real task on disk (`LABRAT_REPLAY_TASK`) instead of a hardcoded sample run.
 - Reviewer sessions only skip permissions when the resolved mode is `bypassPermissions`.
 
 ### Removed
