@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { stringify } from "yaml";
-import { getTask } from "./index.js";
+import { getTask, getTaskExport } from "./index.js";
+
+const FIXTURES_TASKS_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "fixtures",
+  "tasks",
+);
 
 /*
  * getTask()'s `hasReviewSite` is the signal the chain/provenance views use to
@@ -198,5 +208,67 @@ describe("getTask — humanVerdict (per-phase, mirrors getPhase's field)", () =>
       assert.equal(byPhase.get("segmentation")?.humanVerdict?.human_verdict, "pass");
       assert.equal(byPhase.get("segmentation")?.humanVerdict?.notes, "Adjusted the femur landmark.");
     });
+  });
+});
+
+/*
+ * getTaskExport() composes the downloadable review-chain bundle from the
+ * existing read loaders over a real fixture tree — the demo sign-off surface.
+ * The fixture's segmentation phase carries a gate, measurements, a filed
+ * suggestion, AND a human verdict, so this proves every per-phase slice lands
+ * in the bundle (not just the shape, but that a persisted human verdict is
+ * threaded through).
+ */
+describe("getTaskExport — review-chain bundle (fixtures/tasks)", () => {
+  const id = "task-2026-07-09-001";
+
+  it("composes task.json, provenance, and per-phase gate/verdict/measurements/suggestions", async () => {
+    const bundle = await getTaskExport(FIXTURES_TASKS_DIR, id);
+    assert.ok(bundle);
+
+    // Task-level shape.
+    assert.equal(bundle.taskId, id);
+    assert.equal(bundle.task.protocol, "microct-oa-mouse-knee");
+    assert.equal(bundle.taskDir, join(FIXTURES_TASKS_DIR, id));
+    assert.ok(bundle.taskDir.startsWith("/"), "taskDir is absolute for hand-off");
+    assert.match(bundle.exportedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+    // Provenance manifest is the real parsed array.
+    assert.equal(bundle.provenance.length, 2);
+    assert.deepEqual(
+      bundle.provenance.map((e) => e.phase),
+      ["intake", "segmentation"],
+    );
+
+    // Per-phase slices, keyed for lookup.
+    const byPhase = new Map(bundle.phases.map((p) => [p.phase, p]));
+    const seg = byPhase.get("segmentation");
+    assert.ok(seg);
+
+    // Gate decision + feedback.
+    assert.equal(seg.gate?.decision, "pass-with-concerns");
+    assert.match(seg.gate?.feedback ?? "", /connected-component/);
+
+    // Human verdict + notes (the phase with a persisted verdict).
+    assert.equal(seg.humanVerdict?.human_verdict, "pass");
+    assert.match(seg.humanVerdict?.notes ?? "", /femur speckle/);
+
+    // Declared measurement artifacts.
+    assert.equal((seg.measurements as { femurVoxels?: number }).femurVoxels, 142789);
+
+    // Suggestions filed against this phase.
+    assert.equal(seg.suggestions.length, 1);
+    assert.equal(seg.suggestions[0]?.id, "sg-001");
+
+    // The intake phase has a gate but no human verdict — bundle carries null,
+    // not a fabricated verdict.
+    const intake = byPhase.get("intake");
+    assert.ok(intake);
+    assert.equal(intake.humanVerdict, null);
+    assert.equal(intake.gate?.decision, "pass");
+  });
+
+  it("returns null for an unknown task id (read-only, no crash)", async () => {
+    assert.equal(await getTaskExport(FIXTURES_TASKS_DIR, "task-2026-01-01-999"), null);
   });
 });
