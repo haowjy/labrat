@@ -8,8 +8,9 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/cli/index.ts",
-    "test": "tsx --test src/config/config.test.ts src/schema/smoke.test.ts src/harness/session/trust-boundary.test.ts src/harness/session/monitor.test.ts src/harness/orchestrator/gate.test.ts src/harness/orchestrator/invalidation.test.ts src/harness/orchestrator/send-back.test.ts src/harness/orchestrator/review-artifact-check.test.ts src/dashboard/review-site.test.ts src/harness/tools/direct-call.test.ts src/review-site/check.test.ts src/dashboard/static/assets/review-site.test.ts src/dashboard/static/assets/lib/review-bridge.test.ts src/harness/claude-science/registry.test.ts src/dashboard/api/index.test.ts src/schema/review-verdict.test.ts src/dashboard/review/index.test.ts src/dashboard/server.test.ts",
+    "test": "tsx --test src/config/config.test.ts src/schema/smoke.test.ts src/harness/session/trust-boundary.test.ts src/harness/session/monitor.test.ts src/harness/session/sdk-messages.test.ts src/harness/orchestrator/gate.test.ts src/harness/orchestrator/invalidation.test.ts src/harness/orchestrator/send-back.test.ts src/harness/orchestrator/review-artifact-check.test.ts src/dashboard/review-site.test.ts src/harness/tools/direct-call.test.ts src/review-site/check.test.ts src/dashboard/static/assets/review-site.test.ts src/dashboard/static/assets/lib/review-bridge.test.ts src/harness/claude-science/registry.test.ts src/dashboard/api/index.test.ts src/schema/review-verdict.test.ts src/dashboard/review/index.test.ts src/dashboard/server.test.ts",
     "smoke": "tsx validation/smoke/run.ts",
+    "e2e": "tsx validation/e2e/run-microct.ts",
     "monitor": "tsx validation/monitor/run.ts"
   },
   "dependencies": {

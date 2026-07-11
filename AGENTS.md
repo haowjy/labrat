@@ -26,6 +26,32 @@ authoring tool — the skills are authored in **Claude Science**; this repo
 - **Skills declare requirements; user config owns policy/secrets; the harness
   enforces.** The same seam governs deps, model, substrate, and permissions.
 
+## Running protocols
+
+The CLI is the primary interface. Skills must be in the Claude Science registry
+before the harness can load them — export first if you changed `skills/`.
+
+```bash
+# Export vendored skills to the Claude Science registry
+scripts/export-skills-to-claude-science.sh
+
+# Run a protocol against real data
+npm run dev -- enqueue <dicom-path-or-zip> [protocol-name]
+
+# Full microct e2e (OA6-1RK specimen, all 6 phases, Opus worker)
+npm run e2e
+
+# Toy-stats smoke test (fast, Haiku, no imaging deps)
+npm run smoke
+```
+
+The CLI also supports: `gate`, `run-phase`, `resume`, `rerun`, `reset-to`,
+`check-review-site`, `skills`, `import-skill`. Run `npm run dev` with no args
+for usage.
+
+A folder watcher (`src/harness/watcher/`) is stubbed but not yet wired — today
+runs are CLI-initiated. Dashboard enqueue is planned.
+
 ## Key rules
 
 - Verify every change: `npm run typecheck && npm test` before finishing.

@@ -1,6 +1,4 @@
 import { html } from "../vendor/preact-htm.js";
-import { useReviewBridge } from "./useReviewBridge.js";
-import { VerdictOverlay } from "./VerdictOverlay.js";
 
 /*
  * The review site is quarantined content (design/review-template.md §3
@@ -13,37 +11,46 @@ import { VerdictOverlay } from "./VerdictOverlay.js";
  * `window` here rather than redeclared, so this module has zero chance of
  * drifting from that constant.
  *
- * This component OWNS the postMessage bridge (useReviewBridge) because it
- * owns the <iframe> the bridge listens through; VerdictOverlay/VerdictPanel
- * are a pure display of whatever verdict/setVerdict they're handed (design/
- * review-architecture-decision.md "what lives where" — the verdict is
- * shell-state, assembled once, not duplicated per component).
+ * This component is now ONLY the untrusted artifact surface: the sandboxed
+ * <iframe> plus its full-screen chrome. The postMessage bridge (verdict
+ * state) was lifted OUT to the parent ReviewLayer, which owns BOTH this
+ * iframe (via the `bindIframe` ref it passes down) and the trusted
+ * VerdictPanel in the generic review layer — so a reviewer's landmark
+ * corrections, captured while full-screen, survive the exit back to the
+ * verdict controls (they live in the parent's state, not here).
  *
- * Renamed from the old three-tab shell's ReviewsView.js (review-site.test.ts
- * greps this file by name for the trust-boundary regression guard — kept in
- * sync there): this is no longer a standalone top-level tab, just the
- * per-phase embed PhaseReviewView.js mounts for whichever phase is selected
- * and has a review site. Same iframe, same bridge — only the caller and the
- * VerdictPanel's container changed (floated overlay, see VerdictOverlay.js,
- * instead of a bar in normal flow below the frame).
+ * Full-screen is a pure LAYOUT toggle, never a remount: `fullScreen` only
+ * swaps a CSS class on the same `.review-embed` element and the iframe keeps
+ * its stable `key=${src}`, so its nested browsing context — and every
+ * message the bridge has already accepted from it — is preserved across
+ * enter/exit. (An SSE tick likewise never remounts it; the parent's key is
+ * `taskId:phase`, unchanged by a data refresh.)
+ *
+ * Renamed from the old three-tab shell's ReviewsView.js — review-site.test.ts
+ * greps this file by name and asserts the <iframe> sets `sandbox` from
+ * `window.REVIEW_SANDBOX` and `src` from `window.reviewSiteSrc()`, the
+ * trust-boundary regression guard; keep those two bindings verbatim.
  */
-
-/** GET /api/tasks/:id/review-site/index.html for this task — task-scoped,
- * not phase-scoped (scope guard: no per-phase review-site routing). Caller
- * (PhaseReviewView.js) only mounts this for a phase whose timeline entry
- * has `hasReviewSite: true`, so `phase` here is always the one the site
- * actually describes. */
-export function ReviewEmbed({ taskId, phase, onFinished }) {
-  const { verdict, bindIframe, setVerdict } = useReviewBridge();
+export function ReviewEmbed({ taskId, phase, bindIframe, fullScreen, onToggleFullScreen }) {
   const src = window.reviewSiteSrc(taskId);
 
   return html`
-    <div class="review-embed">
+    <div class="review-embed ${fullScreen ? "review-embed-fullscreen" : ""}">
       <div class="review-embed-head">
-        <span class="section-label">Review site — ${phase}</span>
-        <span class="quarantine-note"
-          >Sandboxed frame — isolated from the dashboard, no shared login or storage</span
-        >
+        <span class="section-label">Review artifact — ${phase}</span>
+        <div class="review-embed-head-right">
+          <span class="quarantine-note"
+            >Sandboxed frame — isolated from the dashboard, no shared login or storage</span
+          >
+          <button
+            type="button"
+            class="btn"
+            aria-pressed=${fullScreen}
+            onClick=${() => onToggleFullScreen(!fullScreen)}
+          >
+            ${fullScreen ? "Exit full-screen" : "Open full-screen review"}
+          </button>
+        </div>
       </div>
       <div class="review-stage">
         <iframe
@@ -55,13 +62,6 @@ export function ReviewEmbed({ taskId, phase, onFinished }) {
           title="Review site for ${taskId} (sandboxed)"
           loading="lazy"
         ></iframe>
-        <${VerdictOverlay}
-          taskId=${taskId}
-          phase=${phase}
-          verdict=${verdict}
-          setVerdict=${setVerdict}
-          onFinished=${onFinished}
-        />
       </div>
     </div>
   `;

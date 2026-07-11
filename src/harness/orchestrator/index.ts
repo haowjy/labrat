@@ -302,10 +302,14 @@ export async function runTask(
     }
 
     if (workerResult.stallExhausted || !workerResult.phaseComplete) {
+      const failReason =
+        workerResult.stallExhaustedReason === "background-grace"
+          ? `Worker background work on phase ${phaseId} exceeded ${config.retries.backgroundGraceRetries} grace continuations without record_phase`
+          : `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`;
       task = {
         ...task,
         state: "failed",
-        reason: `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`,
+        reason: failReason,
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(orchestratorConfig.taskDir, task);
@@ -719,10 +723,14 @@ export async function runPhaseInIsolation(
   }
 
   if (workerResult.stallExhausted || !workerResult.phaseComplete) {
+    const failReason =
+      workerResult.stallExhaustedReason === "background-grace"
+        ? `Worker background work on phase ${phaseId} exceeded ${config.retries.backgroundGraceRetries} grace continuations without record_phase`
+        : `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`;
     task = {
       ...task,
       state: "failed",
-      reason: `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`,
+      reason: failReason,
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(taskDir, task);
