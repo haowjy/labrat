@@ -1,25 +1,6 @@
-import { html, useEffect, useRef, useState } from "../vendor/preact-htm.js";
+import { html } from "../vendor/preact-htm.js";
 import { statePill } from "../lib/format.js";
-
-const PULSE_MS = 900;
-
-/** True for ~PULSE_MS right after `value` changes — drives the brief
- * highlight on a task card when its live status changes. Purely a CSS
- * transition trigger; the data itself still only ever changes via the
- * existing SSE-notification -> re-fetch pattern (design §13) — this hook
- * doesn't add a new data source, just reacts to the value already changing. */
-function usePulseOnChange(value) {
-  const [pulsing, setPulsing] = useState(false);
-  const prev = useRef(value);
-  useEffect(() => {
-    if (prev.current === value) return;
-    prev.current = value;
-    setPulsing(true);
-    const t = setTimeout(() => setPulsing(false), PULSE_MS);
-    return () => clearTimeout(t);
-  }, [value]);
-  return pulsing;
-}
+import { usePulseOnChange } from "./usePulseOnChange.js";
 
 function TaskCard({ task, active, onSelect }) {
   const [pc, pl] = statePill(task.state);
@@ -46,16 +27,39 @@ function TaskCard({ task, active, onSelect }) {
   `;
 }
 
-/** Sidebar task list, rendered as live-updating "streaming cards" — same
- * data/refresh pattern as the vanilla shell's task list (SSE notification ->
- * GET /api/tasks re-fetch), just componentized with a brief update pulse. */
-export function Sidebar({ tasks, currentId, onSelect }) {
+/**
+ * Sidebar: the shell's one persistent navigation surface (desktop: an
+ * always-visible column; mobile: the MobileDrawer's off-canvas content —
+ * see that file). Owns BOTH levels of cross-sample navigation now: a
+ * "Dashboard" entry back to the level-1 fleet board, and the level-2 sample
+ * list below it (unchanged "streaming cards" — SSE notification -> GET
+ * /api/tasks re-fetch, componentized with a brief update pulse). Phase
+ * review (level 3) has no entry of its own here — a reviewer reaches it
+ * from a sample's phase index, and gets back to level 2 by re-selecting
+ * that same sample from this same list (its `.active` row is still
+ * highlighted the whole time they're anywhere inside it, review included).
+ *
+ * `active` never needs to also check `screen`: App.js clears `currentId` to
+ * null whenever it navigates to the dashboard, so no task's id can equal it
+ * while the Dashboard entry itself is the one that should be highlighted.
+ */
+export function Sidebar({ tasks, currentId, screen, onSelect, onGoDashboard }) {
   return html`
     <aside class="sidebar">
       <div class="sidebar-header">
         <span class="logo">LabRat</span>
-        <span class="badge">${tasks.length} task${tasks.length === 1 ? "" : "s"}</span>
+        <span class="badge">${tasks.length} sample${tasks.length === 1 ? "" : "s"}</span>
       </div>
+      <nav class="sidebar-nav">
+        <button
+          type="button"
+          class="sidebar-nav-item ${screen === "dashboard" ? "active" : ""}"
+          onClick=${onGoDashboard}
+        >
+          <span class="sidebar-nav-icon" aria-hidden="true">⌂</span>
+          Dashboard
+        </button>
+      </nav>
       <div class="task-list">
         ${tasks.map(
           (t) => html`
