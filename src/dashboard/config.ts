@@ -12,6 +12,10 @@ import { loadConfig as loadLabratConfig } from "../config/index.js";
 export type DashboardConfig = {
   /** Root of the task tree the dashboard serves (design §5). */
   readonly tasksDir: string;
+  /** Claude Science registry root — for the read-only skill-browse route.
+   * Threaded from the single config seam (`scienceHome`), never read from env
+   * in the route. */
+  readonly scienceHome: string;
   /** Author stamped on suggestions submitted through the UI (design §17). */
   readonly user: string;
   readonly port: number;
@@ -29,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DashboardConfi
   const devReplay = env["SSE_DEV_REPLAY"] === "1";
   return {
     tasksDir,
+    scienceHome: labratConfig.scienceHome,
     user: labratConfig.dashboard.user,
     port: labratConfig.dashboard.port,
     devReplay,

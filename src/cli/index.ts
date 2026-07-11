@@ -11,9 +11,70 @@ import {
   runStandaloneGate,
 } from "../harness/orchestrator/index.js";
 import { runCheckReviewSiteCli } from "../review-site/cli.js";
+import {
+  importSkill,
+  listClaudeScienceSkills,
+  listVendoredSkillNames,
+} from "../harness/claude-science/registry.js";
 
 function expandUserPath(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+}
+
+/** `labrat skills [--builtins]` — browse the Claude Science registry, flagging
+ * which skills are runnable (have a protocol.yaml) and which are already
+ * vendored in the repo's skills/ dir. */
+async function runSkillsList(args: readonly string[]): Promise<void> {
+  const includeBuiltins = args.includes("--builtins");
+  const config = loadConfig();
+  const [skills, vendored] = await Promise.all([
+    listClaudeScienceSkills(config.scienceHome, { includeBuiltins }),
+    listVendoredSkillNames(),
+  ]);
+
+  if (skills.length === 0) {
+    console.log(`No skills found under ${config.scienceHome}.`);
+    return;
+  }
+
+  console.log(`Claude Science skills (${config.scienceHome}):\n`);
+  for (const s of skills) {
+    const tags = [
+      s.runnable ? "runnable" : null,
+      vendored.has(s.name) ? "vendored" : null,
+      s.builtin ? "builtin" : null,
+    ].filter((t): t is string => t !== null);
+    const suffix = tags.length ? `  [${tags.join(", ")}]` : "";
+    console.log(`  ${s.name}  (${s.source})${suffix}`);
+    if (s.description) console.log(`      ${s.description}`);
+  }
+  console.log(`\n${skills.length} skill(s). Import with: labrat import-skill <name> [--force]`);
+}
+
+/** `labrat import-skill <name> [--force]` — copy a Claude Science skill into
+ * the repo's vendored skills/ dir (inverse of the export script). */
+async function runImportSkill(args: readonly string[]): Promise<void> {
+  const name = args.find((a) => !a.startsWith("--"));
+  if (!name) {
+    console.error("Usage: labrat import-skill <name> [--force]");
+    process.exit(1);
+  }
+  const force = args.includes("--force");
+  const config = loadConfig();
+  let result;
+  try {
+    result = await importSkill(name, config.scienceHome, undefined, { force });
+  } catch (err) {
+    // Expected user errors (unknown skill, no-clobber guard) — a clean line,
+    // not a stack trace.
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  console.log(
+    `${result.overwritten ? "Overwrote" : "Imported"} "${result.name}" ` +
+      `(${result.source})\n  from: ${result.from}\n  to:   ${result.to}\n  ` +
+      `${result.files.length} file(s) copied.`,
+  );
 }
 
 async function main(): Promise<void> {
@@ -91,6 +152,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "skills") {
+    await runSkillsList(args.slice(1));
+    return;
+  }
+
+  if (command === "import-skill") {
+    await runImportSkill(args.slice(1));
+    return;
+  }
+
   if (command === "resume") {
     const taskId = args[1];
     if (!taskId) {
@@ -160,6 +231,8 @@ async function main(): Promise<void> {
   console.error("       labrat gate <task-id> <phase>");
   console.error("       labrat run-phase <task-id> <phase> [--gate]");
   console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");
+  console.error("       labrat skills [--builtins]");
+  console.error("       labrat import-skill <name> [--force]");
   console.error("       labrat resume <task-id>");
   console.error("       labrat rerun <task-id> [from-phase]");
   console.error("       labrat reset-to <task-id> <phase>");
