@@ -161,7 +161,8 @@ Load by what the protocol's review needs:
 - `resources/review-ui-threejs-and-layout.md` — for 3D reviews: the inlined
   three.js scene (WebGLRenderer + OrbitControls — drag rotates the camera), mesh
   rendering, named landmark markers, measurement overlays + derived ratio, the
-  guided tour, adjust-landmark mode, camera/raycasting, one-WebGL-context
+  guided tour, DOM landmark labels + leader lines, camera framing/raycasting,
+  one-WebGL-context
   viewport management, mobile, the data contract shapes, and the **optional**
   orthogonal slice scrubber (behind an Advanced-slices tab — the injected
   downsampled-volume contract + the pane/slider/crosshair/linking pattern the G9

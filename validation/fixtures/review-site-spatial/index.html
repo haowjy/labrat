@@ -26,23 +26,37 @@ body {
   line-height: 1.45;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .topbar { padding: 0.7rem 1rem 0.55rem; background: var(--card); border-bottom: 1px solid var(--border); }
 .topbar h1 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
-.topbar-sub { margin: 0.2rem 0 0; font-size: 0.72rem; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+.topbar-sub { margin: 0.2rem 0 0; font-size: 0.72rem; }
+.topbar-sub a { color: var(--muted); font-family: var(--mono); text-decoration: none; border-bottom: 1px dotted var(--border); }
+.topbar-sub a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
-.evidence { display: flex; gap: 0.55rem; flex-wrap: wrap; padding: 0.6rem 1rem; background: var(--card); border-bottom: 1px solid var(--border); }
-.chip {
-  display: flex; flex-direction: column; gap: 0.1rem;
-  padding: 0.45rem 0.7rem; border-radius: 10px;
-  background: color-mix(in srgb, var(--state) 12%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--state) 40%, var(--border));
-  min-width: 0;
+/* --- Evidence banner: big result, cutoff, delta, status ------------------ */
+.evidence { display: flex; gap: 0.9rem; align-items: stretch; flex-wrap: wrap; padding: 0.7rem 1rem; background: var(--card); border-bottom: 1px solid var(--border); }
+.ev-metric {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  padding: 0.5rem 0.9rem; border-radius: 12px; flex: 1 1 260px; min-width: 0;
+  background: color-mix(in srgb, var(--state) 9%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--state) 36%, var(--border));
 }
-.chip strong { font-size: 1.15rem; color: var(--state); font-variant-numeric: tabular-nums; }
-.chip-label { font-size: 0.72rem; color: var(--muted); }
-.chip-cut { font-size: 0.68rem; color: var(--state); font-family: var(--mono); }
-.ratio-badge { margin-left: auto; align-self: center; font-family: var(--mono); font-size: 0.95rem; font-weight: 600; color: var(--ink); background: #fff6d6; border: 1px solid #e6cf7a; padding: 0.4rem 0.6rem; border-radius: 10px; }
+.ev-label { font-size: 0.74rem; color: var(--muted); }
+.ev-value { font-size: 2rem; font-weight: 700; line-height: 1.05; color: var(--state); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.ev-value .ev-unit { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.ev-cut { font-size: 0.76rem; color: var(--ink); font-family: var(--mono); }
+.ev-cut b { color: var(--state); }
+.ev-status {
+  display: flex; align-items: center; gap: 0.6rem; flex: 1 1 200px;
+  padding: 0.5rem 0.9rem; border-radius: 12px;
+  background: color-mix(in srgb, var(--state) 13%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--state) 45%, var(--border));
+}
+.ev-status-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: var(--state); color: #fff; font-size: 1.05rem; flex: none; }
+.ev-status-text { display: flex; flex-direction: column; }
+.ev-status-main { font-weight: 700; font-size: 0.92rem; color: var(--state); }
+.ev-status-sub { font-size: 0.76rem; color: var(--muted); }
 
 .tabs { display: flex; gap: 0.35rem; padding: 0.5rem 1rem 0; background: var(--paper); }
 .tabs button {
@@ -55,29 +69,92 @@ body {
 
 .stage { flex: 1; min-height: 0; padding: 0 1rem 0.5rem; display: flex; flex-direction: column; }
 .panel { flex: 1; min-height: 0; background: var(--card); border: 1px solid var(--border); border-radius: 0 10px 10px 10px; }
-.panel[hidden] { display: none; }
+.panel[hidden] { display: none !important; }
 
 #panel-3d { position: relative; display: flex; }
-#scene3d { flex: 1; min-height: 300px; position: relative; }
-#scene3d-canvas { width: 100%; height: 100%; display: block; touch-action: none; border-radius: 0 10px 10px 10px; background: radial-gradient(120% 120% at 50% 30%, #20242c 0%, #0c0e12 100%); }
-.orient-legend { position: absolute; left: 10px; bottom: 10px; font-family: var(--mono); font-size: 0.66rem; color: #cfd6de; background: rgba(12,14,18,0.6); padding: 0.3rem 0.45rem; border-radius: 8px; pointer-events: none; }
+#scene3d { flex: 1; min-height: 320px; position: relative; overflow: hidden; }
+#scene3d-canvas { width: 100%; height: 100%; display: block; touch-action: none; border-radius: 0 10px 10px 10px; background: radial-gradient(120% 120% at 50% 30%, #20242c 0%, #0c0e12 100%); cursor: grab; }
+#scene3d-canvas.grabbing { cursor: grabbing; }
+
+/* --- DOM label + leader-line overlay (replaces sprite labels) ------------ */
+#leader-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+#label-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.lm-label {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto;
+  font-size: 0.72rem; font-weight: 600; color: #fff; background: rgba(14,18,24,0.9);
+  border: 1px solid var(--lm, #fff); border-radius: 7px; padding: 0.18rem 0.42rem;
+  white-space: nowrap; box-shadow: 0 1px 6px rgba(0,0,0,0.45); max-width: 46%;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.lm-label.dim { opacity: 0.62; font-weight: 500; }
+.mm-badge {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+  font-family: var(--mono); font-size: 0.68rem; font-weight: 700; color: #12161b;
+  background: #ffd24d; border: 1px solid #caa02a; border-radius: 6px; padding: 0.1rem 0.36rem; white-space: nowrap;
+}
+.sel-ring {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: none;
+  width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid #fff;
+  box-shadow: 0 0 0 2px var(--lm, #fff), 0 0 12px var(--lm, #fff);
+  animation: sel-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sel-pulse {
+  0%, 100% { opacity: 1; width: 28px; height: 28px; }
+  50% { opacity: 0.65; width: 38px; height: 38px; }
+}
+
+/* --- On-canvas controls, legends, onboarding hint ----------------------- */
+.scene-controls { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 0.3rem; z-index: 4; }
+.scene-controls button {
+  font: inherit; font-size: 0.72rem; font-weight: 600; min-height: 36px; min-width: 36px; padding: 0 0.5rem;
+  border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; background: rgba(18,22,28,0.78); color: #eef2f8; cursor: pointer;
+}
+.scene-controls button:hover { background: rgba(31,87,195,0.9); border-color: var(--accent); }
+.scene-controls .ctrl-row { display: flex; gap: 0.3rem; }
+.scene-controls .ctrl-row button { flex: 1; }
+
+.orient-legend { position: absolute; left: 10px; bottom: 10px; font-family: var(--mono); font-size: 0.64rem; color: #cfd6de; background: rgba(12,14,18,0.62); padding: 0.3rem 0.45rem; border-radius: 8px; pointer-events: none; z-index: 4; }
+.conf-legend { position: absolute; right: 10px; bottom: 10px; font-size: 0.64rem; color: #dbe2ea; background: rgba(12,14,18,0.62); padding: 0.35rem 0.5rem; border-radius: 8px; pointer-events: none; z-index: 4; display: flex; flex-direction: column; gap: 0.18rem; }
+.conf-legend span { display: flex; align-items: center; gap: 0.35rem; }
+.conf-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.conf-dot.ring { background: transparent !important; border: 2px solid #fff; }
+
+.scene-hint {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: #eef2f8;
+  background: rgba(18,22,28,0.85); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; padding: 0.3rem 0.5rem 0.3rem 0.8rem;
+}
+.scene-hint button { font: inherit; border: none; background: rgba(255,255,255,0.18); color: #fff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; line-height: 1; }
+.scene-hint[hidden] { display: none; }
 
 .tourbar { background: var(--card); border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px; padding: 0.55rem 0.8rem; }
-.tour-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.tour-head { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
 .tour-step { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
-.tour-title { font-weight: 700; font-size: 0.9rem; }
+.tour-title { font-weight: 700; font-size: 0.95rem; }
+.tour-id { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.tour-conf { font-size: 0.66rem; font-weight: 700; padding: 0.08rem 0.42rem; border-radius: 999px; text-transform: capitalize; }
 .tour-rule { margin: 0.35rem 0 0; font-size: 0.82rem; color: var(--ink); }
 .tour-controls { margin-left: auto; display: flex; gap: 0.4rem; }
-.tour-controls button, #btn-adjust {
+.tour-controls button {
   font: inherit; font-size: 0.82rem; font-weight: 600; min-height: 44px; min-width: 44px;
   padding: 0 0.8rem; border: 1px solid var(--border); border-radius: 10px; background: #eef1f6; color: var(--ink); cursor: pointer;
 }
-#btn-adjust.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.tour-chips { display: flex; gap: 0.35rem; overflow-x: auto; padding-top: 0.5rem; }
-.tour-chip { flex: 0 0 auto; font: inherit; font-size: 0.74rem; min-height: 40px; padding: 0 0.7rem; border: 1px solid var(--border); border-radius: 999px; background: #eef1f6; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tour-controls button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tour-collapse { display: none; }
+.tour-chips { display: flex; gap: 0.4rem; overflow-x: auto; padding-top: 0.5rem; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.tour-chip {
+  flex: 0 0 auto; scroll-snap-align: start; font: inherit; font-size: 0.76rem; min-height: 44px; padding: 0 0.85rem;
+  border: 1px solid var(--border); border-radius: 999px; background: #eef1f6; color: var(--muted); cursor: pointer; white-space: nowrap;
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.tour-chip .conf-dot { width: 8px; height: 8px; }
+.tour-chip.done { color: var(--ink); }
 .tour-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tour-chip.active .conf-dot { box-shadow: 0 0 0 1.5px #fff; }
+.tour-complete { margin: 0.35rem 0 0; font-size: 0.82rem; color: #1f8a4c; font-weight: 600; }
+.tour-complete[hidden] { display: none; }
 
-.pad { padding: 1rem 1.1rem; overflow: auto; height: 100%; }
+.pad { padding: 1rem 1.1rem; overflow: auto; height: 100%; -webkit-overflow-scrolling: touch; }
 .pad h2 { margin: 0 0 0.5rem; font-size: 0.9rem; }
 .pad p { font-size: 0.85rem; color: var(--muted); }
 table.values { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -89,7 +166,13 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
   .stage { padding: 0 0.6rem 0.5rem; }
   .tabs { padding: 0.5rem 0.6rem 0; }
   #panel-3d { flex-direction: column; }
-  .tour-controls { margin-left: 0; }
+  #scene3d { min-height: 240px; }
+  .evidence { gap: 0.55rem; padding: 0.6rem; }
+  .ev-value { font-size: 1.7rem; }
+  .tour-collapse { display: inline-flex; align-items: center; justify-content: center; }
+  .tourbar.collapsed .tour-rule,
+  .tourbar.collapsed .tour-chips,
+  .tourbar.collapsed .tour-complete { display: none; }
 }
 </style>
 </head>
@@ -101,27 +184,31 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
 
 <section class="evidence" id="evidence-banner" aria-label="Decisive measurements"></section>
 
-<div class="tabs" role="tablist">
-  <button id="tab-3d" type="button" class="active">3D scene</button>
-  <button id="tab-slices" type="button">Advanced slices</button>
-  <button id="tab-values" type="button">Values</button>
-</div>
+<div class="tabs" role="tablist" id="tabs"></div>
 
 <main class="stage">
   <section class="panel" id="panel-3d" data-review-view="scene3d">
     <div id="scene3d">
       <canvas id="scene3d-canvas" width="960" height="600"></canvas>
-      <div class="orient-legend">X lateral · Y proximal · Z anterior<br /><span id="ratio-value"></span></div>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-slices" hidden>
-    <div class="pad">
-      <h2>Advanced slices (optional evidence)</h2>
-      <p>Orthogonal slice drill-down is optional secondary evidence. This run did
-         not export a downsampled volume (<code>REVIEW_VOLUME</code>), so the
-         3D scene above is the review surface. When a volume is exported, axial,
-         coronal, and sagittal scrubbers appear here, linked to the 3D scene.</p>
+      <svg id="leader-layer" aria-hidden="true"></svg>
+      <div id="label-layer" aria-hidden="true"></div>
+      <div class="scene-hint" id="scene-hint">
+        <span>Drag to rotate &middot; scroll to zoom</span>
+        <button type="button" id="hint-dismiss" aria-label="Dismiss hint">&times;</button>
+      </div>
+      <div class="scene-controls">
+        <button type="button" id="btn-reset">Reset view</button>
+        <div class="ctrl-row">
+          <button type="button" id="btn-front" title="Anterior view">Front</button>
+          <button type="button" id="btn-side" title="Lateral view">Side</button>
+        </div>
+        <div class="ctrl-row">
+          <button type="button" id="btn-zoom-in" aria-label="Zoom in">+</button>
+          <button type="button" id="btn-zoom-out" aria-label="Zoom out">&minus;</button>
+        </div>
+      </div>
+      <div class="orient-legend">X lateral &middot; Y proximal &middot; Z anterior<br /><span id="ratio-value"></span></div>
+      <div class="conf-legend" id="conf-legend"></div>
     </div>
   </section>
 
@@ -134,17 +221,20 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
   </section>
 </main>
 
-<div class="tourbar">
+<div class="tourbar" id="tourbar">
   <div class="tour-head">
     <span class="tour-step" id="tour-step">Step 1</span>
     <span class="tour-title" id="tour-title"></span>
+    <span class="tour-id" id="tour-id"></span>
+    <span class="tour-conf" id="tour-conf"></span>
     <div class="tour-controls">
-      <button id="btn-adjust" type="button">Adjust landmark</button>
-      <button id="tour-prev" type="button" aria-label="Previous landmark">‹ Prev</button>
-      <button id="tour-next" type="button" aria-label="Next landmark">Next ›</button>
+      <button class="tour-collapse" id="tour-collapse" type="button" aria-label="Collapse tour">&#9662;</button>
+      <button id="tour-prev" type="button" aria-label="Previous landmark">&lsaquo; Prev</button>
+      <button id="tour-next" type="button" aria-label="Next landmark">Next &rsaquo;</button>
     </div>
   </div>
   <p class="tour-rule" id="tour-rule"></p>
+  <p class="tour-complete" id="tour-complete" hidden></p>
   <div class="tour-chips" id="tour-chips"></div>
 </div>
 
@@ -1302,10 +1392,12 @@ window.REVIEW_EVIDENCE = {
 };
 </script>
 <script>
-// Review-artifact 3D app (fixture). No exfil surfaces, no inline handlers, no
-// runtime data loading, no eval (G5/I3). All data is present as window globals;
-// three.js + OrbitControls are inlined above. The 3D scene is the PRIMARY view:
-// OrbitControls drag rotates the camera (the exact thing p80 found broken).
+// Review-artifact 3D app (fixture). Read-only spatial review: rotate, examine,
+// walk the guided landmark tour, read the evidence. No exfil surfaces, no
+// inline handlers, no runtime data loading, no eval (G5/I3), no landmark
+// editing (the artifact is evidence, not an editor). All data is present as
+// window globals; three.js + OrbitControls are inlined above. The 3D scene is
+// the PRIMARY view: OrbitControls drag rotates the camera.
 (function () {
   "use strict";
 
@@ -1313,185 +1405,407 @@ window.REVIEW_EVIDENCE = {
   var MANIFEST = window.REVIEW_MANIFEST;
   var GEO = window.REVIEW_GEOMETRY;
   var EV = window.REVIEW_EVIDENCE;
+  var HAS_VOLUME = !!window.REVIEW_VOLUME; // slices are optional drill-down
 
-  // --- Header / evidence banner -------------------------------------------
+  // --- Header --------------------------------------------------------------
   document.getElementById("sample-title").textContent = "Review " + MANIFEST.sample_id;
-  document.getElementById("sample-source").textContent = "from " + MANIFEST.produced_from.measurement;
+  // Provenance collapses to a short, hoverable link (full hash off-screen on mobile).
+  (function () {
+    var src = MANIFEST.produced_from.measurement;
+    var name = src.split("/").pop().split("@")[0];
+    var hash = (src.split("@")[1] || "").slice(0, 10);
+    var a = document.createElement("a");
+    a.href = "#";
+    a.title = "from " + src;
+    a.textContent = "from " + name + (hash ? " @" + hash + "…" : "");
+    a.addEventListener("click", function (e) { e.preventDefault(); });
+    var p = document.getElementById("sample-source");
+    p.textContent = "";
+    p.appendChild(a);
+  })();
+
+  // --- Human-readable landmark names --------------------------------------
+  function humanize(id) {
+    return id.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
 
   var STATE_COLOR = { pass: "#1f8a4c", concern: "#b26a00", fail: "#b3261e" };
   var decisive = EV.decisive[0];
-  var ratioEl = document.getElementById("ratio-value");
-  var lengthByLine = {};
-  decisive.measurement_lines.forEach(function (ml) { lengthByLine[ml.id] = ml.value_mm; });
 
+  // --- Evidence banner: big result, cutoff, delta, status -----------------
   function renderBanner() {
     var banner = document.getElementById("evidence-banner");
     banner.textContent = "";
-    EV.decisive.forEach(function (d) {
-      var chip = document.createElement("div");
-      chip.className = "chip";
-      chip.style.setProperty("--state", STATE_COLOR[d.state] || "#4b5563");
-      var label = document.createElement("span");
-      label.className = "chip-label";
-      label.textContent = d.label;
-      var val = document.createElement("strong");
-      val.textContent = d.value.toFixed(2) + " " + d.unit;
-      var cut = document.createElement("span");
-      cut.className = "chip-cut";
-      cut.textContent = "OA ≥ " + d.cutoff.oa_above + (d.requires_human_review ? "  ▲ review" : "");
-      chip.appendChild(label);
-      chip.appendChild(val);
-      chip.appendChild(cut);
-      banner.appendChild(chip);
-    });
+    var state = STATE_COLOR[decisive.state] || "#4b5563";
+
+    var metric = document.createElement("div");
+    metric.className = "ev-metric";
+    metric.style.setProperty("--state", state);
+    var label = document.createElement("span");
+    label.className = "ev-label";
+    label.textContent = decisive.label;
+    var val = document.createElement("span");
+    val.className = "ev-value";
+    val.textContent = decisive.value.toFixed(2);
+    var unit = document.createElement("span");
+    unit.className = "ev-unit";
+    unit.textContent = " " + decisive.unit;
+    val.appendChild(unit);
+    var cut = document.createElement("span");
+    cut.className = "ev-cut";
+    var oa = decisive.cutoff.oa_above;
+    var delta = decisive.value - oa;
+    var side = delta >= 0 ? "above" : "below";
+    cut.appendChild(document.createTextNode("OA cutoff ≥ " + oa.toFixed(2) + " · "));
+    var b = document.createElement("b");
+    b.textContent = (delta >= 0 ? "+" : "−") + Math.abs(delta).toFixed(2) + " " + side + " cutoff";
+    cut.appendChild(b);
+    metric.appendChild(label);
+    metric.appendChild(val);
+    metric.appendChild(cut);
+    banner.appendChild(metric);
+
+    var status = document.createElement("div");
+    status.className = "ev-status";
+    status.style.setProperty("--state", state);
+    var icon = document.createElement("span");
+    icon.className = "ev-status-icon";
+    icon.setAttribute("role", "img");
+    var needsReview = decisive.requires_human_review;
+    icon.setAttribute("aria-label", needsReview ? "Review required" : "Pass");
+    icon.textContent = needsReview ? "⚠" : "✓";
+    var stext = document.createElement("span");
+    stext.className = "ev-status-text";
+    var main = document.createElement("span");
+    main.className = "ev-status-main";
+    main.textContent = needsReview ? "Review required" : "Within tolerance";
+    var sub = document.createElement("span");
+    sub.className = "ev-status-sub";
+    var conf = (EV.interpretation && EV.interpretation.confidence) || "";
+    sub.textContent = conf ? humanize(conf) + " confidence" : "";
+    stext.appendChild(main);
+    stext.appendChild(sub);
+    status.appendChild(icon);
+    status.appendChild(stext);
+    banner.appendChild(status);
   }
   renderBanner();
+
+  var ratioEl = document.getElementById("ratio-value");
 
   // --- Three.js scene ------------------------------------------------------
   var canvas = document.getElementById("scene3d-canvas");
   var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-  camera.position.set(4.5, 2.2, 6.5);
+  var FOV = 42;
+  var camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 1000);
+  var fovRad = FOV * Math.PI / 180;
 
   var controls = new THREE.OrbitControls(camera, canvas);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.target.set(0, 0.6, 0);
+  controls.dampingFactor = 0.09;
+  controls.enablePan = false; // read-only review: rotate + zoom only
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-  var key = new THREE.DirectionalLight(0xffffff, 0.9);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  var key = new THREE.DirectionalLight(0xffffff, 0.85);
   key.position.set(3, 6, 5);
   scene.add(key);
   var fill = new THREE.DirectionalLight(0xbcd0ff, 0.35);
   fill.position.set(-4, -2, -3);
   scene.add(fill);
+  var rim = new THREE.DirectionalLight(0xffffff, 0.3);
+  rim.position.set(0, -3, -6);
+  scene.add(rim);
 
-  // Orientation aid: axes + labels (proximal/lateral/anterior).
-  var axes = new THREE.AxesHelper(2.2);
-  axes.position.set(-2.6, -2.4, 0);
-  scene.add(axes);
-
+  // Bone meshes — raised opacity + inverted-hull outline for clear contours.
   function buildMesh(md, color) {
     var geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(md.vertices, 3));
     geo.setIndex(md.faces);
     geo.computeVertexNormals();
+    var group = new THREE.Group();
     var mat = new THREE.MeshStandardMaterial({
-      color: color, transparent: true, opacity: 0.55,
-      roughness: 0.65, metalness: 0.04, side: THREE.DoubleSide,
+      color: color, transparent: true, opacity: 0.84,
+      roughness: 0.55, metalness: 0.03, side: THREE.FrontSide,
+      depthWrite: true,
     });
-    return new THREE.Mesh(geo, mat);
+    group.add(new THREE.Mesh(geo, mat));
+    // Silhouette outline: dark back-faces slightly enlarged.
+    var outlineMat = new THREE.MeshBasicMaterial({ color: 0x10141a, side: THREE.BackSide });
+    var outline = new THREE.Mesh(geo, outlineMat);
+    outline.scale.multiplyScalar(1.012);
+    group.add(outline);
+    return group;
   }
-  scene.add(buildMesh(GEO.meshes.femur, 0xe8d7ad));
-  scene.add(buildMesh(GEO.meshes.tibia, 0xc6d2df));
+  var boneGroup = new THREE.Group();
+  boneGroup.add(buildMesh(GEO.meshes.femur, 0xe4c98f)); // warm tan femur
+  boneGroup.add(buildMesh(GEO.meshes.tibia, 0x9fb6cf)); // cool blue tibia
+  scene.add(boneGroup);
 
-  // Text sprite (canvas texture — no <img>, CSP/G5 clean).
-  function makeLabel(text, rgbHex) {
-    var c = document.createElement("canvas");
-    var pad = 12, fs = 40;
-    var ctx = c.getContext("2d");
-    ctx.font = fs + "px system-ui, sans-serif";
-    var w = Math.ceil(ctx.measureText(text).width) + pad * 2;
-    var h = fs + pad * 2;
-    c.width = w; c.height = h;
-    ctx = c.getContext("2d");
-    ctx.font = fs + "px system-ui, sans-serif";
-    ctx.fillStyle = "rgba(20,24,28,0.82)";
-    ctx.strokeStyle = rgbHex || "#ffffff";
-    ctx.lineWidth = 3;
-    roundRect(ctx, 1.5, 1.5, w - 3, h - 3, 10);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ffffff";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, pad, h / 2);
-    var tex = new THREE.CanvasTexture(c);
-    tex.anisotropy = 4;
-    var spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
-    spr.scale.set(w / h * 0.55, 0.55, 1);
-    spr.renderOrder = 10;
-    return spr;
-  }
-  function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
+  // Orientation axes, tucked into a corner near the joint.
+  var axes = new THREE.AxesHelper(1.0);
+  scene.add(axes);
 
-  // Landmarks — spheres + name labels.
+  // --- Landmarks: constant-screen-size markers + outline -------------------
   var landmarks = {};
   var landmarkList = EV.landmarks;
-  var sphereGeo = new THREE.SphereGeometry(0.14, 20, 16);
+  var order = landmarkList.map(function (l) { return l.name; });
+  var MARKER_GEO = new THREE.SphereGeometry(1, 20, 16); // unit sphere; scaled per frame
+  var OUTLINE_GEO = new THREE.SphereGeometry(1.35, 18, 14);
+  var HIT_GEO = new THREE.SphereGeometry(2.6, 12, 10);
+  var hitMeshes = [];
+
   landmarkList.forEach(function (lm) {
     var col = lm.color ? (lm.color[0] << 16) | (lm.color[1] << 8) | lm.color[2] : 0xff4d4d;
-    var mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.35, roughness: 0.4 });
-    var mesh = new THREE.Mesh(sphereGeo, mat);
-    mesh.position.set(lm.position[0], lm.position[1], lm.position[2]);
-    mesh.userData.landmark = lm.name;
-    scene.add(mesh);
-    // confidence halo
-    var haloMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: lm.confidence === "high" ? 0.28 : 0.16, side: THREE.BackSide });
-    var halo = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 14), haloMat);
-    mesh.add(halo);
-    var label = makeLabel(lm.name, "#" + col.toString(16).padStart(6, "0"));
-    label.position.set(lm.position[0], lm.position[1] + 0.32, lm.position[2]);
-    scene.add(label);
-    landmarks[lm.name] = { mesh: mesh, label: label, data: lm };
+    var pos = new THREE.Vector3(lm.position[0], lm.position[1], lm.position[2]);
+    var marker = new THREE.Group();
+    marker.position.copy(pos);
+
+    var outline = new THREE.Mesh(OUTLINE_GEO, new THREE.MeshBasicMaterial({ color: 0x0e1218 }));
+    marker.add(outline);
+    var core = new THREE.Mesh(MARKER_GEO, new THREE.MeshStandardMaterial({
+      color: col, emissive: col, emissiveIntensity: 0.4, roughness: 0.35, metalness: 0,
+    }));
+    marker.add(core);
+    scene.add(marker);
+
+    // Invisible larger hit target for raycast (easier to click).
+    var hit = new THREE.Mesh(HIT_GEO, new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.copy(pos);
+    hit.userData.landmark = lm.name;
+    scene.add(hit);
+    hitMeshes.push(hit);
+
+    // DOM label + leader (built once, positioned each frame).
+    var hex = "#" + col.toString(16).padStart(6, "0");
+    var labelEl = document.createElement("div");
+    labelEl.className = "lm-label";
+    labelEl.style.setProperty("--lm", hex);
+    labelEl.textContent = humanize(lm.name);
+    labelEl.style.display = "none";
+    labelEl.addEventListener("click", function () { goStep(order.indexOf(lm.name)); });
+    document.getElementById("label-layer").appendChild(labelEl);
+
+    var leaderEl = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    leaderEl.setAttribute("stroke", hex);
+    leaderEl.setAttribute("stroke-width", "1.4");
+    leaderEl.setAttribute("opacity", "0.85");
+    leaderEl.style.display = "none";
+    document.getElementById("leader-layer").appendChild(leaderEl);
+
+    var ringEl = document.createElement("div");
+    ringEl.className = "sel-ring";
+    ringEl.style.setProperty("--lm", hex);
+    ringEl.style.display = "none";
+    document.getElementById("label-layer").appendChild(ringEl);
+
+    landmarks[lm.name] = {
+      marker: marker, core: core, outline: outline, pos: pos,
+      label: labelEl, leader: leaderEl, ring: ringEl, hex: hex, data: lm,
+    };
   });
 
-  // Measurement lines between contributing landmarks + mm labels + ratio.
+  // Confidence legend.
+  (function buildLegend() {
+    var el = document.getElementById("conf-legend");
+    var rows = [
+      ["ring", "#fff", "Selected landmark"],
+      ["", "#7fd0a0", "High confidence"],
+      ["", "#e6b04d", "Review needed"],
+    ];
+    rows.forEach(function (r) {
+      var span = document.createElement("span");
+      var dot = document.createElement("span");
+      dot.className = "conf-dot" + (r[0] ? " " + r[0] : "");
+      dot.style.background = r[1];
+      span.appendChild(dot);
+      span.appendChild(document.createTextNode(r[2]));
+      el.appendChild(span);
+    });
+  })();
+
+  // --- Measurement lines (static evidence) + DOM mm badges ----------------
   var lines = {};
-  function lineVec(name) {
+  function lmPos(name) {
     var l = landmarks[name];
-    return l ? l.mesh.position : new THREE.Vector3();
+    return l ? l.pos : new THREE.Vector3();
   }
   decisive.measurement_lines.forEach(function (ml) {
-    var a = lineVec(ml.from), b = lineVec(ml.to);
+    var a = lmPos(ml.from), b = lmPos(ml.to);
     var geom = new THREE.BufferGeometry().setFromPoints([a.clone(), b.clone()]);
-    var mat = new THREE.LineBasicMaterial({ color: 0xffd24d, linewidth: 2, depthTest: false });
+    var mat = new THREE.LineBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.9 });
     var line = new THREE.Line(geom, mat);
     line.renderOrder = 5;
     scene.add(line);
-    var mid = a.clone().add(b).multiplyScalar(0.5);
-    var lbl = makeLabel(ml.id.replace(/_/g, " ") + ": " + ml.value_mm.toFixed(2) + " mm", "#ffd24d");
-    lbl.position.copy(mid).add(new THREE.Vector3(0, 0.18, 0));
-    scene.add(lbl);
-    var worldLen = a.distanceTo(b);
-    lines[ml.id] = { line: line, label: lbl, from: ml.from, to: ml.to, mmPerWorld: worldLen > 0 ? ml.value_mm / worldLen : 1, id: ml.id };
+    var badge = document.createElement("div");
+    badge.className = "mm-badge";
+    badge.textContent = ml.value_mm.toFixed(2) + " mm";
+    badge.style.display = "none";
+    document.getElementById("label-layer").appendChild(badge);
+    lines[ml.id] = { line: line, badge: badge, from: ml.from, to: ml.to, mid: a.clone().add(b).multiplyScalar(0.5) };
   });
+  var len0 = 0, wid0 = 0;
+  decisive.measurement_lines.forEach(function (ml) {
+    if (ml.id === "femoral_length") len0 = ml.value_mm;
+    if (ml.id === "femoral_width") wid0 = ml.value_mm;
+  });
+  if (len0 && wid0) ratioEl.textContent = "W/L = " + (wid0 / len0).toFixed(2);
 
-  function recomputeLines() {
-    var mm = {};
-    Object.keys(lines).forEach(function (id) {
-      var L = lines[id];
-      var a = lineVec(L.from), b = lineVec(L.to);
-      L.line.geometry.setFromPoints([a.clone(), b.clone()]);
-      var val = a.distanceTo(b) * L.mmPerWorld;
-      mm[id] = val;
-      var mid = a.clone().add(b).multiplyScalar(0.5);
-      L.label.position.copy(mid).add(new THREE.Vector3(0, 0.18, 0));
-      // rebuild the label texture with the live value
-      var newLbl = makeLabel(id.replace(/_/g, " ") + ": " + val.toFixed(2) + " mm", "#ffd24d");
-      L.label.material.map = newLbl.material.map;
-      L.label.scale.copy(newLbl.scale);
-    });
-    var len = mm["femoral_length"], wid = mm["femoral_width"];
-    if (len && wid) ratioEl.textContent = "W/L = " + (wid / len).toFixed(2);
+  // --- Camera framing: fit the joint (landmark cloud), not the long shaft --
+  var lmBox = new THREE.Box3();
+  landmarkList.forEach(function (lm) {
+    lmBox.expandByPoint(new THREE.Vector3(lm.position[0], lm.position[1], lm.position[2]));
+  });
+  var jointCenter = lmBox.getCenter(new THREE.Vector3());
+  var jointSize = lmBox.getSize(new THREE.Vector3());
+  var jointRadius = Math.max(jointSize.length() * 0.5, 0.9);
+  var fitDist = jointRadius / Math.sin(fovRad / 2) * 1.35;
+
+  // Constrain the orbit so you can't fly into a useless close/edge-on pose.
+  controls.minDistance = fitDist * 0.5;
+  controls.maxDistance = fitDist * 1.9;
+  controls.minPolarAngle = Math.PI * 0.16;
+  controls.maxPolarAngle = Math.PI * 0.84;
+
+  var DEFAULT_DIR = new THREE.Vector3(0.35, 0.28, 1).normalize();
+  // Canonical, legible per-landmark viewing directions (mostly anterior).
+  var POSE_DIR = {
+    trochlear_groove_top: [0.2, 0.35, 1],
+    intercondylar_notch: [0.2, -0.12, 1],
+    lateral_condylar_edge: [-0.55, 0.12, 0.9],
+    medial_condylar_edge: [0.55, 0.12, 0.9],
+  };
+  function poseForLandmark(name) {
+    var p = lmPos(name);
+    var d = POSE_DIR[name] || [0.35, 0.28, 1];
+    var dir = new THREE.Vector3(d[0], d[1], d[2]).normalize();
+    var target = p.clone().lerp(jointCenter, 0.32);
+    var dist = fitDist * 0.74;
+    return { pos: target.clone().add(dir.clone().multiplyScalar(dist)), target: target };
   }
-  var len0 = lengthByLine["femoral_length"], wid0 = lengthByLine["femoral_width"];
-  ratioEl.textContent = "W/L = " + (wid0 / len0).toFixed(2);
+  function defaultPose() {
+    return { pos: jointCenter.clone().add(DEFAULT_DIR.clone().multiplyScalar(fitDist)), target: jointCenter.clone() };
+  }
+  function dirPose(dx, dy, dz) {
+    var dir = new THREE.Vector3(dx, dy, dz).normalize();
+    return { pos: jointCenter.clone().add(dir.multiplyScalar(fitDist)), target: jointCenter.clone() };
+  }
 
-  // Frame the femoral measurement initially (the corrected/decisive line).
-  (function frameFemoral() {
-    var a = lineVec("trochlear_groove_top"), b = lineVec("intercondylar_notch");
-    controls.target.copy(a.clone().add(b).multiplyScalar(0.5));
-  })();
+  // Place axes helper at the lower-anterior corner of the joint box.
+  axes.position.set(lmBox.min.x - 0.4, lmBox.min.y - 0.4, lmBox.max.z + 0.2);
+
+  var start = defaultPose();
+  camera.position.copy(start.pos);
+  controls.target.copy(start.target);
+  controls.update();
+
+  // --- Camera fly-to (lerp) ------------------------------------------------
+  var camLerp = null;
+  function flyTo(pose) {
+    camLerp = {
+      t: 0, from: camera.position.clone(), to: pose.pos.clone(),
+      tFrom: controls.target.clone(), tTo: pose.target.clone(),
+    };
+  }
+  function snapZoom(factor) {
+    var dir = camera.position.clone().sub(controls.target);
+    var dist = dir.length();
+    var next = Math.max(controls.minDistance, Math.min(controls.maxDistance, dist * factor));
+    camera.position.copy(controls.target.clone().add(dir.setLength(next)));
+    controls.update();
+  }
+
+  // --- Overlay: project markers/labels/badges to screen each frame --------
+  var currentName = order[0];
+  var hoverName = null;
+  var showAll = false;
+
+  function project(vec) {
+    var v = vec.clone().project(camera);
+    var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+    return { x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, z: v.z, w: w, h: h };
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function updateMarkerScales() {
+    var h = canvas.clientHeight || 1;
+    Object.keys(landmarks).forEach(function (name) {
+      var L = landmarks[name];
+      var dist = camera.position.distanceTo(L.pos);
+      var worldPerPx = 2 * dist * Math.tan(fovRad / 2) / h;
+      var selected = name === currentName;
+      var px = selected ? 7 : 5.5;
+      L.marker.scale.setScalar(worldPerPx * px);
+      L.core.material.emissiveIntensity = selected ? 0.95 : (name === hoverName ? 0.6 : 0.3);
+      L.core.material.opacity = selected ? 1 : 0.85;
+      L.core.material.transparent = true;
+    });
+  }
+
+  function updateOverlay() {
+    var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+    var narrow = w < 520;
+    var m = 8; // edge margin
+    Object.keys(landmarks).forEach(function (name) {
+      var L = landmarks[name];
+      var selected = name === currentName;
+      var wantLabel = selected || name === hoverName || (showAll && !narrow);
+      var p = project(L.pos);
+      var behind = p.z > 1 || p.z < -1;
+
+      // Selection ring — always visible for the selected landmark.
+      if (selected && !behind) {
+        L.ring.style.display = "block";
+        L.ring.style.left = clamp(p.x, m, w - m) + "px";
+        L.ring.style.top = clamp(p.y, m, h - m) + "px";
+      } else {
+        L.ring.style.display = "none";
+      }
+
+      if (wantLabel && !behind) {
+        // Offset the label up-and-out, then clamp inside the viewport.
+        var offx = p.x < w / 2 ? 34 : -34;
+        var lx = clamp(p.x + offx, m + 40, w - m - 40);
+        var ly = clamp(p.y - 26, m + 12, h - m - 12);
+        L.label.style.display = "block";
+        L.label.style.left = lx + "px";
+        L.label.style.top = ly + "px";
+        L.label.classList.toggle("dim", !selected);
+        L.leader.style.display = "block";
+        L.leader.setAttribute("x1", p.x); L.leader.setAttribute("y1", p.y);
+        L.leader.setAttribute("x2", lx); L.leader.setAttribute("y2", ly);
+      } else {
+        L.label.style.display = "none";
+        L.leader.style.display = "none";
+      }
+    });
+
+    // Measurement badges: show only lines linked to the current landmark,
+    // placed outside the bone silhouette (offset away from joint center).
+    var cur = landmarks[currentName].data;
+    var linked = cur.measurement_lines || [];
+    Object.keys(lines).forEach(function (id) {
+      var Ln = lines[id];
+      var on = linked.indexOf(id) !== -1;
+      Ln.line.material.opacity = on ? 1 : 0.28;
+      if (on) {
+        var p = project(Ln.mid);
+        if (p.z <= 1 && p.z >= -1) {
+          var cx = (canvas.clientWidth || 1) / 2, cy = (canvas.clientHeight || 1) / 2;
+          var ox = p.x - cx, oy = p.y - cy;
+          var mag = Math.hypot(ox, oy) || 1;
+          Ln.badge.style.display = "block";
+          Ln.badge.style.left = clamp(p.x + ox / mag * 26, 30, (canvas.clientWidth || 1) - 30) + "px";
+          Ln.badge.style.top = clamp(p.y + oy / mag * 26, 14, (canvas.clientHeight || 1) - 14) + "px";
+        } else {
+          Ln.badge.style.display = "none";
+        }
+      } else {
+        Ln.badge.style.display = "none";
+      }
+    });
+  }
 
   // --- Render loop / resize ------------------------------------------------
   function resize() {
@@ -1499,157 +1813,200 @@ window.REVIEW_EVIDENCE = {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    var svg = document.getElementById("leader-layer");
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
   }
-  var camLerp = null;
   function animate() {
     requestAnimationFrame(animate);
     if (camLerp) {
-      camLerp.t += 0.06;
-      var k = Math.min(camLerp.t, 1);
-      camera.position.lerpVectors(camLerp.from, camLerp.to, k);
-      controls.target.lerpVectors(camLerp.tFrom, camLerp.tTo, k);
+      camLerp.t += 0.055;
+      var k = camLerp.t < 1 ? camLerp.t : 1;
+      var e = k * k * (3 - 2 * k); // smoothstep
+      camera.position.lerpVectors(camLerp.from, camLerp.to, e);
+      controls.target.lerpVectors(camLerp.tFrom, camLerp.tTo, e);
       if (k >= 1) camLerp = null;
     }
     controls.update();
+    updateMarkerScales();
     renderer.render(scene, camera);
+    updateOverlay();
   }
   resize();
   window.addEventListener("resize", resize);
   animate();
 
-  // --- Guided tour ---------------------------------------------------------
-  var order = landmarkList.map(function (l) { return l.name; });
-  var step = 0;
-  var chipsEl = document.getElementById("tour-chips");
-  order.forEach(function (name, i) {
-    var chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "tour-chip";
-    chip.textContent = name;
-    chip.addEventListener("click", function () { goStep(i); });
-    chipsEl.appendChild(chip);
-  });
+  // Resize the existing renderer/camera — never recreate the GL context.
+  canvas.addEventListener("webglcontextlost", function (e) { e.preventDefault(); }, false);
+  canvas.addEventListener("webglcontextrestored", function () { resize(); }, false);
 
-  function flyTo(name) {
-    var l = landmarks[name];
-    if (!l) return;
-    var p = l.mesh.position;
-    var dir = camera.position.clone().sub(controls.target).normalize();
-    camLerp = {
-      t: 0,
-      from: camera.position.clone(),
-      to: p.clone().add(dir.multiplyScalar(3.2)),
-      tFrom: controls.target.clone(),
-      tTo: p.clone(),
-    };
-  }
+  // --- Cursor + onboarding hint -------------------------------------------
+  canvas.addEventListener("pointerdown", function () { canvas.classList.add("grabbing"); });
+  window.addEventListener("pointerup", function () { canvas.classList.remove("grabbing"); });
+  var hint = document.getElementById("scene-hint");
+  function dismissHint() { if (hint) hint.hidden = true; }
+  document.getElementById("hint-dismiss").addEventListener("click", dismissHint);
+  controls.addEventListener("start", dismissHint);
 
-  function goStep(i) {
-    step = (i + order.length) % order.length;
-    var name = order[step];
-    var lm = landmarks[name].data;
-    document.getElementById("tour-step").textContent = "Step " + (step + 1) + " of " + order.length;
-    document.getElementById("tour-title").textContent = name + "  ·  " + lm.confidence;
-    document.getElementById("tour-rule").textContent = lm.operational_rule;
-    // highlight the current landmark, dim the measurement labels not linked
-    order.forEach(function (n) {
-      landmarks[n].mesh.material.emissiveIntensity = n === name ? 0.9 : 0.35;
-    });
-    var contributes = lm.contributes_to || [];
-    Object.keys(lines).forEach(function (id) {
-      var linked = (landmarks[name].data.measurement_lines || []).indexOf(id) !== -1 ||
-        contributes.indexOf(decisive.id) !== -1;
-      lines[id].line.material.opacity = linked ? 1 : 0.35;
-      lines[id].line.material.transparent = true;
-    });
-    chipsEl.querySelectorAll(".tour-chip").forEach(function (c, ci) {
-      c.classList.toggle("active", ci === step);
-    });
-    flyTo(name);
-    exitAdjust();
-  }
-  document.getElementById("tour-prev").addEventListener("click", function () { goStep(step - 1); });
-  document.getElementById("tour-next").addEventListener("click", function () { goStep(step + 1); });
+  // --- Scene controls ------------------------------------------------------
+  document.getElementById("btn-reset").addEventListener("click", function () { flyTo(defaultPose()); });
+  document.getElementById("btn-front").addEventListener("click", function () { flyTo(dirPose(0.05, 0.12, 1)); });
+  document.getElementById("btn-side").addEventListener("click", function () { flyTo(dirPose(1, 0.14, 0.12)); });
+  document.getElementById("btn-zoom-in").addEventListener("click", function () { snapZoom(0.82); });
+  document.getElementById("btn-zoom-out").addEventListener("click", function () { snapZoom(1.22); });
 
-  // --- Adjust-landmark mode (after inspection) -----------------------------
+  // --- Raycast: click a marker to select it -------------------------------
   var raycaster = new THREE.Raycaster();
-  raycaster.params.Points = raycaster.params.Points || {};
   var pointer = new THREE.Vector2();
-  var adjusting = false;
-  var dragging = null;
-  var dragPlane = new THREE.Plane();
-  var btnAdjust = document.getElementById("btn-adjust");
-
+  var downXY = null;
   function setPointer(ev) {
     var r = canvas.getBoundingClientRect();
     pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
     pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
   }
-  function exitAdjust() {
-    adjusting = false;
-    dragging = null;
-    controls.enabled = true;
-    btnAdjust.classList.remove("active");
-    btnAdjust.textContent = "Adjust landmark";
-  }
-  btnAdjust.addEventListener("click", function () {
-    adjusting = !adjusting;
-    btnAdjust.classList.toggle("active", adjusting);
-    btnAdjust.textContent = adjusting ? "Done adjusting" : "Adjust landmark";
-  });
-
-  canvas.addEventListener("pointerdown", function (ev) {
-    if (!adjusting) return;
+  function pickName(ev) {
     setPointer(ev);
     raycaster.setFromCamera(pointer, camera);
-    var current = landmarks[order[step]].mesh;
-    var hit = raycaster.intersectObject(current, false);
-    if (hit.length > 0) {
-      dragging = current;
-      controls.enabled = false;
-      var normal = camera.getWorldDirection(new THREE.Vector3()).negate();
-      dragPlane.setFromNormalAndCoplanarPoint(normal, dragging.position);
-      canvas.setPointerCapture(ev.pointerId);
-    }
+    var hits = raycaster.intersectObjects(hitMeshes, false);
+    return hits.length ? hits[0].object.userData.landmark : null;
+  }
+  canvas.addEventListener("pointerdown", function (ev) { downXY = [ev.clientX, ev.clientY]; });
+  canvas.addEventListener("pointerup", function (ev) {
+    if (!downXY) return;
+    var moved = Math.hypot(ev.clientX - downXY[0], ev.clientY - downXY[1]);
+    downXY = null;
+    if (moved > 6) return; // that was a drag-rotate, not a click
+    var name = pickName(ev);
+    if (name) goStep(order.indexOf(name));
   });
   canvas.addEventListener("pointermove", function (ev) {
-    if (!dragging) return;
-    setPointer(ev);
-    raycaster.setFromCamera(pointer, camera);
-    var pt = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(dragPlane, pt)) {
-      dragging.position.copy(pt);
-      recomputeLines();
-    }
+    var name = pickName(ev);
+    hoverName = name;
   });
-  function endDrag(ev) {
-    if (!dragging) return;
-    try { canvas.releasePointerCapture(ev.pointerId); } catch (e) {}
-    dragging = null;
-    controls.enabled = adjusting ? true : true;
-  }
-  canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", endDrag);
 
-  goStep(0);
+  // --- Guided landmark tour -----------------------------------------------
+  // Order by concern: review-flagged / lower confidence first.
+  var CONF_RANK = { low: 0, medium: 1, high: 2 };
+  order.sort(function (a, b) {
+    var la = landmarks[a].data, lb = landmarks[b].data;
+    var fa = (la.flags || []).length ? 0 : 1, fb = (lb.flags || []).length ? 0 : 1;
+    if (fa !== fb) return fa - fb;
+    return (CONF_RANK[la.confidence] || 3) - (CONF_RANK[lb.confidence] || 3);
+  });
 
-  // --- Tabs: 3D (primary) / Advanced slices / Values -----------------------
-  var tabs = [
-    { btn: "tab-3d", panel: "panel-3d" },
-    { btn: "tab-slices", panel: "panel-slices" },
-    { btn: "tab-values", panel: "panel-values" },
-  ];
-  function showTab(id) {
-    tabs.forEach(function (t) {
-      var on = t.btn === id;
-      document.getElementById(t.btn).classList.toggle("active", on);
-      document.getElementById(t.panel).hidden = !on;
+  var step = 0;
+  var visited = {};
+  var chipsEl = document.getElementById("tour-chips");
+  function confColor(conf) { return conf === "high" ? "#7fd0a0" : "#e6b04d"; }
+  order.forEach(function (name, i) {
+    var lm = landmarks[name].data;
+    var chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "tour-chip";
+    var dot = document.createElement("span");
+    dot.className = "conf-dot";
+    dot.style.background = confColor(lm.confidence);
+    chip.appendChild(dot);
+    chip.appendChild(document.createTextNode(humanize(name)));
+    chip.addEventListener("click", function () { goStep(i); });
+    chipsEl.appendChild(chip);
+  });
+
+  var elStep = document.getElementById("tour-step");
+  var elTitle = document.getElementById("tour-title");
+  var elId = document.getElementById("tour-id");
+  var elConf = document.getElementById("tour-conf");
+  var elRule = document.getElementById("tour-rule");
+  var elComplete = document.getElementById("tour-complete");
+  var btnPrev = document.getElementById("tour-prev");
+  var btnNext = document.getElementById("tour-next");
+
+  function goStep(i) {
+    step = (i + order.length) % order.length;
+    var name = order[step];
+    currentName = name;
+    visited[name] = true;
+    var lm = landmarks[name].data;
+
+    elStep.textContent = "Step " + (step + 1) + " of " + order.length;
+    elTitle.textContent = humanize(name);
+    elId.textContent = name;
+    elConf.textContent = lm.confidence + (((lm.flags || []).length) ? " · review" : "");
+    elConf.style.background = "color-mix(in srgb, " + confColor(lm.confidence) + " 30%, #fff)";
+    elConf.style.color = lm.confidence === "high" ? "#1f8a4c" : "#8a5a00";
+    elRule.textContent = lm.operational_rule;
+
+    chipsEl.querySelectorAll(".tour-chip").forEach(function (c, ci) {
+      c.classList.toggle("active", ci === step);
+      c.classList.toggle("done", !!visited[order[ci]]);
     });
+
+    // Completion state: all landmarks reviewed → offer a restart.
+    var allSeen = order.every(function (n) { return visited[n]; });
+    if (allSeen) {
+      elComplete.hidden = false;
+      elComplete.textContent = "✓ All " + order.length + " landmarks reviewed.";
+      btnNext.textContent = "Restart ↻";
+      btnNext.classList.add("primary");
+    } else {
+      elComplete.hidden = true;
+      btnNext.textContent = "Next ›";
+      btnNext.classList.remove("primary");
+    }
+
+    flyTo(poseForLandmark(name));
+  }
+  btnPrev.addEventListener("click", function () { goStep(step - 1); });
+  btnNext.addEventListener("click", function () {
+    var allSeen = order.every(function (n) { return visited[n]; });
+    if (allSeen && step === order.length - 1) { visited = {}; goStep(0); }
+    else goStep(step + 1);
+  });
+
+  // Mobile: collapse the tour into a compact header (bottom-sheet feel).
+  var tourbar = document.getElementById("tourbar");
+  var collapseBtn = document.getElementById("tour-collapse");
+  collapseBtn.addEventListener("click", function () {
+    var collapsed = tourbar.classList.toggle("collapsed");
+    this.textContent = collapsed ? "▴" : "▾";
+    if (activeTab === "tab-3d") resize();
+  });
+  // Mobile: the tour opens as a compact bottom sheet so the scene fills the
+  // viewport; the reviewer taps the handle to read the rule + step chips.
+  if (window.matchMedia && window.matchMedia("(max-width: 700px)").matches) {
+    tourbar.classList.add("collapsed");
+    collapseBtn.textContent = "▴";
+  }
+
+  // --- Tabs (Slices only when a volume is shipped) ------------------------
+  var tabDefs = [{ btn: "tab-3d", panel: "panel-3d", label: "3D scene" }];
+  if (HAS_VOLUME) tabDefs.push({ btn: "tab-slices", panel: "panel-slices", label: "Advanced slices" });
+  tabDefs.push({ btn: "tab-values", panel: "panel-values", label: "Values" });
+
+  var tabsEl = document.getElementById("tabs");
+  tabDefs.forEach(function (t, i) {
+    var b = document.createElement("button");
+    b.id = t.btn;
+    b.type = "button";
+    b.textContent = t.label;
+    if (i === 0) b.className = "active";
+    b.addEventListener("click", function () { showTab(t.btn); });
+    tabsEl.appendChild(b);
+  });
+
+  var activeTab = "tab-3d";
+  function showTab(id) {
+    activeTab = id;
+    tabDefs.forEach(function (t) {
+      var on = t.btn === id;
+      var btn = document.getElementById(t.btn);
+      if (btn) btn.classList.toggle("active", on);
+      var panel = document.getElementById(t.panel);
+      if (panel) panel.hidden = !on;
+    });
+    // Tour bar belongs to the 3D scene only.
+    tourbar.style.display = id === "tab-3d" ? "" : "none";
     if (id === "tab-3d") resize();
   }
-  tabs.forEach(function (t) {
-    document.getElementById(t.btn).addEventListener("click", function () { showTab(t.btn); });
-  });
 
   // Values tab body.
   var vbody = document.getElementById("values-body");
@@ -1665,6 +2022,7 @@ window.REVIEW_EVIDENCE = {
   document.getElementById("interpretation").textContent =
     EV.interpretation.stage + " (" + EV.interpretation.confidence + " confidence) — " + EV.interpretation.basis;
 
+  goStep(0);
   showTab("tab-3d");
 })();
 

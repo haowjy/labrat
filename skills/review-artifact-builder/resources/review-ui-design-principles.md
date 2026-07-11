@@ -52,9 +52,10 @@ image). The simplest case. Evidence + interaction + notes in one viewport.
 
 **Multi-pane** — a primary 3D scene with optional secondary views behind
 tabs. For micro-CT: the 3D scene is the hero; orthogonal 2D slices (axial,
-coronal, sagittal) live behind an "Advanced slices" tab when shipped. When
-present they link — selecting a landmark in 3D scrolls the slices to that
-position; adjusting a landmark updates the measurement lines live.
+coronal, sagittal) live behind an "Advanced slices" tab when shipped, and
+hidden entirely when no volume is exported. When present they link —
+selecting a landmark (or a tour step) scrolls the slices to that position and
+centers the crosshair. The surface is read-only: rotate, examine, tour, read.
 
 **On mobile:** multi-pane collapses to preview panels. Show preview
 thumbnails of the panes (the screen can't fit 4 usable interactive
@@ -204,10 +205,14 @@ review component supports a specific inspection loop:
 2. **Walk the guided tour.** Step through each landmark (Prev/Next, "Step N
    of M"), lowest confidence first, with its operational rule. The camera
    frames each landmark; verify the placement against the rule.
-3. **Adjust where the evidence demands it.** After inspection, enter
-   adjust-landmark mode and drag a landmark — the measurement lines and the
-   derived ratio recompute live, so "the line ends in the wrong place" is
-   visible and correctable.
+3. **Read the decisive evidence.** The evidence banner leads with the
+   result — big ratio, the cutoff it crosses, the signed delta, and a
+   labelled review/confidence status; the Values tab holds the full table.
+   The artifact is **read-only**: the reviewer verifies each placement
+   against its operational rule and, if the evidence is wrong, comments and
+   marks the phase for revision through the shell rather than editing
+   landmarks in-scene (in-scene editing recomputes the line/ratio while the
+   banner and Values stay put — an internally inconsistent review surface).
 4. **Drill into slices only if needed.** When the optional Advanced-slices
    tab is shipped, expand the orthogonal slices (axial, coronal, sagittal)
    to confirm slice-by-slice what a clean 3D surface can hide — a bled label
