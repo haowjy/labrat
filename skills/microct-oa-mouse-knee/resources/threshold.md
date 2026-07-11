@@ -1,17 +1,23 @@
 # Threshold — Scanco mouse-knee bone mask
 
-## Methodology
+## Procedure
 
-Subphase **threshold** of the segmentation phase. Builds the liberal bone mask
-and strict opened markers that feed watershed bone splitting.
+Subphase **threshold** of segmentation. Builds the liberal bone mask and strict
+opened markers that feed watershed splitting. The mask captures every mineralized
+structure — the two bones plus the ossified soft tissue this protocol also labels
+(sesamoids, osteophytes, peri-meniscal calcification) — which watershed and
+bone-assignment then separate. The general thresholding method
+(fixed-HU rationale, why bone is high-contrast) is in
+`microct-3d-analysis/resources/segmentation.md`; this resource adds the Scanco
+parameters.
 
-**Entry point** (full pipeline — preferred; proven on OA6-1RK):
+**Entry point** (the full segmentation pipeline runs this subphase first):
 
 ```python
 from microct_analysis.stages.segmentation import run_segmentation
 
 report = run_segmentation(
-    dicom_path="input/OA6-1RK",
+    dicom_path="input/<series-dir>",
     output_dir="segmentation",
     scanner="auto",
     threshold_method="histogram",
@@ -19,61 +25,50 @@ report = run_segmentation(
 )
 ```
 
-**Threshold-specific processing** (inside `run_segmentation`):
-
-- `microct_analysis.processing.dicom.load_dicom` — reload + isotropic resample
-  (`processing.resample`) when starting from DICOM
-- `microct_analysis.processing.preprocess.median_filter` — 3×3×3 median on intensity
-- `microct_analysis.processing.calibration.analyze_segmentation_histogram`
-- `microct_analysis.processing.calibration.derive_segmentation_thresholds`
-- `microct_analysis.processing.threshold.binary_mask` — liberal mask + strict markers
-- `microct_analysis.processing.threshold` marker percentile defaults via calibration
+Threshold-specific processing inside the driver: `processing.dicom.load_dicom`
+(reload + isotropic resample), `processing.preprocess.median_filter` (3×3×3),
+`processing.calibration.{analyze_segmentation_histogram,
+derive_segmentation_thresholds}`, `processing.threshold.binary_mask` (liberal
+mask + strict markers).
 
 **Study-specific parameters (Tang / Scanco):**
 
-- Use **scanner profile thresholds**, not Amira HU. From `ground_truth.json`:
-  Scanco unitless values **220 / 320 / 270** for soft-tissue / 3D / cortical-plate
-  contexts. The driver selects profile values when `scanner="auto"`.
-- `threshold_method="histogram"` matches the proven runtime-proof recipe.
+- Use **scanner-profile thresholds**, not Amira HU. Scanco unitless values are
+  ~220 / 320 / 270 for soft-tissue / 3D / cortical-plate contexts; the driver
+  selects them when `scanner="auto"`.
+- `threshold_method="histogram"` is the proven recipe.
 
-**Performance note:** first full segmentation pass on OA6-1RK took **~318 s**
-wall time and **~12.4 GiB** peak RSS (`runtime-proof/proof-summary.json`). Plan
-for long Bash subprocess timeouts.
+**Performance:** the first full segmentation pass is heavy — on the demo fixture
+it ran ~318 s wall and ~12.4 GiB peak RSS. Plan for long Bash subprocess
+timeouts; scale expectations to the scan size, don't assume the fixture's.
 
-**Outputs at this subphase** (partial — full stage completes all subphases):
-
-- `segmentation/filtered.nii.gz` — median-filtered intensity
-- Threshold observations embedded in `segmentation/metadata.json` →
-  `threshold_observations`, `workflow_threshold_comparison`
-
-Mark subphase `threshold` **pass** only after `filtered.nii.gz` exists and
-metadata records finite threshold values.
+**Outputs at this subphase:** `segmentation/filtered.nii.gz` (median-filtered
+intensity) and `threshold_observations` in `segmentation/metadata.json`. Mark
+`threshold` pass only after `filtered.nii.gz` exists and metadata records finite
+threshold values.
 
 ## Verification
 
-**Correct output looks like:**
+**Look first.** Overlay the bone mask on a mid-stack slice of the filtered
+volume. The mask should trace the cortical shell — following the bone surface,
+not bleeding into soft tissue and not eaten away inside dense cortex. A mask
+that floods the marrow or drops the shell is a wrong threshold, whatever the
+numbers say.
 
-- `segmentation/filtered.nii.gz` same ZYX shape as loaded scan (877×520×517 on demo)
-- `segmentation/metadata.json` contains `threshold_observations` with positive
-  liberal/strict values appropriate to Scanco unitless scale (order 10², not HU 10³)
-- Bone mask is non-empty: >1% of voxels above liberal threshold in a mid-stack slice
-- `compare_thresholds` in metadata shows workflow expectations documented
+**Then the derivation:**
 
-**Reviewer computes:**
+1. `segmentation/filtered.nii.gz` matches the loaded scan's ZYX shape; NIfTI
+   header zooms ≈ 0.0105 mm isotropic after resample.
+2. `metadata.json` → `threshold_method` is `histogram` (or a documented
+   override); `threshold_observations` are on the Scanco unitless scale
+   (order 10², not HU 10³).
+3. Bone mask non-empty and not saturated: a few percent of voxels above the
+   liberal threshold in a mid-stack slice, intensity p50/p90 in a plausible
+   Scanco range (no all-zero volume, no flat field).
+4. If `flags` contains `histogram-not-bimodal`, the subphase may still pass with
+   `confidence: medium` when the seeds path is planned — not a hard fail.
 
-1. Load `filtered.nii.gz`; assert `shape[0] == 877` for OA6-1RK fixture.
-2. Parse `metadata.json` → confirm `threshold_method` is `histogram` or documented override.
-3. **Histogram flag check** — if `flags` contains `histogram-not-bimodal`, subphase may
-   still pass with `confidence: medium` when seeds path is planned (not a hard fail).
-4. **Intensity sanity** — p50/p90 of filtered volume within plausible Scanco range
-   (no all-zero volume; no saturated flat field).
-5. Zooms from NIfTI header ≈ **0.0105 mm** isotropic after resample.
-
-**Failure modes:**
-
-- `histogram-not-bimodal` — thresholds unreliable; expect `needs-seeds` + seed-review
-- `missing-profile` / `unknown-scanner` — wrong threshold family
-- Empty bone mask — threshold too high or load failure
-- Anisotropic input resampled (`anisotropic-resampled` flag) — note in decisions
-
-**Ground-truth gates:** `voxel_size_um` (spacing in NIfTI header).
+**Failure modes:** `histogram-not-bimodal` (thresholds unreliable → expect
+`needs-seeds` + seed-review); `missing-profile`/`unknown-scanner` (wrong
+threshold family); empty bone mask (threshold too high or load failure);
+`anisotropic-resampled` flag (note in decisions).

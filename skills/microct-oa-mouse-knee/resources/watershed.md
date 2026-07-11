@@ -1,35 +1,30 @@
 # Watershed — femur/tibia split at the joint line
 
-## Methodology
+## Procedure
 
 Subphase **watershed** of segmentation. Separates the fused distal femur and
-proximal tibia that share one connected component after thresholding.
+proximal tibia that share one connected component after thresholding. The
+general seeded-watershed method (markers, distance transform, cut quality) is in
+`microct-3d-analysis/resources/segmentation.md`. This resource adds only the
+mouse-knee joint context: femur and tibia touch at the tibiofemoral interface;
+the cut must land at that constriction, not through shaft cortex.
 
-**Processing chain** (inside `run_segmentation` after threshold):
+Processing inside `run_segmentation` after threshold:
+`processing.segmentation.{connected_components, extract_label, seed_from_region,
+watershed_segment}`, `processing.watershed` (grow markers, prune disconnected
+CCs), `processing.sanity.check`.
 
-- `microct_analysis.processing.segmentation.connected_components` — component labeling
-- `microct_analysis.processing.segmentation.extract_label` — component extraction
-- `microct_analysis.processing.segmentation.seed_from_region` — diaphyseal seed cores
-- `microct_analysis.processing.segmentation.watershed_segment` — marker watershed on distance transform
-- `microct_analysis.processing.watershed` — grow markers, prune disconnected CCs
-- `microct_analysis.processing.sanity.check` — segmentation sanity warnings
+**First-pass behavior is often `needs-seeds`, and that is expected.** An
+unseeded run on ambiguous identity returns `status: needs-seeds` with flags like
+`calibration-unverified` / `ambiguous-bone-identity` — not a failure. Watershed
+still writes `segmentation/components.nii.gz` and `segmentation/seeds.json` for
+seed-review. (On the demo fixture the first pass returned exactly this.)
 
-Domain methodology for seeded watershed on bone CT lives in
-`microct-3d-analysis/resources/segmentation.md` (parent skill). This protocol
-adds only the mouse-knee joint context: adjacent femur/tibia touch at the
-tibiofemoral interface; the cut must land at the constriction, not through shaft cortex.
-
-**First-pass behavior (proven):** unseeded run on OA6-1RK returned
-`status: needs-seeds` with flags `calibration-unverified` and
-`ambiguous-bone-identity`. That is **expected** before seed curation — not a
-watershed failure. Watershed still produces `segmentation/components.nii.gz` and
-`segmentation/seeds.json` for seed-review.
-
-**Re-run with seeds** (after seed-review phase):
+**Re-run with curated seeds** (after seed-review):
 
 ```python
 run_segmentation(
-    dicom_path="input/OA6-1RK",
+    dicom_path="input/<series-dir>",
     output_dir="segmentation",
     scanner="auto",
     threshold_method="histogram",
@@ -38,52 +33,50 @@ run_segmentation(
 )
 ```
 
-Second pass should reach `status: ready` with `ambiguity-resolved-via-seeds` in flags.
+The seeded pass should reach `status: ready` with `ambiguity-resolved-via-seeds`.
 
 ## Verification
 
-**Correct output looks like:**
+**Look first.** Render femur and tibia in distinct colors and rotate. They
+should meet at a thin band at the joint line, each a single clean solid. Two
+merged shafts, a cut through mid-diaphysis, or a bone in pieces is visible
+immediately — find it here before trusting any count.
 
-- After seeds resolved: `segmentation/labels.nii.gz` with exactly labels **0, 1, 2**
-  (background, femur, tibia) for this protocol
-- `segmentation/metadata.json` → `pruning_stats` shows disconnected fragments removed
-- No `articular-bridging-suspected` without documented review (osteophyte bridge)
-- Joint interface localized — femur and tibia masks meet at a thin band, not merged shafts
+**Then the structural gate (this is the critical, always-on check):**
 
-**Reviewer computes:**
-
-1. **Label inventory** — `np.unique(labels)` ⊆ `{0,1,2}`; femur and tibia voxel counts > 0.
-2. **Connected-components gate (critical demo check)** — for each bone in
-   `structure_assignments.json` → `assignments`:
+1. **Label inventory** — femur and tibia labels present with voxel counts > 0
+   (the watershed split target). Other structure labels may also be present
+   (patella, menisci, osteophytes, sesamoids, assigned in bone-assignment) —
+   they are not required at this subphase.
+2. **Connected components — each bone is exactly one.** This is a *process*
+   check (a real bone is one solid), not a specimen measurement:
 
    ```python
    from scipy import ndimage
-   import nibabel as nib, numpy as np
+   import nibabel as nib, numpy as np, json
 
    labels = np.asanyarray(nib.load("labels.nii.gz").dataobj)
    assigns = json.load(open("segmentation/structure_assignments.json"))["assignments"]
-   for bone, lid in assigns.items():
+   for bone in ("femur", "tibia"):        # CC == 1 required only for the measured bones
+       lid = assigns[bone]
        _, n = ndimage.label(labels == int(lid))
        assert n == 1, f"{bone} label {lid}: {n} components (expected 1)"
+   # menisci / osteophytes / sesamoids may be multi-component (scattered calcification)
    ```
 
-   Equivalent: `microct_analysis.processing.rendering.validate_segmentation_for_landmarking(labels, assignments)`.
+   Equivalent:
+   `processing.rendering.validate_segmentation_for_landmarking(labels, assignments)`.
+   **Do not pass watershed or bone-assignment while any bone's CC ≠ 1.** (On the
+   demo fixture, femur came back as 4 components — 3 sub-100-voxel specks — until
+   largest-CC cleanup ran. That defect is exactly what this gate exists to
+   catch.)
+3. **Interface localized** — femur/tibia bounding-box overlap ≤ 20% of the
+   smaller bbox; no bone label touches more than 2 volume faces (FOV crop).
+4. If `needs-seeds` on the first pass only: confirm `components.nii.gz` and
+   `seeds.json` exist; watershed passes with `confidence: low` pending
+   seed-review.
 
-   **Proven defect on OA6-1RK:** femur (label 1) had **4** connected components after
-   seed replay — this gate **must fail** until pruning/merge is fixed. Do not mark
-   watershed or bone-assignment pass while femur CC ≠ 1 or tibia CC ≠ 1.
-
-3. **BBox overlap** — femur/tibia bounding-box overlap ≤ **20%** of smaller bbox
-   volume (`validate_segmentation_for_landmarking` check 2).
-4. **Boundary touch** — no bone label touches >2 volume faces (FOV crop detection).
-5. If `needs-seeds` on first pass only: verify `components.nii.gz` and `seeds.json`
-   exist; watershed subphase passes with `confidence: low` pending seed-review.
-
-**Failure modes:**
-
-- Multiple CC per bone — fragmentation, wrong seeds, incomplete pruning (gate fail)
-- `articular-bridging-suspected` — osteophyte connects bones; may need manual seeds
-- Wide interface band — seeds on wrong axis (see parent `segmentation.md` cut-quality)
-- `pruning-dropped-bone:*` flags — a bone lost entirely
-
-**Ground-truth gates:** none directly (geometry gates at landmarks/measurement).
+**Failure modes:** multiple CC per bone (fragmentation / wrong seeds /
+incomplete pruning — gate fail); `articular-bridging-suspected` (an osteophyte
+connects the bones — may need manual seeds); wide interface band (seeds on the
+wrong axis); `pruning-dropped-bone:*` (a bone lost entirely).

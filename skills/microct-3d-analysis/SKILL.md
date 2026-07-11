@@ -60,7 +60,7 @@ Three complementary checks catch different errors — run all three:
   structure it names, when you look at the render (ideally next to the paper's
   reference figure)?
 
-The frozen heuristics in `bonemorph/geometry.py` are **first-guess seeds**, not
+The frozen heuristics in `voxbone/geometry.py` are **first-guess seeds**, not
 final answers. The full method is in `resources/reference-calibration.md` —
 read it first; it is the heart of this skill.
 

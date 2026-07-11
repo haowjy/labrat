@@ -19,7 +19,7 @@ import { cspConfirmsNoConnect } from "./csp.js";
  * run data, and a manifest that names the run the site was built from and the
  * `verdict_schema` the trusted shell will emit under (G7). The site itself
  * exports NOTHING — a self-download/export sink is a G5 hard-fail (F2/F3);
- * export lives in the shell. It knows nothing about bonemorph / 3D / Plotly, so
+ * export lives in the shell. It knows nothing about voxbone / 3D / Plotly, so
  * it gates any protocol's review site identically.
  *
  * THE BOUNDARY IS NOT THE LINTER ALONE (read this — it is NOT redundant with the CSP).

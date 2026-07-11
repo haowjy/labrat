@@ -1,10 +1,10 @@
 # Measurement — Tang OA geometric indices (final)
 
-## Methodology
+## Procedure
 
-Compute published geometric indices from placed landmarks and segmentation
-labels. ROI/trabecular morphometry is **stubbable** for the hackathon demo
-(design §15) — this phase focuses on core femoral W/L and tibial IIOC indices.
+Compute the published geometric indices from the placed landmarks and the
+segmentation labels. Trabecular/ROI morphometry is stubbable for the demo; this
+phase computes the core femoral W/L and tibial IIOC indices.
 
 **Primary driver:**
 
@@ -13,86 +13,79 @@ from microct_analysis.stages.measurement import run_measurement
 
 report = run_measurement(
     landmark_artifacts={"positions": "landmarks/positions.json"},
-    roi_artifacts={},  # empty when ROI phase skipped
+    roi_artifacts={},                       # empty when ROI is skipped
     segmentation_artifacts={"labels": "labels.nii.gz"},
-    workflow_measurements=WORKFLOW_MEASUREMENTS,  # from mouse-knee OA fixture
+    workflow_measurements=WORKFLOW_MEASUREMENTS,   # mouse-knee OA fixture
     workflow_roi_defs=[],
-    spacing=(0.0105, 0.0105, 0.0105),
+    spacing=<from spacing.json>,
     output_dir="measurements",
 )
 ```
 
-**Measurement functions** (`measurements/geometry.py` via driver):
-
 | Index | Kind | Function |
 |-------|------|----------|
-| `distal_femoral_length` | `surface_distance` or `distance` | `compute_surface_distance` / `compute_distance` |
-| `distal_femoral_width` | `surface_distance` | `compute_surface_distance` |
-| `distal_femoral_ratio` | `ratio` | `compute_ratio` |
-| `tibial_width` | `frontal_projected_width` | `compute_frontal_projected_width` |
-| `tibial_iioc_height` | `boundary_slice_count` | `compute_boundary_slice_count` × voxel mm |
-| `tibial_iioc_ratio` | `ratio` | `compute_ratio` |
+| `distal_femoral_length` | surface_distance / distance | `compute_surface_distance` / `compute_distance` |
+| `distal_femoral_width` | surface_distance | `compute_surface_distance` |
+| `distal_femoral_ratio` | ratio | `compute_ratio` |
+| `tibial_width` | frontal_projected_width | `compute_frontal_projected_width` |
+| `tibial_iioc_height` | boundary_slice_count | `compute_boundary_slice_count` × voxel mm |
+| `tibial_iioc_ratio` | ratio | `compute_ratio` |
 
-**Voxel size for slice-count metrics:** **0.0105 mm** (10.5 µm) per `voxel_size_um.value`.
+Slice-count metrics use the scan's voxel size (10.5 µm on this study). Compile
+specs via `measurements.workflow_binding.compile_measurement_specs`.
 
-**Workflow binding:** compile specs via
-`microct_analysis.measurements.workflow_binding.compile_measurement_specs`.
+**Volumes (from labels, not landmarks).** Compute the patella and peri-meniscal
+volumes directly from the per-structure masks — voxel count × (10.5 µm)³, the
+Material-Statistics approach, not placed points:
 
-**Outputs:**
+| Index | From mask | Unit |
+|-------|-----------|------|
+| `patella_volume` | `masks/patella.nii.gz` | mm³ |
+| `medial_meniscus_volume` | `masks/medial_meniscus.nii.gz` | mm³ |
+| `lateral_meniscus_volume` | `masks/lateral_meniscus.nii.gz` | mm³ |
 
-- `measurements/results.json` — canonical numeric results
-- `measurements/qc_overlays.json` — per-measurement QC payloads
-- `measurements/summary.md` — human-readable table
-- `measurements_final.json` — harness copy of results + gate evaluation
+All three enlarge with age/OA and carry **no diagnostic cutoff** — report the
+number. Emit them as `results.json` entries alongside the geometric indices.
 
-**Agentic validation loop** (mandatory):
-
-Load `assets/ground_truth.json` and gate **every** computed value. Measurement
-driver sets stage confidence `high` internally — **do not trust that**; reviewer
-and worker both apply ground-truth gates explicitly.
-
-```python
-import json
-gt = json.load(open("assets/ground_truth.json"))
-# For each result: assert gate[0] <= value <= gate[1]
-```
+**Outputs:** `measurements/results.json` (canonical numbers),
+`measurements/qc_overlays.json`, `measurements/summary.md`, and
+`measurements_final.json` (harness copy). The driver sets
+stage confidence `high` internally — **do not trust that**; apply the checks
+below explicitly.
 
 ## Verification
 
-**Correct output looks like:**
+**Look first.** Open the QC overlays — each measurement line drawn on the scan
+as it was measured. The femoral width should span condyle to condyle, the length
+should run groove-top to notch, the tibial lines on the max-height frontal
+slice. A line that runs diagonally or lands off the surface is a wrong
+measurement, whatever its value.
 
-- `measurements/results.json` contains all six core measurements with units
-- Ratios are unitless; distances in **mm**
-- `measurements_final.json` includes per-field `gate_pass: true/false` vs `ground_truth.json`
-- QC overlays reference landmark names used in each measurement
+**Then — reproduce the derivation** (check the math and the anatomy, never the
+value against an expected range):
 
-**Reviewer computes (all gates from `assets/ground_truth.json`):**
+1. Recompute W/L from width and length; must match `distal_femoral_ratio`
+   within 1%.
+2. `tibial_iioc_height` ≈ boundary-slice-count × voxel mm.
+3. IIOC ratio = height / width, using the same slice definitions as landmarks.
+4. Voxel size used for mm conversion matches `spacing.json` (10.5 µm here).
+5. Structural invariants hold — CC == 1 per bone; on a normal control the medial
+   and lateral compartment heights are comparable (large asymmetry ⇒ a
+   growth-plate boundary placed too deep on one side).
 
-| Measurement | Gate key | Gate range / threshold |
-|-------------|----------|------------------------|
-| Distal femur length | `distal_femur_length_mm` | **[2.0, 2.7] mm** |
-| Distal femur width | `distal_femur_width_mm` | **[2.3, 4.2] mm** |
-| Femur W/L ratio | `femur_width_length_ratio` | gate **[1.0, 1.8]**; phenotype: normal **< 1.28**, OA **> 1.30** |
-| Tibial width | `tibial_width_mm` | **[2.2, 3.8] mm** |
-| Tibial IIOC max height | `tibial_IIOC_max_height_mm` | **[0.5, 1.2] mm** |
-| Tibial IIOC H/W ratio | `tibial_IIOC_height_width_ratio` | gate **[0.15, 0.40]**; cutoff **0.28** |
-| Compartment heights | `compartment_height_mm` | **[0.3, 1.1] mm** each; medial ≈ lateral |
-| Growth plate thickness | `growth_plate_thickness_mm` | **[0.1, 0.35] mm** |
-| Voxel size consistency | `voxel_size_um` | **10.5 µm** in spacing used for mm conversion |
+**Volumes are only as good as their labels.** Confirm each mask is the clean
+structure on the overlay — patella not fused to the femur, peri-meniscal
+calcification not swallowing the tibial plateau. Medial peri-meniscal volume is
+intrinsically variable; near-zero is normal, not an error.
 
-**Cross-checks:**
+**Interpretation, applied after — not a gate.** With the measurements standing
+on their own evidence, classify: W/L normal <1.28 / OA >1.28 (per-model ROC
+1.245/1.311/1.282); IIOC H/W OA below ~0.28 (per-model 0.285/0.282/0.294) with an
+inconclusive band 0.28–0.30. Report which side the specimen falls on; do not
+adjust the measurement to move it. A value whose *lines* look wrong is still
+wrong — trust the overlay over the number.
 
-1. Recompute W/L from width and length independently; must match `distal_femoral_ratio` within 1%.
-2. `tibial_iioc_height` ≈ `boundary_slice_count × 0.0105 mm`.
-3. IIOC ratio = height / width using same slice definitions as landmarks.
-4. If ROI skipped, trabecular metrics absent — not a failure for geometric-indices demo.
-
-**Failure modes:**
-
-- Length in gate but W/L fails → groove placement wrong (width may be fine)
-- Width in gate but W/L fails → condyle edges wrong
-- IIOC ratio below 0.28 with height still in gate → width underestimated
-- Compartment asymmetry >> 0.2 mm with both in gate → growth plate placement error
-- Values inside gate but biologically implausible for specimen phenotype → flag for human review
-
-**Ground-truth gates:** full `assets/ground_truth.json` — this is the terminal verification surface for the demo.
+**Failure modes:** length looks right but W/L off (groove placement wrong); width
+looks right but W/L off (condyle edges wrong); IIOC ratio low with height right
+(width underestimated); compartment asymmetry (growth-plate placement). Send any
+of these back to landmarks — don't patch the number here.
