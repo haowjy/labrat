@@ -28,7 +28,11 @@ import {
   type TrustBoundaryResult,
 } from "../session/trust-boundary.js";
 import { atomicWriteJson, atomicWriteText } from "../../util/atomic-write.js";
-import { archiveAndResetPhase, invalidateFromPhase } from "./invalidation.js";
+import {
+  archiveAndResetPhase,
+  consumeSendBackVerdict,
+  invalidateFromPhase,
+} from "./invalidation.js";
 import { runReviewArtifactCheck, reviewSiteGateFailure } from "./review-artifact-check.js";
 
 export type GateContext = {
@@ -367,6 +371,15 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
     }
 
     await writeVerdict(ctx.taskDir);
+
+    // The phase re-passed its gate: any pending human send-back mark on it
+    // has been delivered (the re-run worker's prompt carried the note) and is
+    // now consumed — archived to review/verdict/{phase}.attempt-N.json so a
+    // later `rerun` doesn't rewind to this phase again and the stale note
+    // doesn't re-inject into an unrelated re-run. Runs in the orchestrator
+    // AFTER enforceTrustBoundary resolved, so it can't trip the reviewer's
+    // review/verdict/ trust-boundary hash.
+    await consumeSendBackVerdict(ctx.taskDir, ctx.phase.id);
 
     const { started, completed } = ctx.startedAt
       ? { started: ctx.startedAt, completed: new Date().toISOString() }

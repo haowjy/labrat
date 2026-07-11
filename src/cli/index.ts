@@ -185,10 +185,12 @@ async function main(): Promise<void> {
   }
 
   if (command === "rerun") {
-    const taskId = args[1];
-    const fromPhase = args[2];
+    const rerunArgs = args.slice(1).filter((a) => a !== "--force");
+    const force = args.includes("--force");
+    const taskId = rerunArgs[0];
+    const fromPhase = rerunArgs[1];
     if (!taskId) {
-      console.error("Usage: labrat rerun <task-id> [from-phase]");
+      console.error("Usage: labrat rerun <task-id> [from-phase] [--force]");
       process.exit(1);
     }
 
@@ -196,8 +198,9 @@ async function main(): Promise<void> {
     // uses: invalidate from the sent-back phase (or explicit from-phase) and
     // resume. Without a from-phase, rerun re-runs the earliest phase carrying
     // a human `changes_requested` verdict (dashboard "Send back" writes it).
+    // Refuses a task that is still `running` unless --force is passed.
     console.log(`rerun ${taskId}${fromPhase ? ` from=${fromPhase}` : ""}`);
-    const result = await rerunTask(taskId, fromPhase);
+    const result = await rerunTask(taskId, fromPhase, undefined, undefined, { force });
     console.log(JSON.stringify({
       taskId,
       rerunFrom: result.rerunFrom,
@@ -234,7 +237,7 @@ async function main(): Promise<void> {
   console.error("       labrat skills [--builtins]");
   console.error("       labrat import-skill <name> [--force]");
   console.error("       labrat resume <task-id>");
-  console.error("       labrat rerun <task-id> [from-phase]");
+  console.error("       labrat rerun <task-id> [from-phase] [--force]");
   console.error("       labrat reset-to <task-id> <phase>");
   process.exit(1);
 }

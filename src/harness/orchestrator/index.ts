@@ -2,11 +2,7 @@ import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, type LabratConfig } from "../../config/index.js";
 import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
-import {
-  validateReviewVerdictRecord,
-  validateTaskJson,
-  type ReviewVerdictRecord,
-} from "../../schema/index.js";
+import { validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 import { configureEvents, notifyEvent } from "../events/index.js";
@@ -14,6 +10,7 @@ import {
   loadProtocolByName,
   type LoadedProtocol,
 } from "../protocol-loader/index.js";
+import { readHumanVerdict } from "../review-verdict/index.js";
 import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
 import { runGate } from "./gate.js";
@@ -25,6 +22,7 @@ export { runGate };
 export type { GateContext, RunGateResult };
 export {
   archiveAndResetPhase,
+  consumeSendBackVerdict,
   downstreamPhaseIds,
   invalidateFromPhase,
 } from "./invalidation.js";
@@ -868,12 +866,14 @@ export async function resetTaskToPhaseWithProtocol(
 }
 
 /**
- * The earliest phase (protocol declaration order) carrying a human
+ * The earliest phase (protocol declaration order) carrying a LIVE human
  * `changes_requested` verdict on disk (`review/verdict/{phase}.json`), or
  * null if none is pending. This is the "send back" MARK the human writes
  * through the dashboard; `rerunTask` reads it to know where to re-enter.
  * Only `changes_requested` counts — a `pass`/`fail` verdict is terminal and
- * never re-runs a phase.
+ * never re-runs a phase. Once the re-run re-passes its gate, the mark is
+ * consumed (archived to `{phase}.attempt-N.json` — `consumeSendBackVerdict`,
+ * called from the gate pass path), so it can't trigger a second rewind.
  */
 export async function findSendBackPhase(
   taskDir: string,
@@ -886,41 +886,6 @@ export async function findSendBackPhase(
     }
   }
   return null;
-}
-
-async function readHumanVerdict(
-  taskDir: string,
-  phaseId: string,
-): Promise<ReviewVerdictRecord | null> {
-  const path = join(taskDir, "review", "verdict", `${phaseId}.json`);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(await readFile(path, "utf8"));
-  } catch {
-    return null;
-  }
-  const validated = validateReviewVerdictRecord(raw);
-  return validated.ok ? validated.value : null;
-}
-
-/**
- * The human's send-back note for a phase, ready to thread into the re-run
- * worker's prompt — only when the phase's verdict is `changes_requested`
- * (the re-run signal). Empty notes read through as null so the prompt
- * builder can omit the section entirely. This is the WORKER-side read of
- * `review/verdict/` (human-only, intended); the independent reviewer never
- * reads it (trust boundary, session/trust-boundary.ts).
- */
-export async function readHumanFeedbackNote(
-  taskDir: string,
-  phaseId: string,
-): Promise<string | null> {
-  const record = await readHumanVerdict(taskDir, phaseId);
-  if (record?.human_verdict !== "changes_requested") {
-    return null;
-  }
-  const note = record.notes.trim();
-  return note.length > 0 ? note : null;
 }
 
 /**
@@ -959,6 +924,7 @@ export async function rerunTask(
   fromPhase?: string,
   tasksRoot?: string,
   config: LabratConfig = loadConfig(),
+  opts: { readonly force?: boolean } = {},
 ): Promise<RunTaskResult & { readonly rerunFrom: string }> {
   const { resolve } = await import("node:path");
   const root = tasksRoot ?? join(resolve(process.cwd(), "tasks"));
@@ -967,6 +933,11 @@ export async function rerunTask(
   configureEvents(config.dashboard.url);
 
   const task = await loadTaskJson(taskDir);
+  if (task.state === "running" && !opts.force) {
+    throw new Error(
+      `Task ${taskId} is currently running — rerun would double-run against the same task tree. Wait for it to finish, or pass --force to override.`,
+    );
+  }
   const protocol = await loadProtocolByName(task.protocol, config.scienceHome);
 
   const { phase } = await invalidateForSendBack(taskDir, protocol.yaml, fromPhase);
