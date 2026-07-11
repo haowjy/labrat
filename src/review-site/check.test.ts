@@ -917,6 +917,20 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
     assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
   });
 
+  it("REVIEW_SLICES as the slice-data global passes G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // G9 accepts REVIEW_SLICES in place of REVIEW_VOLUME as the slice-data
+      // global. Rename it everywhere (data_globals, the data_sources key, the
+      // inlined literal, and the render script) so the fixture stays coherent.
+      await edit(dir, "index.html", (s) => s.replaceAll("REVIEW_VOLUME", "REVIEW_SLICES"));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("N/A auto-pass: a values-table manifest (no review_layout) passes G9", async () => {
     // The Lane 0 fixture declares no review_layout — single-pane protocols
     // must be unaffected by G9.
