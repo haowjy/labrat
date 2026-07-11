@@ -1,4 +1,5 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { BackgroundTaskInfo } from "./signals.js";
 
 /** Pull the SDK session id off any message that carries one. */
 export function extractSessionId(msg: SDKMessage): string | undefined {
@@ -43,4 +44,29 @@ export function extractAssistantText(msg: SDKMessage): string | undefined {
 
   const text = parts.join(" ").trim();
   return text.length > 0 ? text : undefined;
+}
+
+/**
+ * Extract background task list from a `background_tasks_changed` system
+ * message. Returns undefined for any other message type.
+ *
+ * The SDK emits these with REPLACE semantics: the `tasks` array is the
+ * full set of live background tasks after the change.
+ */
+export function extractBackgroundTasks(
+  msg: SDKMessage,
+): BackgroundTaskInfo[] | undefined {
+  if (typeof msg !== "object" || msg === null) return undefined;
+  const m = msg as { type?: unknown; subtype?: unknown; tasks?: unknown };
+  if (m.type !== "system" || m.subtype !== "background_tasks_changed")
+    return undefined;
+  if (!Array.isArray(m.tasks)) return undefined;
+
+  return m.tasks.map(
+    (t: { task_id?: string; task_type?: string; description?: string }) => ({
+      taskId: t.task_id ?? "",
+      taskType: t.task_type ?? "",
+      description: t.description ?? "",
+    }),
+  );
 }

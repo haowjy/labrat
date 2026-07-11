@@ -5,6 +5,7 @@ import {
   expectEnum,
   expectNumber,
   expectOptional,
+  expectPositiveInt,
   expectRecord,
   expectString,
   singleError,
@@ -44,6 +45,10 @@ export type LabratConfig = {
     readonly workerStall: number;
     readonly reviewAttempts: number;
     readonly phaseAttempts: number;
+    /** Max continuations when the worker has active background tasks (e.g. a
+     *  long Python script). Each grace turn sends a gentle "continue when
+     *  ready" instead of a stall reminder. */
+    readonly backgroundGraceRetries: number;
   };
 };
 
@@ -80,6 +85,7 @@ type LabratConfigFile = {
     readonly workerStall?: number;
     readonly reviewAttempts?: number;
     readonly phaseAttempts?: number;
+    readonly backgroundGraceRetries?: number;
   };
 };
 
@@ -93,7 +99,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "retries",
 ]);
 const KNOWN_DASHBOARD_KEYS = new Set(["port", "url", "user"]);
-const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts"]);
+const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts", "backgroundGraceRetries"]);
 
 /** Reject unknown keys so a typo (e.g. `defualtModel`) fails loudly instead
  * of being silently dropped, matching the strictness of value validation. */
@@ -192,21 +198,27 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     const workerStall = expectOptional(
       retRec.value["workerStall"],
       "$.retries.workerStall",
-      (v, p) => expectNumber(v, p),
+      (v, p) => expectPositiveInt(v, p),
     );
     if (!workerStall.ok) return workerStall;
     const reviewAttempts = expectOptional(
       retRec.value["reviewAttempts"],
       "$.retries.reviewAttempts",
-      (v, p) => expectNumber(v, p),
+      (v, p) => expectPositiveInt(v, p),
     );
     if (!reviewAttempts.ok) return reviewAttempts;
     const phaseAttempts = expectOptional(
       retRec.value["phaseAttempts"],
       "$.retries.phaseAttempts",
-      (v, p) => expectNumber(v, p),
+      (v, p) => expectPositiveInt(v, p),
     );
     if (!phaseAttempts.ok) return phaseAttempts;
+    const backgroundGraceRetries = expectOptional(
+      retRec.value["backgroundGraceRetries"],
+      "$.retries.backgroundGraceRetries",
+      (v, p) => expectPositiveInt(v, p),
+    );
+    if (!backgroundGraceRetries.ok) return backgroundGraceRetries;
     retries = {
       ...(workerStall.value !== undefined ? { workerStall: workerStall.value } : {}),
       ...(reviewAttempts.value !== undefined
@@ -214,6 +226,9 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
         : {}),
       ...(phaseAttempts.value !== undefined
         ? { phaseAttempts: phaseAttempts.value }
+        : {}),
+      ...(backgroundGraceRetries.value !== undefined
+        ? { backgroundGraceRetries: backgroundGraceRetries.value }
         : {}),
     };
   }
@@ -321,7 +336,7 @@ export function loadConfig(
       url: DEFAULT_DASHBOARD_URL,
       user: userInfo().username,
     },
-    retries: { workerStall: 3, reviewAttempts: 2, phaseAttempts: 2 },
+    retries: { workerStall: 3, reviewAttempts: 2, phaseAttempts: 2, backgroundGraceRetries: 10 },
   };
 
   // Overlay labrat.config.json (search cwd, then the default scienceHome —
@@ -378,6 +393,10 @@ export function loadConfig(
         parsePositiveInt(env["LABRAT_PHASE_ATTEMPTS"]) ??
         file.retries?.phaseAttempts ??
         defaults.retries.phaseAttempts,
+      backgroundGraceRetries:
+        parsePositiveInt(env["LABRAT_BG_GRACE_RETRIES"]) ??
+        file.retries?.backgroundGraceRetries ??
+        defaults.retries.backgroundGraceRetries,
     },
   };
 }
