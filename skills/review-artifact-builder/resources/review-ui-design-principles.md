@@ -215,6 +215,26 @@ The multi-pane layout exists to serve this loop: 3D in one pane, three
 orthogonal slices in the others, with linked crosshairs and the ability
 to zoom any pane to fill the view.
 
+**This layout is required for a spatial review, and it is gated.** A
+segmentation or landmark review that ships only the 3D mesh — no linked
+orthogonal slices — is incomplete: the reviewer cannot confirm slice-by-slice
+what the surface hides, which is exactly where a bled label or an off-by-a-slice
+landmark shows up. Declare the layout in the manifest, and the **G9 linter gate
+enforces it** (see `review-ui-testing.md`):
+
+```js
+review_layout: "spatial-multipane",
+required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
+linked_views: true,
+```
+
+The buildable pattern — the injected downsampled-volume data contract and the
+pane/slider/crosshair/linking skeleton — lives in
+`review-ui-threejs-and-layout.md`. A single-pane `values-table` review omits these
+fields and G9 does not apply. Do not leave the slice scrubber to the worker's
+discretion: if the protocol's review is spatial, the resource declares
+`required_views` and the gate makes the scrubber non-skippable.
+
 ## What the component communicates
 
 The component talks to the shell only through the postMessage bridge —

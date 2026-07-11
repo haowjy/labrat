@@ -7,8 +7,9 @@ description: >-
   iframe. Use whenever a protocol has a review-artifact phase: it composes this
   method (the contract, the trust boundary, the build loop, the layout patterns)
   with a protocol-specific resource that supplies the rows and views. Covers the
-  values-table pattern and the interactive 3D pattern (three.js), the
-  REVIEW_MANIFEST/REVIEW_DATA data contract, and the G1-G8 linter.
+  values-table pattern and the interactive 3D pattern (three.js, incl. the
+  linked orthogonal slice scrubber), the REVIEW_MANIFEST/REVIEW_DATA data
+  contract, and the G1-G9 linter.
 ---
 
 # Review Artifact Builder
@@ -113,7 +114,7 @@ views, and customize the display so it reads well for the reviewer. The loop:
 | Generic (this skill) | Protocol-specific (the protocol's `resources/review-artifact.md`) |
 |---|---|
 | The contract (manifest/data globals, single inlined file) | Which values become rows; their labels, units, honesty flags |
-| The G1-G8 linter and how to pass it | Which views (values table? 3D scene + slices?) |
+| The G1-G9 linter and how to pass it | Which views — values table, or 3D scene + linked slice scrubber, declared as `review_layout`/`required_views` |
 | The trust boundary (exports nothing) | The layout, and how phase outputs map to `REVIEW_DATA` |
 | The layout *patterns* (single-pane, multi-pane, 3D) | Which pattern this protocol uses |
 | Data injection (`data_sources`, sentinel placeholders) | Which artifacts map to which globals; the `produced_from` entries |
@@ -138,7 +139,9 @@ Load by what the protocol's review needs:
   adjust→observe→confirm, linked views.
 - `resources/review-ui-threejs-and-layout.md` — for 3D reviews: three.js scene
   structure, camera/raycasting, one-WebGL-context viewport management, tabs (not
-  scroll), mobile, the data contract shapes.
+  scroll), mobile, the data contract shapes, and the **orthogonal slice scrubber**
+  (the injected downsampled-volume contract + the pane/slider/crosshair/linking
+  pattern the G9 gate checks).
 - `resources/review-ui-testing.md` — the linter (G1-G8), the CLI, validating
   without the dashboard, the CSP contract, the authoring checklist.
 

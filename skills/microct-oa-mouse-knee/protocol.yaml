@@ -107,10 +107,16 @@ phases:
       - measurements/results.json
       - measurements_final.json
       - landmarks/positions.json
+      - labels.nii.gz                    # 3D mesh + slice-label overlay
+      - segmentation/filtered.nii.gz     # grayscale for the orthogonal slices
+      - masks/
     outputs:
       - review-site/index.html
+      - review/geometry.json             # mesh geometry for the 3D scene (injected)
+      - review/volume.json               # downsampled grayscale + RLE labels + landmarks for the slice scrubber (injected)
     # External-origin policy the gate reads for G6. Empty = fully offline, only
-    # 'self'; this inlined values-review-site vendors nothing external.
+    # 'self'; this inlined spatial review site vendors nothing external (three.js
+    # is inlined, not CDN-loaded).
     cdn_allowlist: []
 
 runtime:
