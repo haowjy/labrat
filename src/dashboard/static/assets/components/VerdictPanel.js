@@ -22,6 +22,13 @@ import { fmtTime } from "../lib/format.js";
  *
  * `verdict`/`setVerdict` come from the parent's useReviewBridge() so the
  * iframe (ReviewsView) and this panel share one bridge instance.
+ *
+ * Progressive disclosure (F3): the verdict pill, Mark pass/fail, and Finish
+ * review stay visible so the panel lands short (~120px) over the evidence
+ * iframe; the guidance, adjustments, notes field, and log fold into a
+ * <details> a reviewer opens when they reach for them. Pass/Fail sit OUTSIDE
+ * the disclosure on purpose — "mark pass/fail visible immediately" is the one
+ * behavior VerdictOverlay's docblock pins.
  */
 export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished }) {
   const [notes, setNotes] = useState("");
@@ -64,11 +71,6 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
         <span class="section-label">Reviewer verdict</span>
         <span class="pill ${verdictPillClass(label)}">${label}</span>
       </div>
-      <p class="verdict-hint">
-        Adjusting the 3D scene (e.g. dragging a landmark) auto-flips this to
-        "corrected". Pick an explicit Pass/Fail, then Finish review to write
-        it to the task tree.
-      </p>
       <div class="verdict-actions">
         <button
           type="button"
@@ -87,33 +89,41 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
           Mark fail
         </button>
       </div>
-      ${adjustments.length > 0
-        ? html`
-            <div class="verdict-adjustments">
-              <span class="section-label">Adjusted (${adjustments.length})</span>
-              <div class="verdict-adjustments-chips">
-                ${adjustments.map((a) => html`<code class="chip" key=${a.id}>${a.id}</code>`)}
+      <details class="verdict-more">
+        <summary class="verdict-more-summary">Notes, log, and guidance</summary>
+        <p class="verdict-hint">
+          Adjusting the 3D scene (e.g. dragging a landmark) auto-flips this to
+          "corrected". Pick an explicit Pass/Fail, then Finish review to write
+          it to the task tree.
+        </p>
+        ${adjustments.length > 0
+          ? html`
+              <div class="verdict-adjustments">
+                <span class="section-label">Adjusted (${adjustments.length})</span>
+                <div class="verdict-adjustments-chips">
+                  ${adjustments.map((a) => html`<code class="chip" key=${a.id}>${a.id}</code>`)}
+                </div>
               </div>
-            </div>
-          `
-        : null}
-      <label class="verdict-note-label" for="verdict-note">Notes</label>
-      <textarea
-        id="verdict-note"
-        placeholder="Describe what you confirmed, adjusted, or rejected…"
-        disabled=${!!result}
-        value=${notes}
-        onInput=${(e) => setNotes(e.currentTarget.value)}
-      ></textarea>
-      <div class="verdict-log">
-        ${[...verdict.log].reverse().map(
-          (line, i) => html`
-            <div class="verdict-log-line" key=${verdict.log.length - i}>
-              <span class="verdict-log-time">${fmtTime(line.at)}</span>${line.text}
-            </div>
-          `,
-        )}
-      </div>
+            `
+          : null}
+        <label class="verdict-note-label" for="verdict-note">Notes</label>
+        <textarea
+          id="verdict-note"
+          placeholder="Describe what you confirmed, adjusted, or rejected…"
+          disabled=${!!result}
+          value=${notes}
+          onInput=${(e) => setNotes(e.currentTarget.value)}
+        ></textarea>
+        <div class="verdict-log">
+          ${[...verdict.log].reverse().map(
+            (line, i) => html`
+              <div class="verdict-log-line" key=${verdict.log.length - i}>
+                <span class="verdict-log-time">${fmtTime(line.at)}</span>${line.text}
+              </div>
+            `,
+          )}
+        </div>
+      </details>
       <div class="verdict-finish-row">
         ${finishError ? html`<span class="verdict-finish-error">${finishError}</span>` : null}
         ${result

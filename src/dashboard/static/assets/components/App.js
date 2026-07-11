@@ -1,6 +1,6 @@
 import { html, useCallback, useEffect, useRef, useState } from "../vendor/preact-htm.js";
 import { getJSON } from "../lib/api.js";
-import { STATE_EVENTS, describeEvent } from "../lib/format.js";
+import { STATE_EVENTS, describeEvent, sortTasksByUrgency } from "../lib/format.js";
 import { Dashboard } from "./Dashboard.js";
 import { LiveStrip, LogStrip } from "./LiveStrip.js";
 import { MobileDrawer } from "./MobileDrawer.js";
@@ -40,7 +40,7 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
       ><span class="crumb-sep"> / </span
       ><button type="button" class="crumb crumb-link" onClick=${onSample}>${currentId}</button
       ><span class="crumb-sep"> / </span
-      ><span class="crumb-current">${currentId} · ${selectedPhase}</span>
+      ><span class="crumb-current">${selectedPhase}</span>
     </div>
   `;
 }
@@ -206,11 +206,16 @@ export function App() {
     setRefreshTick((t) => t + 1);
   }
 
+  // One urgency sort for both cross-sample surfaces (F1/F6): attention-needing
+  // samples first on the Dashboard board AND in the Sidebar list. Done here on
+  // the shared list, not inside each view, so the two can never disagree.
+  const sortedTasks = sortTasksByUrgency(tasks);
+
   return html`
     <div class="app">
       <${MobileDrawer} open=${drawerOpen} onClose=${() => setDrawerOpen(false)}>
         <${Sidebar}
-          tasks=${tasks}
+          tasks=${sortedTasks}
           currentId=${currentId}
           screen=${screen}
           onSelect=${selectSample}
@@ -242,7 +247,7 @@ export function App() {
           class="content ${screen === "review" ? "content-review" : screen === "dashboard" ? "content-dashboard" : ""}"
         >
           ${screen === "dashboard"
-            ? html`<${Dashboard} tasks=${tasks} onSelectSample=${selectSample} />`
+            ? html`<${Dashboard} tasks=${sortedTasks} onSelectSample=${selectSample} />`
             : !currentId
               ? html`<div class="empty">No sample selected.</div>`
               : screen === "sample"

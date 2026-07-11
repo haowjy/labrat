@@ -1,5 +1,5 @@
 import { html } from "../vendor/preact-htm.js";
-import { dotClass } from "../lib/format.js";
+import { dotClass, decisionPill } from "../lib/format.js";
 import { ReviewEmbed } from "./ReviewEmbed.js";
 
 /**
@@ -59,6 +59,32 @@ function resolveActivePhase(timeline, selectedPhase) {
 }
 
 /**
+ * The automated gate's own verdict for the phase under review (F2). At level 3
+ * the human commits a Pass/Fail; without this they'd never see WHY the gate
+ * passed or failed. Summary judgment only — the decision pill plus the gate's
+ * short feedback, both already on the timeline entry (api/index.ts's
+ * GateSummary carries `feedback`); the full provenance dump stays in the
+ * review site. Renders nothing until a gate exists, so the in-flight phase
+ * (no gate yet) shows no empty band. `dotClass` tints the border to the same
+ * pass/concerns/fail color the selector dot uses, so the two never disagree.
+ */
+function GateReasoning({ entry }) {
+  if (!entry || !entry.gate) return null;
+  const [pc, pl] = decisionPill(entry.gate.decision);
+  return html`
+    <div class="gate-note gate-note-${dotClass(entry)}">
+      <div class="gate-note-head">
+        <span class="section-label">Automated gate</span>
+        <span class="pill ${pc}">${pl}</span>
+      </div>
+      ${entry.gate.feedback
+        ? html`<p class="gate-note-body">${entry.gate.feedback}</p>`
+        : html`<p class="gate-note-body gate-note-empty">No feedback recorded.</p>`}
+    </div>
+  `;
+}
+
+/**
  * Phase review mode: the selector above, then either the selected phase's
  * sandboxed review site (ReviewEmbed.js — iframe + floated VerdictPanel) or
  * a plain placeholder when that phase produced no review site (scope guard:
@@ -83,6 +109,7 @@ export function PhaseReviewView({ taskId, taskDetail, selectedPhase, onSelectPha
   return html`
     <div class="phase-review">
       <${PhaseSelector} timeline=${timeline} activePhase=${activePhase} onSelect=${onSelectPhase} />
+      <${GateReasoning} entry=${entry} />
       ${!entry
         ? html`<div class="empty">No phases yet.</div>`
         : entry.hasReviewSite

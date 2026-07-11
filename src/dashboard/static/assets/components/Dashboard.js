@@ -1,5 +1,5 @@
 import { html } from "../vendor/preact-htm.js";
-import { statePill } from "../lib/format.js";
+import { statePill, taskGroup, TASK_GROUPS } from "../lib/format.js";
 import { usePulseOnChange } from "./usePulseOnChange.js";
 
 /** "complete" once the task itself is done; otherwise the phase actually in
@@ -85,12 +85,30 @@ export function Dashboard({ tasks, onSelectSample }) {
   if (tasks.length === 0) {
     return html`<div class="empty">No samples yet.</div>`;
   }
+  // `tasks` arrives already urgency-sorted (App.js). Split it into the board's
+  // three sections and drop the empty ones: when nothing is stuck there is no
+  // "Needs attention" header at all, so the reviewer's eye lands on the first
+  // section that actually has cards. The alert tint on that one header is the
+  // board's "look here first" — it's the whole point of level 1.
+  const groups = TASK_GROUPS.map((name) => [name, tasks.filter((t) => taskGroup(t) === name)]).filter(
+    ([, items]) => items.length > 0,
+  );
   return html`
-    <div>
-      <div class="section-label">All samples</div>
-      <div class="sample-board">
-        ${tasks.map((t) => html`<${SampleCard} key=${t.id} task=${t} onSelect=${onSelectSample} />`)}
-      </div>
+    <div class="sample-groups">
+      ${groups.map(
+        ([name, items]) => html`
+          <section class="sample-group" key=${name}>
+            <div class="section-label ${name === TASK_GROUPS[0] ? "section-label-alert" : ""}">
+              ${name} · ${items.length}
+            </div>
+            <div class="sample-board">
+              ${items.map(
+                (t) => html`<${SampleCard} key=${t.id} task=${t} onSelect=${onSelectSample} />`,
+              )}
+            </div>
+          </section>
+        `,
+      )}
     </div>
   `;
 }

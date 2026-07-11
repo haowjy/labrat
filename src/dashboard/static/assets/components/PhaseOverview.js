@@ -120,6 +120,28 @@ function PhaseIndexRow({ entry, onSelect }) {
   `;
 }
 
+/** A one-line aggregate of the phase index (F4): count phases by their
+ * status/gate pill and show one pill per distinct outcome, e.g.
+ * [3 pass] [1 concerns] [1 running]. Uses the SAME `phasePill` precedence
+ * each row uses (gate decision wins, else the phase's own status), so the
+ * tally can't disagree with the rows it summarizes. Counts accumulate in
+ * timeline order and render first-seen, so completed outcomes lead and the
+ * in-flight phase trails — the same order as the index below. */
+function PhaseSummary({ timeline }) {
+  const counts = [];
+  for (const entry of timeline) {
+    const [cls, label] = phasePill(entry);
+    const found = counts.find((c) => c.label === label);
+    if (found) found.n += 1;
+    else counts.push({ cls, label, n: 1 });
+  }
+  return html`
+    <div class="phase-summary">
+      ${counts.map((c) => html`<span class="pill ${c.cls}" key=${c.label}>${c.n} ${c.label}</span>`)}
+    </div>
+  `;
+}
+
 /**
  * Overview mode: a compact, clickable index of the selected task's phases
  * (goal doc mockup) — status/gate pill each, click one to open Phase review
@@ -140,6 +162,8 @@ export function PhaseOverview({ taskId, taskDetail, onSelectPhase }) {
             </div>
           `
         : null}
+
+      ${timeline.length > 0 ? html`<${PhaseSummary} timeline=${timeline} />` : null}
 
       ${timeline.length === 0
         ? html`<div class="empty">No phases yet.</div>`
