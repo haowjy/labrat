@@ -20,24 +20,26 @@ everything else.
 
 ## Evidence fills the viewport
 
-The primary evidence gets as much space as it has. A 3D viewer fills the
-main area. A plot fills the main area. Don't shrink the evidence to make
-room for controls or data tables.
+The **evidence banner** (decisive numbers, flags, states) occupies a fixed
+strip at the top of every view — it frames the spatial evidence below.
+The 3D viewer and slice panes fill the remaining space. Don't shrink the
+spatial views to make room for data tables; don't hide the banner behind
+a tab.
 
-**For a 3D scene with multiple views, use fixed-viewport tabs, not a
-scrolling page.** Each surface is one viewport (`height: 100dvh`,
-`overflow: hidden` on body); tabs switch between the 3D scene, the 2D
-slices, and the data/controls. The evidence must never scroll off the
-top — a reviewer who has scrolled the 3D scene out of view has lost the
-primary evidence. This also respects the one-WebGL-context constraint
-(see `review-ui-threejs-and-layout.md`, which owns the layout mechanics).
-Interaction controls live in a fixed zone or their own tab, sized around
-the scene.
+**For a 3D scene with multiple views, use fixed-viewport layout, not a
+scrolling page.** The full surface is one viewport (`height: 100dvh`,
+`overflow: hidden` on body): evidence banner at top, spatial views in the
+middle, tour bar at bottom. Secondary content (values table,
+interpretation) lives in a tab. The evidence banner and spatial views
+must never scroll off — a reviewer who has scrolled the evidence out of
+view has lost the primary evidence. This also respects the one-WebGL-context
+constraint (see `review-ui-threejs-and-layout.md`, which owns the layout
+mechanics). Interaction controls live in a fixed zone or their own tab,
+sized around the scene.
 
 When the content is small and single-pane (a values table, a single
 plot), everything fits in one viewport without tabs. If it runs a little
-taller than the viewport, a short scroll is fine and a muted "scroll to
-review" hint can signal more is below — but that is the simple
+taller than the viewport, a short scroll is fine — but that is the simple
 single-column case only, never the multi-view 3D case above.
 
 ## Layout is protocol-specific
@@ -83,7 +85,7 @@ a worker step that produces a JSON artifact on disk. The server's
 When writing the protocol skill set, explicitly map each earlier phase's
 outputs to what the review template needs. If the measurement phase
 outputs `results.json` with fields `{femur_length, tibia_width, ...}`,
-the review template's `REVIEW_DATA.items` must expect exactly those
+the review template's evidence globals must expect exactly those
 fields. If the segmentation phase outputs `labels.nii.gz`, the review
 template needs the mesh extraction step to turn it into geometry.
 
@@ -108,12 +110,14 @@ phases produce measurements and the reviewer approves them. This phase
 loads two things:
 
 - A **`review-artifact-builder` methodology skill** — reusable across
-  protocols. Teaches how to build a review component: read measurement
-  outputs, generate HTML from a template pattern, render and inspect
-  visually, iterate until it looks good, run the linter (G1-G8).
+  protocols. Teaches how to build an evidence-led review component: build
+  `REVIEW_EVIDENCE` from measurement outputs, generate the HTML with
+  evidence banner + spatial views + guided tour, render and inspect, run
+  the linter (G1–G9).
 - The **protocol's `resources/review-artifact.md`** — protocol-specific.
-  Maps this protocol's measurement outputs to the display: which values,
-  which views, what layout, what data contract.
+  Maps this protocol's measurement outputs to the evidence: which ratios
+  are decisive, which landmarks carry them, what operational rules to
+  state, what views to show.
 
 Same composition pattern as every other phase: methodology skill teaches
 the technique, phase resource adds study-specific parameters.
@@ -123,14 +127,16 @@ layout, add views, customize the data display. The template is a starting
 pattern, not a locked-down form. The worker:
 
 1. Reads the approved measurement outputs from earlier phases
-2. Declares `data_sources` in the manifest pointing at the artifact files
-   (or inlines small data as static literals), with `produced_from` hashes
-3. Generates the HTML review component with sentinel placeholders for
-   injected data
-4. Inspects the result — does it render? Does the layout work? Are the
-   right values showing?
-5. Iterates if it doesn't look right
-6. Runs the linter to validate the structural contract
+2. Builds `REVIEW_EVIDENCE` — decisive ratios with cutoffs/states/flags,
+   measurement lines, per-landmark operational rules, interpretation
+3. Declares `data_sources` for large data (geometry, volume) with
+   `produced_from` hashes; inlines `REVIEW_EVIDENCE` as a static literal
+4. Generates the HTML: evidence banner, spatial views with measurement
+   overlays, guided tour, values/interpretation tab
+5. Inspects — evidence banner shows the right flags? Measurement lines
+   connect the right landmarks? Tour walks flagged items first?
+6. Iterates if it doesn't read well
+7. Runs the linter to validate the structural contract
 
 The linter checks structure. The worker checks quality. Both must pass
 before the reviewer sees it.
