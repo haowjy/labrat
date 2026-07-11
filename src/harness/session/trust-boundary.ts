@@ -3,7 +3,8 @@
  *
  * The reviewer's independence is not just a prompt instruction — the harness
  * hashes everything the reviewer must not touch (`artifacts/`, ALL of
- * `phases/`, `task.json`, `review/gates/`, `provenance/manifest.yaml`)
+ * `phases/`, `task.json`, `review/gates/`, `review/verdict/`,
+ * `review/monitor/`, `provenance/manifest.yaml`)
  * before the reviewer session and verifies nothing changed after. The
  * reviewer may only write under `review/verification/{phase}/`, which is
  * deliberately excluded from the snapshot.
@@ -75,6 +76,9 @@ export type TrustBoundarySnapshot = {
   /** ALL of phases/ — every phase dir, not just the one under gate. */
   readonly phases: FileHashMap;
   readonly reviewGates: FileHashMap;
+  /** `review/verdict/` — human verdicts; a reviewer writing one forges a human decision. */
+  readonly reviewVerdict: FileHashMap;
+  readonly reviewMonitor: FileHashMap;
   readonly taskJson: string | undefined;
   readonly provenanceManifest: string | undefined;
 };
@@ -82,25 +86,35 @@ export type TrustBoundarySnapshot = {
 /**
  * Snapshot everything the reviewer must not touch, immediately before a
  * reviewer session: `artifacts/`, ALL of `phases/`, `review/gates/`,
- * `task.json`, `provenance/manifest.yaml`. Deliberately excludes
+ * `review/verdict/`, `review/monitor/`, `task.json`,
+ * `provenance/manifest.yaml`. Deliberately excludes
  * `review/verification/{phase}/`, the reviewer's one legal write area.
  */
 export async function snapshotTrustBoundary(
   taskDir: string,
 ): Promise<TrustBoundarySnapshot> {
-  const [artifacts, phases, reviewGates, taskJson, provenanceManifest] =
+  const [artifacts, phases, reviewGates, reviewVerdict, reviewMonitor, taskJson, provenanceManifest] =
     await Promise.all([
       hashDirectory(join(taskDir, "artifacts")),
       hashDirectory(join(taskDir, "phases")),
       hashDirectory(join(taskDir, "review", "gates")),
+      hashDirectory(join(taskDir, "review", "verdict")),
+      hashDirectory(join(taskDir, "review", "monitor")),
       hashFileIfExists(join(taskDir, "task.json")),
       hashFileIfExists(join(taskDir, "provenance", "manifest.yaml")),
     ]);
-  return { artifacts, phases, reviewGates, taskJson, provenanceManifest };
+  return { artifacts, phases, reviewGates, reviewVerdict, reviewMonitor, taskJson, provenanceManifest };
 }
 
 export type TrustBoundaryViolation = {
-  readonly area: "artifacts" | "phases" | "review-gates" | "task-json" | "provenance-manifest";
+  readonly area:
+    | "artifacts"
+    | "phases"
+    | "review-gates"
+    | "review-verdict"
+    | "review-monitor"
+    | "task-json"
+    | "provenance-manifest";
   readonly path: string;
   readonly kind: "added" | "removed" | "modified";
 };
@@ -158,6 +172,8 @@ export function diffTrustBoundary(
   diffMaps("artifacts", before.artifacts, after.artifacts, violations);
   diffMaps("phases", before.phases, after.phases, violations);
   diffMaps("review-gates", before.reviewGates, after.reviewGates, violations);
+  diffMaps("review-verdict", before.reviewVerdict, after.reviewVerdict, violations);
+  diffMaps("review-monitor", before.reviewMonitor, after.reviewMonitor, violations);
   diffSingleFile("task-json", "task.json", before.taskJson, after.taskJson, violations);
   diffSingleFile(
     "provenance-manifest",

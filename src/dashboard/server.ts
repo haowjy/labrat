@@ -84,9 +84,9 @@ export function resolveReviewSiteFile(
  * traversal-guarded `resolveTaskFile` the route uses), checks hashes, and
  * splices bytes. It knows nothing about any protocol or global's meaning.
  *
- * Fails closed: any missing artifact, hash mismatch, malformed manifest, or a
- * sentinel that is not present exactly once THROWS — the caller 500s rather
- * than serve a half-injected document.
+ * Fails closed: any missing artifact, hash mismatch, malformed manifest,
+ * non-JSON artifact bytes, or a sentinel that is not present exactly once
+ * THROWS — the caller 500s rather than serve a half-injected document.
  */
 async function injectReviewData(
   tasksDir: string,
@@ -120,8 +120,32 @@ async function injectReviewData(
     }
   }
 
-  let out = html;
-  for (const [name, entry] of Object.entries(dataSources as Record<string, unknown>)) {
+  // Undeclared/malformed-sentinel detection runs against the TEMPLATE, before
+  // any data is spliced — injected data may legitimately contain the marker
+  // string as a value, so a post-splice residual scan would 500 valid data.
+  // Every quoted sentinel must name a declared data_sources entry, and every
+  // raw marker occurrence must be part of a well-formed quoted sentinel (a
+  // bare/malformed marker would otherwise ship live to the browser).
+  const SENTINEL_RE = /"__REVIEW_INJECT:([A-Za-z0-9_]+)__"/g;
+  const sources = dataSources as Record<string, unknown>;
+  const sentinelCounts = new Map<string, number>();
+  for (const m of html.matchAll(SENTINEL_RE)) {
+    const name = m[1]!;
+    if (!Object.hasOwn(sources, name)) {
+      throw new Error(`template sentinel "__REVIEW_INJECT:${name}__" has no data_sources entry`);
+    }
+    sentinelCounts.set(name, (sentinelCounts.get(name) ?? 0) + 1);
+  }
+  const markerCount = html.split("__REVIEW_INJECT:").length - 1;
+  const quotedCount = [...sentinelCounts.values()].reduce((a, b) => a + b, 0);
+  if (markerCount !== quotedCount) {
+    throw new Error(
+      'template contains a malformed injection marker (every __REVIEW_INJECT: must be a quoted "__REVIEW_INJECT:<NAME>__" sentinel)',
+    );
+  }
+
+  const replacementByName = new Map<string, string>();
+  for (const [name, entry] of Object.entries(sources)) {
     if (entry === null || typeof entry !== "object") {
       throw new Error(`data_sources.${name} is not an object`);
     }
@@ -157,28 +181,41 @@ async function injectReviewData(
       );
     }
 
-    // The sentinel (INCLUDING its quotes) must appear exactly once, else a
-    // textual splice would corrupt the document or leave a live sentinel.
-    const sentinel = `"__REVIEW_INJECT:${name}__"`;
-    const count = out.split(sentinel).length - 1;
+    // The sentinel is spliced UNQUOTED (`window.<NAME> = <bytes>`), so the
+    // bytes MUST be a pure JSON value literal — otherwise a hash-declared
+    // artifact could carry JS statements (e.g. a `window.location` navigation
+    // sink, the one exfil channel the CSP cannot block) straight into the
+    // inline script. Parse to validate, then splice the ORIGINAL bytes (never
+    // a re-serialization) so the hash-verified bytes are preserved exactly;
+    // valid JSON is expression-only, so the assignment stays inert data.
+    try {
+      JSON.parse(bytes.toString("utf8"));
+    } catch {
+      throw new Error(
+        `data_sources.${name}.artifact "${artifact}" is not valid JSON — refusing to splice it into an inline script`,
+      );
+    }
+
+    // The sentinel (INCLUDING its quotes) must appear exactly once in the
+    // TEMPLATE, else a textual splice would corrupt the document or drop data.
+    const count = sentinelCounts.get(name) ?? 0;
     if (count !== 1) {
-      throw new Error(`sentinel ${sentinel} appears ${count} time(s) in the template; expected exactly 1`);
+      throw new Error(`sentinel "__REVIEW_INJECT:${name}__" appears ${count} time(s) in the template; expected exactly 1`);
     }
     // Escape `<` as `\u003c` before splicing: the bytes land inside an inline
     // <script> RAWTEXT block, where a `</script>` inside a JSON string value
     // would terminate the element early and break the page. The escape is
     // JSON/JS-transparent (the parsed value is identical), so the hash-verified
     // data is unchanged as a VALUE while the document stays parseable.
-    out = out.replace(sentinel, () => bytes.toString("utf8").replaceAll("<", "\\u003c"));
+    replacementByName.set(name, bytes.toString("utf8").replaceAll("<", "\\u003c"));
   }
 
-  // Fail closed on any sentinel the loop never touched (a global missing from
-  // data_sources — author typo, or a template edited after linting): serving
-  // it would hand the browser a live placeholder string instead of data.
-  if (out.includes("__REVIEW_INJECT:")) {
-    throw new Error("unreplaced injection sentinel(s) remain after processing all data_sources");
-  }
-  return out;
+  // Single pass over the ORIGINAL template: replacements never re-scan spliced
+  // data, so injected values containing sentinel-like strings can neither trip
+  // a residual check nor corrupt a later splice. Every match is declared (the
+  // pre-scan threw otherwise) and validated (the loop above covered all of
+  // data_sources), so the lookup cannot miss.
+  return html.replace(SENTINEL_RE, (_match, name: string) => replacementByName.get(name)!);
 }
 
 /**
