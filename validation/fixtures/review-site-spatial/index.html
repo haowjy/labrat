@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<title>Review site — spatial-multipane fixture</title>
+<style>
+/* Minimal spatial-multipane fixture (review-ui-testing.md G9): a 3D mesh pane
+   plus three linked orthogonal slice panes, each with a range slider. Layout
+   is deliberately skeletal — G9 asserts the structural MARKERS, not styling. */
+:root {
+  --ink: #14181c;
+  --paper: #ffffff;
+  --border: #dde1e4;
+  --muted: #4b5563;
+  --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+*,
+*::before,
+*::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.45;
+}
+.topbar { padding: 1rem 1.1rem; border-bottom: 1px solid var(--border); }
+.topbar h1 { margin: 0; font-size: 1.05rem; }
+.topbar-sub { margin: 0.3rem 0 0; font-size: 0.8rem; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; padding: 1rem 1.1rem; }
+.pane { border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; }
+.pane h2 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--muted); }
+.pane canvas { width: 100%; background: #000; border-radius: 6px; }
+.pane input[type="range"] { width: 100%; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <h1 id="sample-title">Review</h1>
+    <p id="sample-source" class="topbar-sub"></p>
+  </header>
+
+  <main class="panes">
+    <section class="pane" data-review-view="mesh-3d">
+      <h2>3D mesh</h2>
+      <canvas id="mesh-canvas" width="256" height="256"></canvas>
+    </section>
+    <section class="pane" data-review-view="slice-axial">
+      <h2>Axial slice</h2>
+      <canvas data-review-slice-canvas="axial" width="256" height="256"></canvas>
+      <input type="range" data-review-slice-slider="axial" min="0" max="3" value="1" aria-label="Axial slice index" />
+    </section>
+    <section class="pane" data-review-view="slice-coronal">
+      <h2>Coronal slice</h2>
+      <canvas data-review-slice-canvas="coronal" width="256" height="256"></canvas>
+      <input type="range" data-review-slice-slider="coronal" min="0" max="3" value="1" aria-label="Coronal slice index" />
+    </section>
+    <section class="pane" data-review-view="slice-sagittal">
+      <h2>Sagittal slice</h2>
+      <canvas data-review-slice-canvas="sagittal" width="256" height="256"></canvas>
+      <input type="range" data-review-slice-slider="sagittal" min="0" max="3" value="1" aria-label="Sagittal slice index" />
+    </section>
+  </main>
+</div>
+
+<script>
+// Contract-level data block (review-template.md §1 I3) extended with the
+// spatial-layout declaration (review-ui-testing.md G9): review_layout,
+// required_views, linked_views. The gate reads all of this statically.
+window.REVIEW_MANIFEST = {
+  sample_id: "oa-knee-0007",
+  review_layout: "spatial-multipane",
+  linked_views: true,
+  required_views: ["mesh-3d", "slice-axial", "slice-coronal", "slice-sagittal"],
+  produced_from: {
+    measurement:
+      "measurements/results.json@3f179308d75117c096ff1ec771b54779a522b9da8d067c539a551a0ee355ad9d",
+    volume:
+      "volumes/volume.json@9d4c2f1a7b6e5d3c8a0f4e2b1d9c7a6f5e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b",
+  },
+  verdict_schema: "review-verdict/1",
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_LANDMARKS"],
+  data_sources: {
+    REVIEW_VOLUME: {
+      artifact: "volumes/volume.json",
+      transform: "identity",
+    },
+  },
+};
+</script>
+
+<script>
+// Slice-data global (I3). Inlined here so the fixture is standalone; a real
+// run would ship this as a serve-time injection placeholder filled from the
+// hashed artifact named in produced_from.volume.
+window.REVIEW_VOLUME = {
+  dims: [4, 4, 4],
+  spacing_mm: [0.5, 0.5, 0.5],
+  voxels: [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+  ],
+};
+</script>
+
+<script>
+// Landmark data the linked views synchronise on (G9: linked_views needs
+// landmark data present).
+window.REVIEW_LANDMARKS = {
+  femoral_notch: [1.0, 2.0, 1.5],
+  tibial_spine: [2.0, 1.0, 0.5],
+};
+</script>
+
+<script>
+// Minimal app block: paints each axis's slice and re-paints on slider input.
+// No exfil surfaces, no inline handlers, no runtime data loading (G5/I3).
+(function () {
+  "use strict";
+
+  var manifest = window.REVIEW_MANIFEST;
+  var volume = window.REVIEW_VOLUME;
+
+  document.getElementById("sample-title").textContent = "Review " + manifest.sample_id;
+  document.getElementById("sample-source").textContent =
+    "from " + manifest.produced_from.measurement;
+
+  var AXES = ["axial", "coronal", "sagittal"];
+
+  function paint(axis, index) {
+    var canvas = document.querySelector('[data-review-slice-canvas="' + axis + '"]');
+    var ctx = canvas.getContext("2d");
+    var shade = Math.round((index / (volume.dims[2] - 1)) * 255);
+    ctx.fillStyle = "rgb(" + shade + "," + shade + "," + shade + ")";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  AXES.forEach(function (axis) {
+    var slider = document.querySelector('[data-review-slice-slider="' + axis + '"]');
+    slider.addEventListener("input", function () {
+      paint(axis, Number(slider.value));
+    });
+    paint(axis, Number(slider.value));
+  });
+})();
+</script>
+</body>
+</html>

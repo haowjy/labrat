@@ -28,7 +28,7 @@ async function boot(): Promise<{ base: string }> {
   const tasksDir = await mkdtemp(path.join(tmpdir(), "labrat-server-review-"));
   dirs.push(tasksDir);
   await cp(FIXTURE, path.join(tasksDir, TASK_ID), { recursive: true });
-  const app = createApp({ tasksDir, user: "tester", port: 0, devReplay: false });
+  const app = createApp({ tasksDir, scienceHome: "/nonexistent", user: "tester", port: 0, devReplay: false });
   const server = await new Promise<http.Server>((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
@@ -170,5 +170,35 @@ describe("POST /api/tasks/:id/review/finish", () => {
     assert.deepEqual(entry.humanVerdict.adjustments, [
       { id: "lm-1", proposed: null, corrected: { x: 1, y: 2, z: 3 } },
     ]);
+  });
+});
+
+describe("GET /api/tasks/:id/export", () => {
+  it("serves a downloadable review-chain bundle with an attachment filename", async () => {
+    const { base } = await boot();
+    const res = await fetch(`${base}/api/tasks/${TASK_ID}/export`);
+    assert.equal(res.status, 200);
+    assert.equal(
+      res.headers.get("content-disposition"),
+      `attachment; filename="${TASK_ID}-review-chain.json"`,
+    );
+    assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+
+    const bundle = (await res.json()) as Record<string, any>;
+    assert.equal(bundle.taskId, TASK_ID);
+    assert.ok(String(bundle.taskDir).endsWith(`/${TASK_ID}`), "taskDir is the absolute task tree path");
+    assert.equal((bundle.provenance as unknown[]).length, 2);
+    const seg = (bundle.phases as Array<Record<string, any>>).find((p) => p.phase === "segmentation");
+    assert.ok(seg);
+    assert.equal(seg.gate.decision, "pass-with-concerns");
+    assert.equal(seg.humanVerdict.human_verdict, "pass");
+    assert.equal(seg.measurements.femurVoxels, 142789);
+    assert.equal(seg.suggestions.length, 1);
+  });
+
+  it("404s an unknown task id", async () => {
+    const { base } = await boot();
+    const res = await fetch(`${base}/api/tasks/task-2026-01-01-999/export`);
+    assert.equal(res.status, 404);
   });
 });

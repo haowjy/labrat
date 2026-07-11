@@ -189,3 +189,87 @@ linter verifies that every `data_globals` entry exists as a non-empty
 `window` assignment in the document. When `data_sources` is present, the
 linter also checks consistency: each source must appear in `data_globals`
 and have a matching `produced_from` hash.
+
+## Orthogonal slice scrubber (spatial reviews)
+
+A segmentation or landmark review is **not complete with the 3D mesh alone**. A
+clean-looking 3D surface can hide a label bleeding through a slice or a landmark
+sitting one slice off the bone. The reviewer needs the **linked orthogonal slice
+scrubber**: three 2D panes (axial, coronal, sagittal) they can scrub, with the 3D
+scene and the slices sharing one position. This is the view most often skipped —
+the mesh pattern above doesn't produce it, and mesh geometry carries no grayscale
+pixels — so build it deliberately. It is required and gated (G9); the markers
+below are what the gate checks.
+
+### Slice data — a downsampled volume, injected
+
+The 2D slices need grayscale pixels the mesh doesn't carry. The worker exports one
+injected artifact — a **downsampled volume** — from `segmentation/filtered.nii.gz`
++ `labels.nii.gz` + `landmarks/positions.json`:
+
+```js
+window.REVIEW_VOLUME = "__REVIEW_INJECT:REVIEW_VOLUME__";  // sentinel; server fills at serve time
+// artifact review/volume.json (transform: identity), shape:
+// {
+//   "shape": [nz, ny, nx],           // downsampled dims
+//   "spacing_mm": [sz, sy, sx],
+//   "axes": { "axial": 0, "coronal": 1, "sagittal": 2 },  // array axis each pane scrolls
+//   "grayscale_b64": "<base64 uint8, length nz*ny*nx, window-normalized 0..255>",
+//   "labels_rle": [[value, count], ...],                   // RLE, same raster order; 0 = background
+//   "label_colors": { "1": [r,g,b], ... },
+//   "label_names":  { "1": "femur", "2": "tibia", ... },
+//   "landmarks": [ { "name": "...", "voxel": [z,y,x], "color": [r,g,b] }, ... ]  // downsampled frame
+// }
+```
+
+Declare it like any injected source — `data_sources.REVIEW_VOLUME` + a
+`produced_from` hash — so G3/G8 provenance covers it.
+
+**Size budget is the constraint.** three.js (~785KB) + mesh geometry + this volume
+must stay under 5MB. Grayscale uint8 at ~112³ ≈ 1.4MB (base64 ~1.9MB); labels
+compress to almost nothing as RLE. Downsample the grayscale so the total fits —
+96–128³ is plenty for review-grade slices. If a specimen still exceeds budget,
+fall back to **pre-rendered JPEG slice stacks** (`REVIEW_SLICES`: per-axis arrays
+of `data:image/jpeg` URIs at a slice stride) — cheaper, but no free reslicing.
+
+### The panes — required static markers
+
+Each view carries a stable `data-review-view` attribute; each slice pane carries a
+canvas and a range slider with `data-review-slice-*` attributes. These markers are
+what the **G9 gate** checks statically (it can't execute the wiring), so they are
+not optional decoration — a missing marker fails the gate:
+
+```html
+<section data-review-view="scene3d"><canvas id="scene3d-canvas"></canvas></section>
+
+<section data-review-view="slice-axial">
+  <canvas data-review-slice-canvas="axial" id="slice-axial-canvas"></canvas>
+  <input type="range" data-review-slice-slider="axial" min="0" max="{nz-1}" step="1"
+         aria-label="Axial slice">
+</section>
+<section data-review-view="slice-coronal">  <!-- data-review-slice-canvas="coronal"  + slider --></section>
+<section data-review-view="slice-sagittal"> <!-- data-review-slice-canvas="sagittal" + slider --></section>
+```
+
+Slider thumbs must be ≥44px (default range thumbs are far under — style them up).
+On mobile the four panes collapse to preview thumbnails; tap to fullscreen
+(`review-ui-design-principles.md`).
+
+### Render and link
+
+- `drawSlice(axis, index)` — extract the 2D plane at `index` along `axes[axis]`
+  from `REVIEW_VOLUME.grayscale_b64`, draw it to that pane's canvas; overlay
+  `labels_rle` colors at low alpha (so the reviewer sees the segmentation *on* the
+  anatomy); draw any landmark whose voxel lies on this plane as a colored ring +
+  white halo; draw the crosshair at the shared position.
+- A slider's `input` event sets that axis's index → redraw its pane and move the
+  crosshair in the other two.
+- **The linking (the whole point):** a landmark click in the 3D scene (raycast,
+  per "Raycasting" above) sets all three sliders to that landmark's voxel indices
+  and centers every crosshair on it — 3D selection drives the slices. Emit the
+  `interaction` bridge message (`action: "select-landmark"`, `id`, `position`) so
+  the shell tints the verdict "corrected" (`review-ui-interactions.md`). Declare
+  `linked_views: true` in the manifest.
+
+Canvas 2D only — no `eval`, no external origins (CSP + G5 clean). All slice data is
+present at load; the iframe cannot fetch more (`connect-src 'none'`).

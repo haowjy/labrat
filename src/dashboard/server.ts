@@ -9,9 +9,11 @@ import {
   getPhase,
   getSuggestions,
   getTask,
+  getTaskExport,
   listTasks,
   resolveTaskFile,
 } from "./api/index.js";
+import { listClaudeScienceSkillsView } from "./api/claude-science.js";
 import type { SseEvent } from "../schema/index.js";
 import { handleSse, publishEvent } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
@@ -242,6 +244,25 @@ export function createApp(config: DashboardConfig): Express {
     res.json(detail);
   });
 
+  // Review-chain export (demo sign-off): one downloadable JSON bundle of the
+  // task's task.json, provenance manifest, and per-phase gate/verdict/
+  // measurements/suggestions. Read-only — composed from the same disk loaders
+  // the views use; nothing here reaches the harness or outside the task tree.
+  app.get("/api/tasks/:id/export", async (req, res) => {
+    const bundle = await getTaskExport(tasksDir, req.params.id);
+    if (!bundle) {
+      res.status(404).json({ error: "task not found" });
+      return;
+    }
+    // Filename uses the validated id from the bundle (getTaskExport returns
+    // null for an invalid id), so no unsanitized input reaches the header.
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${bundle.taskId}-review-chain.json"`,
+    );
+    res.json(bundle);
+  });
+
   app.get("/api/tasks/:id/manifest", async (req, res) => {
     const manifest = await getManifest(tasksDir, req.params.id);
     if (!manifest) {
@@ -374,6 +395,15 @@ export function createApp(config: DashboardConfig): Express {
       return;
     }
     res.status(201).json(result.value);
+  });
+
+  // Claude Science skill browse (LabRat ↔ Claude Science import bridge).
+  // Read-only: lists registry skills (org + builtin) with a `vendored` flag.
+  // Import itself is a CLI action (`labrat import-skill`) — a dashboard POST
+  // that writes into the repo's source tree is out of scope for this
+  // disk-read surface, so the UI links to the CLI instead.
+  app.get("/api/claude-science/skills", async (_req, res) => {
+    res.json(await listClaudeScienceSkillsView(config.scienceHome));
   });
 
   // Cross-process notify seam (design §4, §13): the harness (Process A)

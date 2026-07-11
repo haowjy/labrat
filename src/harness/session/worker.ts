@@ -7,6 +7,7 @@ import {
 import type { LabratConfig } from "../../config/index.js";
 import type { ProtocolYaml } from "../../schema/index.js";
 import { notifyEvent } from "../events/index.js";
+import { readHumanFeedbackNote } from "../review-verdict/index.js";
 import type { RuntimeHandle } from "../runtime-setup/types.js";
 import {
   assembleWorkerPrompt,
@@ -184,6 +185,7 @@ export async function runWorkerPhase(
     inputRel: config.inputRel,
     runtime: config.runtime,
     priorPhaseSummaries: config.priorPhaseSummaries,
+    humanFeedback: await readHumanFeedbackNote(config.taskDir, config.phaseId),
   };
 
   const systemPromptParts = await assembleWorkerPrompt(

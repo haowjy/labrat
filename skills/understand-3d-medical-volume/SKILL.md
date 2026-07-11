@@ -23,7 +23,8 @@ Use a frontier visual model as the controller and interpreter. Use deterministic
 - Read [references/spatial-workflow.md](references/spatial-workflow.md) for coordinate frames, orientation, linked-view behavior, and the full 3-D/2-D loop.
 - Read [references/evidence-and-qc.md](references/evidence-and-qc.md) when producing masks, ROIs, landmarks, measurements, batch outputs, or validation results.
 - Read [references/reference-pack.md](references/reference-pack.md) when creating or using annotated reference images and protocol demonstrations.
-- Read [references/oa-uct.md](references/oa-uct.md) only for the murine knee OA µCT workflow in this repository.
+
+Study-specific anatomy and workflow notes live in the protocol skill that composes this one (e.g. `microct-oa-mouse-knee`'s `resources/`), not here — this methodology stays study-agnostic.
 
 ## Choose the operating mode
 

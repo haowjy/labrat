@@ -9,7 +9,4 @@ dependencies:
       - pydicom>=2.4
       - scikit-image>=0.22
       - scipy
-      - SimpleITK>=2.3
-      - pyyaml
-      - openpyxl
       - matplotlib
