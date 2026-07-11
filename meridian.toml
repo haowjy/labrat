@@ -26,7 +26,11 @@
 # min_wait_yield_seconds = 30.0
 # Harnesses blocked from headless `meridian spawn` so delegation prefers
 # native subagents (e.g. Claude's Agent tool). Set to [] to allow.
-# deny_headless_harnesses = ["claude"]
+# Claude does the coding + committing via native subagents (the Agent tool), so
+# the claude harness is denied headless here. codex/sol is ALLOWED — but only for
+# READ-ONLY review lanes (it critiques, never authors committed code). cursor,
+# opencode, and pi stay denied.
+deny_headless_harnesses = ["claude", "cursor", "opencode", "pi"]
 
 # -- Harness default models -------------------------------------------------
 [harness]
