@@ -1,5 +1,5 @@
-# Fixtures stay small and text-only in git. Real imaging fixtures (voxbone
-# etc.) are captured/gitignored separately — never commit binaries here.
+# Fixtures stay small and text-only in git. Real imaging fixtures are
+# captured/gitignored separately — never commit binaries here.
 *.nii.gz
 *.nii
 *.dcm
