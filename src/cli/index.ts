@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { loadConfig } from "../config/index.js";
 import {
   enqueueAndRun,
+  rerunTask,
   resetTaskToPhase,
   resumeTask,
   runPhaseInIsolation,
@@ -112,6 +113,34 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "rerun") {
+    const taskId = args[1];
+    const fromPhase = args[2];
+    if (!taskId) {
+      console.error("Usage: labrat rerun <task-id> [from-phase]");
+      process.exit(1);
+    }
+
+    // Human-initiated re-entry into the same run loop the agent-FAIL retry
+    // uses: invalidate from the sent-back phase (or explicit from-phase) and
+    // resume. Without a from-phase, rerun re-runs the earliest phase carrying
+    // a human `changes_requested` verdict (dashboard "Send back" writes it).
+    console.log(`rerun ${taskId}${fromPhase ? ` from=${fromPhase}` : ""}`);
+    const result = await rerunTask(taskId, fromPhase);
+    console.log(JSON.stringify({
+      taskId,
+      rerunFrom: result.rerunFrom,
+      state: result.task.state,
+      phasesComplete: result.task.phasesComplete,
+      workerSessions: result.phases.map((p) => ({
+        phase: p.phase,
+        sessionId: p.workerSessionId,
+        gate: p.gate,
+      })),
+    }, null, 2));
+    return;
+  }
+
   if (command === "reset-to") {
     const taskId = args[1];
     const phaseId = args[2];
@@ -132,6 +161,7 @@ async function main(): Promise<void> {
   console.error("       labrat run-phase <task-id> <phase> [--gate]");
   console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");
   console.error("       labrat resume <task-id>");
+  console.error("       labrat rerun <task-id> [from-phase]");
   console.error("       labrat reset-to <task-id> <phase>");
   process.exit(1);
 }

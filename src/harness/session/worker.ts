@@ -1,4 +1,6 @@
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { validateReviewVerdictRecord } from "../../schema/index.js";
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -173,6 +175,35 @@ async function runOneQuery(
   return sessionId;
 }
 
+/**
+ * The human reviewer's send-back note for this phase, when the phase is being
+ * re-run because a human sent it back (review/verdict/{phase}.json,
+ * human_verdict=changes_requested). Threaded into the worker's prompt so the
+ * re-run acts on the correction. WORKER-only: this read is deliberately NOT
+ * mirrored into the reviewer session (session/review.ts) — the independent
+ * reviewer must re-gate without seeing the human verdict (trust boundary).
+ * Read inline (not via orchestrator/index.ts) to avoid an import cycle.
+ */
+async function readHumanFeedbackNote(
+  taskDir: string,
+  phaseId: string,
+): Promise<string | null> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(
+      await readFile(join(taskDir, "review", "verdict", `${phaseId}.json`), "utf8"),
+    );
+  } catch {
+    return null;
+  }
+  const validated = validateReviewVerdictRecord(raw);
+  if (!validated.ok || validated.value.human_verdict !== "changes_requested") {
+    return null;
+  }
+  const note = validated.value.notes.trim();
+  return note.length > 0 ? note : null;
+}
+
 export async function runWorkerPhase(
   config: WorkerSessionConfig,
 ): Promise<WorkerSessionResult> {
@@ -184,6 +215,7 @@ export async function runWorkerPhase(
     inputRel: config.inputRel,
     runtime: config.runtime,
     priorPhaseSummaries: config.priorPhaseSummaries,
+    humanFeedback: await readHumanFeedbackNote(config.taskDir, config.phaseId),
   };
 
   const systemPromptParts = await assembleWorkerPrompt(
