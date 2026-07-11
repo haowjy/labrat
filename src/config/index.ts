@@ -11,6 +11,7 @@ import {
   success,
   type ValidationResult,
 } from "../schema/validation.js";
+import { watchRootPathError } from "../schema/watcher.js";
 
 /**
  * Single config seam for the whole harness (design: one deep module, not
@@ -169,6 +170,13 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     for (const [protocol, root] of Object.entries(wrRec.value)) {
       const rootStr = expectString(root, `$.watchRoots.${protocol}`);
       if (!rootStr.ok) return rootStr;
+      // Shared watch-root rule (schema seam): empty/relative roots would
+      // silently anchor the state dirs to the daemon's cwd. Validate the
+      // tilde-EXPANDED value — `~/dropbox` is fine, `dropbox` is not.
+      const shapeError = watchRootPathError(expandTilde(rootStr.value));
+      if (shapeError !== null) {
+        return singleError(`$.watchRoots.${protocol}`, shapeError);
+      }
       out[protocol] = rootStr.value;
     }
     watchRoots = out;
@@ -312,8 +320,9 @@ function isPermissionMode(
 }
 
 /** `LABRAT_WATCH_ROOTS` env layer: a JSON object of protocol → watchRoot.
- * Lenient like the enum env vars — a malformed value is ignored, falling
- * back to the file/default layer. */
+ * Lenient like the enum env vars — a malformed value (bad JSON, or any
+ * empty/relative root per the shared `watchRootPathError` rule) is ignored
+ * as a whole, falling back to the file/default layer. */
 function parseWatchRootsEnv(
   raw: string | undefined,
 ): Record<string, string> | undefined {
@@ -326,6 +335,7 @@ function parseWatchRootsEnv(
     const out: Record<string, string> = {};
     for (const [protocol, root] of Object.entries(parsed)) {
       if (typeof root !== "string") return undefined;
+      if (watchRootPathError(expandTilde(root)) !== null) return undefined;
       out[protocol] = root;
     }
     return out;

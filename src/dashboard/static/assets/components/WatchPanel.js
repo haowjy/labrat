@@ -302,10 +302,14 @@ export function WatchPanel() {
       <div class="watch-head">
         <h2>Watch folders</h2>
         <p class="note">
-          Drop a DICOM series or .zip into a protocol's incoming/ folder. The
-          watcher daemon (labrat watch) claims it, runs the protocol, and
-          moves it to done/ or failed/. The toggle below enables or disables
-          ingestion; it does not launch the daemon.
+          To ingest a DICOM series or .zip: copy it NEXT TO the protocol's
+          incoming/ folder first (e.g. under a staging name), then rename the
+          finished copy into incoming/ — the atomic rename marks it complete.
+          (Alternatively, write an empty &lt;name&gt;.complete file beside it
+          after copying directly into incoming/.) The watcher daemon (labrat
+          watch) claims settled drops, runs the protocol, and moves them to
+          done/ or failed/. The toggle below enables or disables ingestion;
+          it does not launch the daemon.
         </p>
       </div>
 

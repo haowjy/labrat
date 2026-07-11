@@ -1,27 +1,36 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import type { LabratConfig } from "../../config/index.js";
 import {
   acquireOrRefreshLease,
+  controlDir,
   countStateDirs,
   FAILURE_RECORD_SUFFIX,
+  holdsLease,
   readWatcherControl,
   readWatcherStatus,
   releaseLease,
   WATCH_STATE_DIRS,
   writeWatcherStatus,
 } from "../../control/index.js";
-import type {
-  TaskState,
-  WatcherActiveDrop,
-  WatcherDropRef,
-  WatcherFailureRecord,
-  WatcherProtocolStatus,
-  WatcherStatusFile,
+import {
+  watchRootPathError,
+  type TaskState,
+  type WatcherActiveDrop,
+  type WatcherDropRef,
+  type WatcherFailureRecord,
+  type WatcherProtocolStatus,
+  type WatcherStatusFile,
 } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
-import { COMPLETE_SENTINEL_SUFFIX, createSettleTracker, signatureOf, type SettleTracker } from "./index.js";
+import {
+  COMPLETE_SENTINEL_SUFFIX,
+  createSettleTracker,
+  DEFAULT_DEBOUNCE_MS,
+  signatureOf,
+  type SettleTracker,
+} from "./index.js";
 
 /**
  * Folder-watch supervisor: the reconcile loop behind `labrat watch`
@@ -67,7 +76,10 @@ export type SupervisorOptions = {
   /** Tasks root; `control/` resolves to its sibling. Defaults to
    * `<cwd>/tasks`, matching `enqueueAndRun`. */
   readonly tasksRoot?: string;
-  /** Drop is settled after this long with no change. Default 3000ms. */
+  /** Drop is settled after this long with no change. Default
+   * {@link DEFAULT_DEBOUNCE_MS} — deliberately conservative; producers
+   * should stage-then-atomically-rename into `incoming/` (or write a
+   * `.complete` sentinel) rather than rely on the debounce. */
   readonly debounceMs?: number;
   /** Control-loop tick interval. Default 1000ms. Lease staleness and reader
    * health derive from it (stale = older than 5×). */
@@ -115,6 +127,21 @@ export async function claimDrop(fromPath: string, toPath: string): Promise<boole
   }
 }
 
+/**
+ * Roll a claimed-but-not-complete drop back to `incoming/` under its UNIQUE
+ * stored name — never the original basename: a new same-basename arrival
+ * may already be landing there, and a plain rename-back would overwrite it
+ * (or strand that arrival's `.complete` sentinel against the wrong bytes).
+ * The uniquely named drop simply re-enters settle detection.
+ */
+export async function returnToIncoming(
+  claimedPath: string,
+  incomingDir: string,
+  storedName: string,
+): Promise<void> {
+  await rename(claimedPath, join(incomingDir, storedName));
+}
+
 async function exists(p: string): Promise<boolean> {
   try {
     await lstat(p);
@@ -129,17 +156,42 @@ async function listDrops(dir: string): Promise<string[]> {
     return (await readdir(dir))
       .filter((n) => !n.startsWith(".") && !n.endsWith(FAILURE_RECORD_SUFFIX))
       .sort();
-  } catch {
-    return [];
+  } catch (err) {
+    // A missing dir has nothing to list; any OTHER readdir failure must
+    // SURFACE (the caller retries next tick) — converting it to "empty"
+    // would let startup mark a protocol quarantine-scanned without ever
+    // scanning it, stranding in-progress/ entries forever.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
   }
 }
 
-/** Validate a protocol's watchRoot per R8/R9: create the four state dirs,
- * require every dir (and the root) to be a REAL directory — not a symlink —
- * and require all five to sit on the SAME filesystem so the atomic-rename
- * claim can never degrade to copy-and-delete. Returns an error string
- * (fail closed for this protocol) or null. */
-async function validateWatchRoot(watchRoot: string): Promise<string | null> {
+/** True when one path equals or contains the other (after resolution). */
+function pathsOverlap(a: string, b: string): boolean {
+  const ra = resolve(a);
+  const rb = resolve(b);
+  return ra === rb || ra.startsWith(rb + sep) || rb.startsWith(ra + sep);
+}
+
+/** Validate a protocol's watchRoot: the shared shape rule (absolute +
+ * nonempty — the same `watchRootPathError` every config layer applies), no
+ * overlap with the harness's own trees (tasks/control/scienceHome), then
+ * R8/R9: create the four state dirs, require every dir (and the root) to be
+ * a REAL directory — not a symlink — and require all five to sit on the
+ * SAME filesystem so the atomic-rename claim can never degrade to
+ * copy-and-delete. Returns an error string (fail closed for this protocol)
+ * or null. */
+async function validateWatchRoot(
+  watchRoot: string,
+  reserved: ReadonlyArray<{ readonly label: string; readonly path: string }>,
+): Promise<string | null> {
+  const shapeError = watchRootPathError(watchRoot);
+  if (shapeError !== null) return shapeError;
+  for (const { label, path } of reserved) {
+    if (pathsOverlap(watchRoot, path)) {
+      return `watchRoot ${watchRoot} overlaps the ${label} (${path}); choose a directory outside the harness's own trees`;
+    }
+  }
   try {
     for (const dir of WATCH_STATE_DIRS) {
       await mkdir(join(watchRoot, dir), { recursive: true });
@@ -189,7 +241,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
   const {
     config,
     tasksRoot = join(resolve(process.cwd()), "tasks"),
-    debounceMs = 3000,
+    debounceMs = DEFAULT_DEBOUNCE_MS,
     pollIntervalMs = 1000,
     log = () => {},
   } = options;
@@ -200,13 +252,32 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
   const leaseStaleMs = pollIntervalMs * STALE_HEARTBEAT_FACTOR;
   const since = new Date().toISOString();
 
+  /** The harness's own trees — a watchRoot must never overlap these. */
+  const reservedPaths = [
+    { label: "tasks dir", path: tasksRoot },
+    { label: "control dir", path: controlDir(tasksRoot) },
+    { label: "science home", path: config.scienceHome },
+  ] as const;
+
   const trackers = new Map<string, SettleTracker>();
   const lastDrops = new Map<string, WatcherDropRef>();
   const protocolErrors = new Map<string, string>();
+  /** Durable terminal-move failures (F3/R6/R10): a drop whose run finished
+   * but whose rename to done/|failed/ failed is STRANDED in in-progress/ —
+   * the error stays surfaced until a supervisor restart quarantines it
+   * (R1); it is never auto-cleared by a later healthy validation pass. */
+  const moveErrors = new Map<string, string>();
+  // DEFERRED (multi-supervisor): key quarantine init by resolved root
+  // identity (dev:ino), not protocol name, so switching a protocol's
+  // watchRoot re-quarantines the new root's stranded entries.
   const quarantined = new Set<string>();
   let activeRun: ActiveRun | null = null;
   let ticking = false;
   let seededFromDisk = false;
+  /** Graceful-shutdown mode (R4/F2): claim nothing new, but keep the
+   * control loop heartbeating — the lease must stay fresh while the active
+   * run finishes. */
+  let shuttingDown = false;
 
   function trackerFor(protocol: string): SettleTracker {
     let tracker = trackers.get(protocol);
@@ -253,21 +324,26 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
   }
 
   /** No-clobber terminal move (R6). Unique stored names make a collision an
-   * invariant violation: surface it and leave the drop where it is (a
-   * restart quarantines it) rather than overwrite history. */
+   * invariant violation: it THROWS (like any other move failure) so the
+   * caller records it durably and leaves the drop where it is (a restart
+   * quarantines it) rather than publish a terminal state that contradicts
+   * disk. NOTE: exists+rename is not atomic — node has no no-replace
+   * rename; the unique `<ts>-<intakeId>-` names make a lost race
+   * astronomically unlikely, and full atomicity is part of the deferred
+   * multi-supervisor fencing work. */
   async function moveToTerminal(
     fromPath: string,
     watchRoot: string,
     outcome: "done" | "failed",
     storedName: string,
-  ): Promise<boolean> {
+  ): Promise<void> {
     const dest = join(watchRoot, outcome, storedName);
     if (await exists(dest)) {
-      log(`INVARIANT: terminal destination ${dest} already exists; refusing to overwrite`);
-      return false;
+      throw new Error(
+        `INVARIANT: terminal destination ${dest} already exists; refusing to overwrite`,
+      );
     }
     await rename(fromPath, dest);
-    return true;
   }
 
   /** R1: startup quarantine. Anything already in `in-progress/` when this
@@ -276,16 +352,19 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
    * (that would allocate a duplicate task for the same scan). */
   async function quarantineStranded(protocol: string, watchRoot: string): Promise<void> {
     const inProgressDir = join(watchRoot, "in-progress");
+    // NOTE: a listDrops failure here THROWS — the caller must not mark the
+    // protocol quarantine-scanned on an unscanned directory (F7).
     for (const name of await listDrops(inProgressDir)) {
       const intakeId = randomUUID().slice(0, 8);
       const storedName = `${Date.now()}-${intakeId}-${name}`;
-      const moved = await moveToTerminal(
-        join(inProgressDir, name),
-        watchRoot,
-        "failed",
-        storedName,
-      );
-      if (!moved) continue;
+      try {
+        await moveToTerminal(join(inProgressDir, name), watchRoot, "failed", storedName);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        moveErrors.set(protocol, `quarantine of stranded ${name} failed: ${message}`);
+        log(`quarantine of stranded ${join(inProgressDir, name)} FAILED: ${message}`);
+        continue; // Isolate: the other stranded entries still quarantine.
+      }
       log(`quarantined stranded ${join(inProgressDir, name)} → failed/${storedName}`);
       await writeFailureRecord(
         {
@@ -332,6 +411,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         let errorMessage: string | null = null;
         try {
           const result = await enqueue(inProgressPath, protocol);
+          // DEFERRED (multi-supervisor/F8): an allocate/run split in the
+          // orchestrator would let taskId populate here BEFORE the run
+          // completes, so activeDrop.taskId shows mid-run.
           run.taskId = result.taskId;
           outcome = result.state === "failed" ? "failed" : "done";
           if (outcome === "failed") errorMessage = `task ${result.taskId} ended in state=failed`;
@@ -342,8 +424,8 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
           log(`enqueue FAILED for ${inProgressPath}: ${errorMessage} → failed/`);
         }
         try {
-          const moved = await moveToTerminal(inProgressPath, watchRoot, outcome, storedName);
-          if (moved && outcome === "failed") {
+          await moveToTerminal(inProgressPath, watchRoot, outcome, storedName);
+          if (outcome === "failed") {
             await writeFailureRecord(
               {
                 intakeId,
@@ -357,6 +439,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
               join(watchRoot, "failed"),
             );
           }
+          // Terminal state is published ONLY here, after the disk move
+          // succeeded (F3): status must never say done/failed while the
+          // input still sits in in-progress/.
           lastDrops.set(protocol, {
             name,
             state: outcome,
@@ -364,9 +449,28 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             at: new Date().toISOString(),
           });
         } catch (err) {
-          // Preserve BOTH the run error and the move error (R10).
-          log(
-            `terminal move FAILED for ${inProgressPath} (outcome=${outcome}${errorMessage ? `, run error: ${errorMessage}` : ""}): ${err instanceof Error ? err.message : String(err)}`,
+          // The drop is stranded in in-progress/. Do NOT publish a terminal
+          // state; preserve BOTH the run error and the move error (R10) —
+          // durably in the status (moveErrors) and as a sidecar record next
+          // to the stranded drop. Recovery = the next supervisor start
+          // quarantines it (R1).
+          const moveMessage = err instanceof Error ? err.message : String(err);
+          const combined = `terminal move to ${outcome}/ failed: ${moveMessage}${
+            errorMessage ? `; run error: ${errorMessage}` : ` (run outcome was ${outcome})`
+          }`;
+          moveErrors.set(protocol, `${storedName}: ${combined}`);
+          log(`terminal move FAILED for ${inProgressPath}: ${combined}`);
+          await writeFailureRecord(
+            {
+              intakeId,
+              protocol,
+              sourceName: name,
+              storedName,
+              error: combined,
+              taskId: run.taskId,
+              at: new Date().toISOString(),
+            },
+            join(watchRoot, "in-progress"),
           );
         } finally {
           run.finished = true;
@@ -391,12 +495,48 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         continue;
       }
 
-      // R3: re-signature after the claim — if the drop changed between the
-      // settle observation and the rename, it wasn't finished; put it back.
+      // R3/R8: re-check AFTER the claim — both completeness (signature) and
+      // content (a non-regular entry injected between the settle observation
+      // and the rename must still be rejected).
       const now = signatureOf(toPath);
-      if (now !== drop.signature) {
-        log(`${drop.name} changed between settle and claim; returning to incoming/`);
-        await rename(toPath, fromPath);
+      if (now === null) {
+        log(`${drop.name} vanished between settle and claim; skipping`);
+        continue;
+      }
+      if (now.nonRegular !== null) {
+        // Tainted after settle: quarantine to failed/ with a record — it can
+        // never become eligible, so returning it to incoming/ would loop.
+        log(`${drop.name} contains non-regular entry ${now.nonRegular}; quarantining`);
+        try {
+          await moveToTerminal(toPath, watchRoot, "failed", storedName);
+          await writeFailureRecord(
+            {
+              intakeId,
+              protocol,
+              sourceName: drop.name,
+              storedName,
+              error: `rejected: contains non-regular entry ${now.nonRegular}`,
+              taskId: null,
+              at: new Date().toISOString(),
+            },
+            join(watchRoot, "failed"),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          moveErrors.set(protocol, `quarantine of ${storedName} failed: ${message}`);
+          log(`quarantine of ${toPath} FAILED: ${message}`);
+        }
+        continue;
+      }
+      if (now.signature !== drop.signature) {
+        // Changed between settle and claim — the producer wasn't finished.
+        // Return it to incoming/ under its UNIQUE stored name (F5):
+        // restoring the original basename could overwrite a new same-name
+        // arrival (or orphan that arrival's .complete sentinel).
+        log(
+          `${drop.name} changed between settle and claim; returning to incoming/${storedName}`,
+        );
+        await returnToIncoming(toPath, incomingDir, storedName);
         continue;
       }
 
@@ -424,7 +564,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         watchRoot,
         counts: await countStateDirs(watchRoot),
         lastDrop: lastDrops.get(protocol) ?? null,
-        error: protocolErrors.get(protocol) ?? null,
+        // moveErrors are durable invariant failures (stranded drops) — they
+        // outlive a later healthy validation pass, unlike protocolErrors.
+        error: protocolErrors.get(protocol) ?? moveErrors.get(protocol) ?? null,
       };
     }
     const active: WatcherActiveDrop | null = activeRun
@@ -492,11 +634,14 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
 
       const protocols = effectiveProtocols(controlProtocols);
 
-      if (desired === "running") {
+      // Graceful shutdown (F2): keep heartbeating (below) but claim
+      // nothing new — the loop exists only to keep the lease fresh and the
+      // `stopping` state visible while the active run finishes.
+      if (desired === "running" && !shuttingDown) {
         for (const [protocol, watchRoot] of Object.entries(protocols)) {
           // R10: one protocol's problem never aborts the others.
           try {
-            const invalid = await validateWatchRoot(watchRoot);
+            const invalid = await validateWatchRoot(watchRoot, reservedPaths);
             if (invalid !== null) {
               if (protocolErrors.get(protocol) !== invalid) log(`protocol ${protocol}: ${invalid}`);
               protocolErrors.set(protocol, invalid);
@@ -522,7 +667,11 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
       }
 
       const state: WatcherStatusFile["state"] =
-        desired === "running" ? "running" : activeRun !== null ? "stopping" : "stopped";
+        desired === "running" && !shuttingDown
+          ? "running"
+          : activeRun !== null
+            ? "stopping"
+            : "stopped";
 
       const status = await buildStatus(desired, state, protocols, configError);
       await writeWatcherStatus(tasksRoot, status);
@@ -560,10 +709,31 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         );
       });
     }
-    // Graceful stop (R4): finish the active run, claim nothing new, then
-    // write the final stopped heartbeat and hand back the lease.
-    await waitForIdle();
+    // Graceful stop (R4/F2): claim nothing new, but KEEP the control loop
+    // alive — refreshing the lease and publishing `stopping` heartbeats —
+    // until the active run finishes. A long run must never read as a
+    // stale/abandoned daemon (which would invite a takeover that
+    // quarantines the still-active input).
+    shuttingDown = true;
+    while (activeRun !== null && !activeRun.finished) {
+      try {
+        await reconcileOnce();
+      } catch (err) {
+        log(`shutdown tick failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await Promise.race([
+        activeRun.promise,
+        new Promise<void>((r) => setTimeout(r, pollIntervalMs)),
+      ]);
+    }
     if (activeRun?.finished) activeRun = null;
+    // Final stopped write + lease release are OWNERSHIP-VERIFIED (F2): if
+    // another supervisor took the lease meanwhile, its status and lease are
+    // not ours to overwrite or delete.
+    if (!(await holdsLease(tasksRoot, leaseUuid))) {
+      log("lease not held at shutdown; skipping final status write");
+      return;
+    }
     try {
       const control = await readWatcherControl(tasksRoot);
       const protocols = effectiveProtocols(

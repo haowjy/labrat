@@ -220,4 +220,49 @@ describe("loadConfig", () => {
       assert.deepEqual(config.watchRoots, { p1: "/from-file" });
     });
   });
+
+  it("rejects a relative watchRoot in the config file (shared shape rule)", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ watchRoots: { p1: "relative/dropbox" } }),
+      );
+      assert.throws(() => loadConfig({}, dir), /watchRoots\.p1.*absolute/);
+    });
+  });
+
+  it("rejects an empty watchRoot in the config file", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ watchRoots: { p1: "" } }),
+      );
+      assert.throws(() => loadConfig({}, dir), /watchRoots\.p1/);
+    });
+  });
+
+  it("a tilde watchRoot in the config file is valid (validated post-expansion)", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ watchRoots: { p1: "~/dropbox" } }),
+      );
+      const config = loadConfig({}, dir);
+      assert.deepEqual(config.watchRoots, { p1: join(homedir(), "dropbox") });
+    });
+  });
+
+  it("LABRAT_WATCH_ROOTS with a relative root is ignored as a whole (lenient env layer)", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ watchRoots: { p1: "/from-file" } }),
+      );
+      const config = loadConfig(
+        { LABRAT_WATCH_ROOTS: JSON.stringify({ p1: "relative/dropbox" }) },
+        dir,
+      );
+      assert.deepEqual(config.watchRoots, { p1: "/from-file" });
+    });
+  });
 });

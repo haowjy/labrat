@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { loadConfig } from "../../config/index.js";
 import {
   readWatcherStatus,
@@ -514,6 +515,385 @@ describe("reconcileOnce", () => {
       await supervisor.reconcileOnce();
       const raw = await readFile(join(root, "control", "watcher-status.json"), "utf8");
       assert.doesNotThrow(() => JSON.parse(raw));
+    });
+  });
+});
+
+/** Poll until `cond` holds (10ms cadence) or fail loudly. */
+async function waitFor(cond: () => Promise<boolean>, what: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await cond()) return;
+    await sleep(10);
+  }
+  throw new Error(`timed out waiting for: ${what}`);
+}
+
+/** chmod-based sabotage is a no-op for root (e.g. some CI containers). */
+const runningAsRoot = typeof process.getuid === "function" && process.getuid() === 0;
+
+describe("review-hardening regressions (sol review p81)", () => {
+  it("F3: a failed terminal move never publishes a terminal state", async () => {
+    await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+      await runningControl(tasksRoot, watchRoot);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        debounceMs: 0,
+        enqueue: async () => {
+          await gate;
+          return { taskId: "task-2026-07-11-020", state: "done" };
+        },
+      });
+      await supervisor.reconcileOnce();
+      await writeFile(join(watchRoot, "incoming", "slow.zip"), "z");
+      await supervisor.reconcileOnce();
+      await supervisor.reconcileOnce(); // claims + launches
+
+      // Sabotage: the done/ dir vanishes while the run is in flight, so the
+      // terminal rename must fail.
+      await rm(join(watchRoot, "done"), { recursive: true, force: true });
+      release();
+      await supervisor.waitForIdle();
+      const { status } = await supervisor.reconcileOnce();
+
+      const p = status!.protocols[PROTOCOL]!;
+      // Disk truth: the input is still in in-progress/, nothing in done/.
+      const stranded = await drops(watchRoot, "in-progress");
+      assert.equal(stranded.length, 1);
+      assert.deepEqual(await drops(watchRoot, "done"), []);
+      // Status must AGREE with disk: no terminal state published.
+      assert.equal(p.lastDrop!.state, "in-progress");
+      // Both the stranding and the run context are durably surfaced.
+      assert.match(p.error!, /terminal move/);
+      const sidecar = JSON.parse(
+        await readFile(
+          join(watchRoot, "in-progress", `${stranded[0]}.error.json`),
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      assert.match(String(sidecar["error"]), /terminal move to done\/ failed/);
+      assert.match(String(sidecar["error"]), /run outcome was done/);
+      assert.equal(sidecar["taskId"], "task-2026-07-11-020");
+
+      // The invariant error survives later healthy ticks (done/ gets
+      // recreated by validation) — it clears only on restart quarantine.
+      const later = await supervisor.reconcileOnce();
+      assert.match(later.status!.protocols[PROTOCOL]!.error!, /terminal move/);
+    });
+  });
+
+  it("F2: graceful shutdown keeps heartbeating and refreshing the lease until the run finishes", async () => {
+    await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+      await runningControl(tasksRoot, watchRoot);
+      await mkdir(join(watchRoot, "incoming"), { recursive: true });
+      await writeFile(join(watchRoot, "incoming", "long.zip"), "z");
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        debounceMs: 0,
+        pollIntervalMs: 25,
+        enqueue: async () => {
+          await gate;
+          return { taskId: "task-2026-07-11-021", state: "done" };
+        },
+      });
+      const controller = new AbortController();
+      const daemon = supervisor.run(controller.signal);
+      await waitFor(async () => {
+        const s = await readWatcherStatus(tasksRoot);
+        return s !== null && s.ok && s.value.activeDrop !== null;
+      }, "the drop to be claimed");
+
+      controller.abort();
+      await sleep(120);
+      const s1 = await readWatcherStatus(tasksRoot);
+      assert.ok(s1 !== null && s1.ok);
+      // Mid-shutdown with an active run: stopping, NOT running/stopped.
+      assert.equal(s1.value.state, "stopping");
+      await sleep(100);
+      const s2 = await readWatcherStatus(tasksRoot);
+      assert.ok(s2 !== null && s2.ok);
+      assert.ok(
+        Date.parse(s2.value.lastHeartbeat) > Date.parse(s1.value.lastHeartbeat),
+        "heartbeat must keep advancing during graceful shutdown",
+      );
+      // The lease is being refreshed too — a takeover would quarantine the
+      // still-active input.
+      const lockFile = resolveControlFile(tasksRoot, WATCHER_LOCK_FILE)!;
+      const lease = JSON.parse(await readFile(lockFile, "utf8")) as Record<string, unknown>;
+      assert.ok(
+        Date.now() - Date.parse(String(lease["heartbeat"])) < 1000,
+        "lease heartbeat must stay fresh during graceful shutdown",
+      );
+
+      release();
+      await daemon;
+      const final = await readWatcherStatus(tasksRoot);
+      assert.ok(final !== null && final.ok);
+      assert.equal(final.value.state, "stopped");
+      assert.equal(existsSync(lockFile), false, "lease released after shutdown");
+      assert.equal((await drops(watchRoot, "done")).length, 1);
+    });
+  });
+
+  it("F2: a former holder never overwrites a successor's lease or status at shutdown", async () => {
+    await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+      await runningControl(tasksRoot, watchRoot);
+      await mkdir(join(watchRoot, "incoming"), { recursive: true });
+      await writeFile(join(watchRoot, "incoming", "long.zip"), "z");
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        debounceMs: 0,
+        pollIntervalMs: 25,
+        enqueue: async () => {
+          await gate;
+          return { taskId: "task-2026-07-11-022", state: "done" };
+        },
+      });
+      const controller = new AbortController();
+      const daemon = supervisor.run(controller.signal);
+      await waitFor(async () => {
+        const s = await readWatcherStatus(tasksRoot);
+        return s !== null && s.ok && s.value.activeDrop !== null;
+      }, "the drop to be claimed");
+      controller.abort();
+      await sleep(80);
+
+      // A successor takes the lease mid-shutdown (fresh foreign holder).
+      const lockFile = resolveControlFile(tasksRoot, WATCHER_LOCK_FILE)!;
+      const successor = {
+        uuid: "successor-uuid",
+        pid: 99999,
+        startedAt: new Date().toISOString(),
+        heartbeat: new Date().toISOString(),
+      };
+      await writeFile(lockFile, JSON.stringify(successor));
+      await sleep(80);
+      release();
+      await daemon;
+
+      // The old daemon must not have deleted/overwritten the successor's
+      // lease, nor published its own "stopped" over the successor's status.
+      const lease = JSON.parse(await readFile(lockFile, "utf8")) as Record<string, unknown>;
+      assert.equal(lease["uuid"], "successor-uuid");
+      const final = await readWatcherStatus(tasksRoot);
+      assert.ok(final !== null && final.ok);
+      assert.notEqual(final.value.state, "stopped");
+    });
+  });
+
+  it("F9: a malformed watcher.lock is recovered, never a permanent EEXIST", async () => {
+    await withProjectRoot(async ({ root, tasksRoot }) => {
+      await mkdir(join(root, "control"), { recursive: true });
+      await writeFile(join(root, "control", "watcher.lock"), "{not json at all");
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        enqueue: async () => ({ taskId: "task-2026-07-11-023", state: "done" }),
+      });
+      const result = await supervisor.reconcileOnce();
+      assert.equal(result.leaseHeld, true, "malformed lease must be recoverable");
+      // The recovered lock is a valid lease again.
+      const lease = JSON.parse(
+        await readFile(join(root, "control", "watcher.lock"), "utf8"),
+      ) as Record<string, unknown>;
+      assert.equal(typeof lease["uuid"], "string");
+      assert.equal(typeof lease["heartbeat"], "string");
+    });
+  });
+
+  it("F9: a lease whose heartbeat does not parse counts as stale (takeover succeeds)", async () => {
+    await withProjectRoot(async ({ root, tasksRoot }) => {
+      await mkdir(join(root, "control"), { recursive: true });
+      await writeFile(
+        join(root, "control", "watcher.lock"),
+        JSON.stringify({
+          uuid: "someone-else",
+          pid: 1,
+          startedAt: "whenever",
+          heartbeat: "not-a-date",
+        }),
+      );
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        enqueue: async () => ({ taskId: "task-2026-07-11-024", state: "done" }),
+      });
+      const result = await supervisor.reconcileOnce();
+      assert.equal(result.leaseHeld, true);
+    });
+  });
+
+  it(
+    "F9: an unreadable control file fails closed WITH a configError, not a silent stopped",
+    { skip: runningAsRoot },
+    async () => {
+      await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+        await runningControl(tasksRoot, watchRoot);
+        const controlFile = join(root, "control", "watcher.json");
+        await chmod(controlFile, 0o000);
+        try {
+          const calls: string[] = [];
+          const supervisor = createSupervisor({
+            config: testConfig(root),
+            tasksRoot,
+            debounceMs: 0,
+            enqueue: async (p) => {
+              calls.push(p);
+              return { taskId: "task-2026-07-11-025", state: "done" };
+            },
+          });
+          const { status } = await supervisor.reconcileOnce();
+          assert.equal(status!.state, "stopped");
+          assert.match(status!.configError!, /unreadable/);
+          assert.equal(calls.length, 0);
+        } finally {
+          await chmod(controlFile, 0o644);
+        }
+      });
+    },
+  );
+
+  it(
+    "F7: a readdir failure during startup quarantine surfaces and is retried, not latched",
+    { skip: runningAsRoot },
+    async () => {
+      await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+        await runningControl(tasksRoot, watchRoot);
+        const inProgressDir = join(watchRoot, "in-progress");
+        await mkdir(inProgressDir, { recursive: true });
+        await writeFile(join(inProgressDir, "stranded.zip"), "z");
+        await chmod(inProgressDir, 0o000);
+        try {
+          const supervisor = createSupervisor({
+            config: testConfig(root),
+            tasksRoot,
+            debounceMs: 0,
+            enqueue: async () => ({ taskId: "task-2026-07-11-026", state: "done" }),
+          });
+          // While unreadable: the protocol surfaces the failure instead of
+          // silently marking the (unscanned) quarantine done.
+          const blocked = await supervisor.reconcileOnce();
+          assert.match(blocked.status!.protocols[PROTOCOL]!.error!, /permission denied|EACCES/i);
+
+          await chmod(inProgressDir, 0o755);
+          const recovered = await supervisor.reconcileOnce();
+          // The stranded drop IS quarantined once the dir is readable again.
+          const failed = await drops(watchRoot, "failed");
+          assert.equal(failed.length, 1);
+          assert.match(failed[0]!, /stranded\.zip$/);
+          assert.deepEqual(await drops(watchRoot, "in-progress"), []);
+          assert.equal(recovered.status!.protocols[PROTOCOL]!.error, null);
+        } finally {
+          await chmod(inProgressDir, 0o755).catch(() => {});
+        }
+      });
+    },
+  );
+
+  it("F5: rollback of a changed claim uses a UNIQUE name — never clobbers a new arrival or its sentinel", async () => {
+    // Dynamic import: keeps this file loadable against pre-fix builds where
+    // the rollback primitive does not exist yet.
+    const { returnToIncoming } = await import("./supervisor.js");
+    await withProjectRoot(async ({ watchRoot }) => {
+      const incomingDir = join(watchRoot, "incoming");
+      const inProgressDir = join(watchRoot, "in-progress");
+      await mkdir(incomingDir, { recursive: true });
+      await mkdir(inProgressDir, { recursive: true });
+      // A NEW same-basename arrival (and its sentinel) landed after the
+      // original a.zip was claimed.
+      await writeFile(join(incomingDir, "a.zip"), "new arrival");
+      await writeFile(join(incomingDir, "a.zip.complete"), "");
+      const storedName = "1752249600000-abcd1234-a.zip";
+      await writeFile(join(inProgressDir, storedName), "claimed bytes");
+
+      await returnToIncoming(join(inProgressDir, storedName), incomingDir, storedName);
+
+      assert.equal(await readFile(join(incomingDir, "a.zip"), "utf8"), "new arrival");
+      assert.ok(existsSync(join(incomingDir, "a.zip.complete")));
+      assert.equal(await readFile(join(incomingDir, storedName), "utf8"), "claimed bytes");
+    });
+  });
+
+  it("R8/F5: a drop with a NESTED symlink is never claimed, even with a sentinel", async () => {
+    await withProjectRoot(async ({ root, tasksRoot, watchRoot }) => {
+      await runningControl(tasksRoot, watchRoot);
+      const calls: string[] = [];
+      const supervisor = createSupervisor({
+        config: testConfig(root),
+        tasksRoot,
+        debounceMs: 0,
+        enqueue: async (p) => {
+          calls.push(p);
+          return { taskId: "task-2026-07-11-027", state: "done" };
+        },
+      });
+      await supervisor.reconcileOnce();
+
+      const outside = join(root, "outside");
+      await mkdir(outside, { recursive: true });
+      await writeFile(join(outside, "secrets.bin"), "outside bytes");
+      const series = join(watchRoot, "incoming", "series");
+      await mkdir(series, { recursive: true });
+      await writeFile(join(series, "slice-001.dcm"), "d");
+      await symlink(join(outside, "secrets.bin"), join(series, "sneaky-link"));
+      await writeFile(join(watchRoot, "incoming", "series.complete"), "");
+
+      await supervisor.reconcileOnce();
+      await supervisor.reconcileOnce();
+      await supervisor.reconcileOnce();
+      await supervisor.waitForIdle();
+      await supervisor.reconcileOnce();
+
+      assert.equal(calls.length, 0, "a tainted drop must never reach the orchestrator");
+      assert.ok(existsSync(series), "the tainted drop stays in incoming/ (fail closed)");
+      assert.deepEqual(await drops(watchRoot, "in-progress"), []);
+      assert.deepEqual(await drops(watchRoot, "done"), []);
+    });
+  });
+
+  it("F6: relative watchRoots and roots overlapping harness trees fail that protocol closed", async () => {
+    await withProjectRoot(async ({ root, tasksRoot }) => {
+      const config = {
+        ...loadConfig({}, root),
+        scienceHome: join(root, "science-home"),
+        watchRoots: {
+          "relative-proto": "relative/dropbox",
+          "overlap-tasks": tasksRoot,
+          "overlap-control": join(root, "control", "nested"),
+        },
+      };
+      await writeWatcherControl(tasksRoot, { desired: "running", protocols: {} });
+      const supervisor = createSupervisor({
+        config,
+        tasksRoot,
+        debounceMs: 0,
+        enqueue: async () => ({ taskId: "task-2026-07-11-028", state: "done" }),
+      });
+      const { status } = await supervisor.reconcileOnce();
+
+      assert.match(status!.protocols["relative-proto"]!.error!, /absolute/);
+      assert.match(status!.protocols["overlap-tasks"]!.error!, /overlaps the tasks dir/);
+      assert.match(status!.protocols["overlap-control"]!.error!, /overlaps the control dir/);
+      // Fail closed means NO state dirs were created — especially not
+      // cwd-anchored ones for the relative root.
+      assert.equal(existsSync(join(process.cwd(), "relative")), false);
+      assert.equal(existsSync(join(tasksRoot, "incoming")), false);
+      assert.equal(existsSync(join(root, "control", "nested")), false);
     });
   });
 });

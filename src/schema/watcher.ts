@@ -114,9 +114,26 @@ export type WatcherFailureRecord = {
   readonly at: string;
 };
 
+/**
+ * THE one shared watch-root shape rule (contract R5): every layer that
+ * accepts a watchRoot — config file, `LABRAT_WATCH_ROOTS` env, the control
+ * schema (dashboard POST), and the supervisor's runtime validation — rejects
+ * empty and relative roots through this same function, so a relative root
+ * can never silently anchor state dirs to whatever cwd the daemon runs from.
+ * Returns an error string, or null when the shape is acceptable. (Overlap
+ * with tasks/control/scienceHome needs runtime context and is checked in the
+ * supervisor, on top of this.)
+ */
+export function watchRootPathError(root: string): string | null {
+  if (root.trim() === "") return "watchRoot must be a non-empty path";
+  if (!isAbsolute(root)) {
+    return `watchRoot must be an absolute path (got "${root}")`;
+  }
+  return null;
+}
+
 /** Validate a `{ <protocol>: { watchRoot } }` map. Rejects empty or
- * non-absolute watchRoots — a relative root would silently anchor to whatever
- * cwd the supervisor happens to run from. */
+ * non-absolute watchRoots via the shared {@link watchRootPathError} rule. */
 function validateProtocolsMap(
   value: unknown,
   path: string,
@@ -132,11 +149,9 @@ function validateProtocolsMap(
       `${path}.${id}.watchRoot`,
     );
     if (!watchRoot.ok) return watchRoot;
-    if (!isAbsolute(watchRoot.value)) {
-      return singleError(
-        `${path}.${id}.watchRoot`,
-        "expected an absolute path",
-      );
+    const shapeError = watchRootPathError(watchRoot.value);
+    if (shapeError !== null) {
+      return singleError(`${path}.${id}.watchRoot`, shapeError);
     }
     out[id] = { watchRoot: watchRoot.value };
   }

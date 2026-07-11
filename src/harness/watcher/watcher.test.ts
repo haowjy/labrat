@@ -66,6 +66,28 @@ describe("settle detection (debounce)", () => {
     });
   });
 
+  it("a drop with a NESTED non-regular entry never settles, even with a sentinel (R8)", async () => {
+    await withTmpDir(async (dir) => {
+      const outside = join(dir, "outside");
+      await mkdir(outside);
+      await writeFile(join(outside, "target.bin"), "outside bytes");
+
+      const incoming = join(dir, "incoming");
+      await mkdir(incoming);
+      const series = join(incoming, "series");
+      await mkdir(series);
+      await writeFile(join(series, "slice-001.dcm"), "d");
+      await symlink(join(outside, "target.bin"), join(series, "sneaky-link"));
+      // Even a producer-declared completion must not settle a tainted drop.
+      await writeFile(join(incoming, "series.complete"), "");
+
+      const tracker = createSettleTracker(0);
+      tracker.poll(incoming);
+      assert.deepEqual(tracker.poll(incoming), []);
+      assert.deepEqual(tracker.poll(incoming), []);
+    });
+  });
+
   it("a <name>.complete sentinel settles the drop immediately (bypasses debounce)", async () => {
     await withTmpDir(async (dir) => {
       const tracker = createSettleTracker(60_000); // debounce would never elapse
@@ -128,11 +150,13 @@ describe("type filter + symlink handling", () => {
 
       const before = signatureOf(drop);
       assert.ok(before);
+      // The nested symlink is reported as a non-regular entry (R8).
+      assert.equal(before.nonRegular, join(drop, "link"));
       // Growing the symlink TARGET must not change the drop's signature —
       // the walk counts the link itself, never the outside tree.
       await sleep(10);
       await writeFile(join(outside, "target.bin"), "original plus a lot more bytes");
-      assert.equal(signatureOf(drop), before);
+      assert.equal(signatureOf(drop)!.signature, before.signature);
     });
   });
 
@@ -141,12 +165,13 @@ describe("type filter + symlink handling", () => {
       await writeFile(join(dir, "a.zip"), "same bytes");
       const first = signatureOf(join(dir, "a.zip"));
       assert.ok(first);
+      assert.equal(first.nonRegular, null);
       // Replace with an identical-content file: new inode, new signature.
       await rm(join(dir, "a.zip"));
       await writeFile(join(dir, "a.zip"), "same bytes");
       const second = signatureOf(join(dir, "a.zip"));
       assert.ok(second);
-      assert.notEqual(second, first);
+      assert.notEqual(second.signature, first.signature);
     });
   });
 });
