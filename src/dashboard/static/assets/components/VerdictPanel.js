@@ -4,31 +4,30 @@ import { adjustmentsFromEvidence, verdictLabel, verdictPillClass } from "../lib/
 import { fmtTime } from "../lib/format.js";
 
 /**
- * The trusted receiver on the shell side of the postMessage bridge (design/
- * review-architecture-decision.md "what lives where": verdict state is
- * assembled ONLY here, never inside the untrusted iframe). Pass/Fail are the
- * reviewer's explicit calls; touching the interactive part of the 3D scene
- * (e.g. dragging a landmark) auto-flips the pill to "corrected" via
- * useReviewBridge (owned by the parent, ReviewsView — see that file for why:
- * it also owns the <iframe> the bridge listens through) — that flip is
- * untrusted evidence, never the committable verdict (see
- * lib/review-bridge.js).
+ * The trusted verdict controls on the shell side of the postMessage bridge
+ * (design/review-architecture-decision.md "what lives where": verdict state
+ * is assembled ONLY in the trusted shell, never inside the untrusted iframe).
+ * Rendered in normal flow in the generic review layer — NOT floated on the
+ * artifact — so a reviewer records the verdict OUTSIDE the sandboxed frame.
+ * Pass/Fail are the reviewer's explicit calls; touching the interactive part
+ * of the 3D scene (e.g. dragging a landmark) auto-flips the pill to
+ * "corrected" via useReviewBridge (owned by the parent ReviewLayer, which
+ * also owns the <iframe> the bridge listens through). Because the bridge
+ * lives in ReviewLayer, a correction made while the artifact is full-screen
+ * is still reflected here after the reviewer exits — that "corrected" flip is
+ * untrusted evidence, never the committable verdict (see lib/review-bridge.js).
  *
- * Closes the loop (this task's addition over the vanilla shell): "Finish
- * review" POSTs the pinned contract body to `/api/tasks/:id/review/finish`
- * and, on success, asks the parent to re-fetch the task (`onFinished`) so
- * the chain view can read the persisted verdict back — the
- * reload-survivable half of the demo loop.
+ * Closes the loop: "Finish review" POSTs the pinned contract body to
+ * `/api/tasks/:id/review/finish` and, on success, asks the parent to re-fetch
+ * the task (`onFinished`) so the persisted verdict reads back on reload.
  *
- * `verdict`/`setVerdict` come from the parent's useReviewBridge() so the
- * iframe (ReviewsView) and this panel share one bridge instance.
+ * `verdict`/`setVerdict` come from ReviewLayer's useReviewBridge() so the
+ * iframe and this panel share one bridge instance.
  *
  * Progressive disclosure (F3): the verdict pill, Mark pass/fail, and Finish
- * review stay visible so the panel lands short (~120px) over the evidence
- * iframe; the guidance, adjustments, notes field, and log fold into a
- * <details> a reviewer opens when they reach for them. Pass/Fail sit OUTSIDE
- * the disclosure on purpose — "mark pass/fail visible immediately" is the one
- * behavior VerdictOverlay's docblock pins.
+ * review stay visible; the guidance, adjustments, notes field, and log fold
+ * into a <details> a reviewer opens when they reach for them. Pass/Fail sit
+ * OUTSIDE the disclosure on purpose — "mark pass/fail visible immediately".
  */
 export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished }) {
   const [notes, setNotes] = useState("");

@@ -56,9 +56,12 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
  *   1. Dashboard (Dashboard.js) — a fleet board of every sample and the
  *      phase each is on. The landing view; `currentId` is null here.
  *   2. Sample (PhaseOverview.js) — one sample's compact phase index.
- *   3. Phase review (PhaseReviewView.js -> ReviewEmbed.js ->
- *      VerdictOverlay.js) — one phase's sandboxed review site with the
- *      trusted VerdictPanel floated on top.
+ *   3. Phase review (PhaseReviewView.js -> ReviewLayer.js) — the generic
+ *      trusted review layer for one phase: the decisive evidence panel
+ *      leads, then the sandboxed artifact with a full-screen toggle, then
+ *      the verdict controls in normal flow (no floated overlay), per-phase
+ *      feedback, and sign-off. The default landing when a phase is opened is
+ *      this layer, not the full-screen artifact.
  * Navigation lives in the drawer (Sidebar.js: a "Dashboard" entry plus the
  * sample list), not a topbar switcher — the topbar only shows a read-only
  * breadcrumb (above) so a reviewer always knows where they are.
@@ -67,13 +70,12 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
  * SSE is notification-only. Every state event re-fetches the task list and,
  * if it's about the currently-open sample, bumps `refreshTick` so whichever
  * view is mounted re-fetches its own data via new `taskDetail` props —
- * never a remount, so a reviewer's in-progress verdict (held in
- * ReviewEmbed's useReviewBridge) survives an SSE tick untouched. It's only
- * reset by an actual navigation: switching phase or sample changes
- * ReviewEmbed's `key` (PhaseReviewView.js), and switching to Dashboard or
- * back to a sample's own phase index unmounts it entirely — exactly how the
- * old three-tab shell's "Reviews" tab already behaved when a reviewer
- * navigated away and back.
+ * never a remount, so a reviewer's in-progress verdict (held in ReviewLayer's
+ * useReviewBridge) survives an SSE tick untouched. It's only reset by an
+ * actual navigation: switching phase or sample changes ReviewLayer's `key`
+ * (PhaseReviewView.js), and switching to Dashboard or back to a sample's own
+ * phase index unmounts it entirely — exactly how the old three-tab shell's
+ * "Reviews" tab already behaved when a reviewer navigated away and back.
  */
 export function App() {
   const [tasks, setTasks] = useState([]);
