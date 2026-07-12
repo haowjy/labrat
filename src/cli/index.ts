@@ -12,6 +12,7 @@ import {
   runPhaseInIsolation,
   runStandaloneGate,
 } from "../harness/orchestrator/index.js";
+import { createSupervisor } from "../harness/watcher/supervisor.js";
 import { runCheckReviewSiteCli } from "../review-site/cli.js";
 import {
   importSkill,
@@ -126,6 +127,30 @@ async function main(): Promise<void> {
         gate: p.gate,
       })),
     }, null, 2));
+    return;
+  }
+
+  if (command === "watch") {
+    // Folder-watch supervisor daemon: reads desired state from
+    // control/watcher.json (dashboard-written), moves drops
+    // incoming → in-progress → done|failed, heartbeats to
+    // control/watcher-status.json. Runs until SIGINT/SIGTERM, then writes a
+    // final stopped heartbeat.
+    const config = loadConfig();
+    const tasksRoot = join(resolve(process.cwd()), "tasks");
+    const supervisor = createSupervisor({
+      config,
+      tasksRoot,
+      log: (message) => console.log(`[watch] ${message}`),
+    });
+    const controller = new AbortController();
+    process.on("SIGINT", () => controller.abort());
+    process.on("SIGTERM", () => controller.abort());
+    console.log(
+      `[watch] supervising (tasks: ${tasksRoot}, control: ${resolve(tasksRoot, "..", "control")})`,
+    );
+    await supervisor.run(controller.signal);
+    console.log("[watch] stopped");
     return;
   }
 
@@ -246,6 +271,7 @@ async function main(): Promise<void> {
 
   console.error(`Unknown command: ${command}`);
   console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name] [--no-dashboard]");
+  console.error("       labrat watch");
   console.error("       labrat gate <task-id> <phase>");
   console.error("       labrat run-phase <task-id> <phase> [--gate] [--no-dashboard]");
   console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");
