@@ -2,6 +2,7 @@ import { html, useEffect, useState } from "../vendor/preact-htm.js";
 import { getJSON } from "../lib/api.js";
 import { useReviewBridge } from "./useReviewBridge.js";
 import { EvidencePanel } from "./EvidencePanel.js";
+import { ReviewChainCard } from "./ReviewChainCard.js";
 import { ReviewEmbed } from "./ReviewEmbed.js";
 import { VerdictPanel } from "./VerdictPanel.js";
 
@@ -138,7 +139,9 @@ function SignOffActions({ taskId, taskDir }) {
  * SSE refresh (which never changes that key) leaves an in-progress verdict
  * untouched.
  *
- * Layout (top to bottom): the decisive Evidence panel leads; then the
+ * Layout (top to bottom): the ReviewChainCard pins the three-agent chain
+ * (worker vs. reviewer + audit + provenance); the decisive Evidence panel
+ * follows with the full measurement table + gate prose; then the
  * sandboxed artifact with its full-screen toggle (full-screen is a CSS-only
  * promotion of the SAME iframe element, so the bridge survives enter/exit);
  * then the trusted verdict controls in normal flow (never floated on the
@@ -167,6 +170,7 @@ export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }
 
   return html`
     <div class="review-layer">
+      <${ReviewChainCard} phaseDetail=${phaseDetail} />
       <${EvidencePanel} phaseDetail=${phaseDetail} />
 
       ${hasReviewSite

@@ -7,7 +7,8 @@ index against its evidence. Here the worker *packages* the vetted segmentation,
 landmarks, numbers, and flags into an **evidence-led** review site a human
 confirms. The method — the data contract, the single-inlined-file rule, the
 trust boundary, the evidence banner, the measurement overlays, the guided tour,
-the **orthogonal slice scrubber**, and the G1–G9 linter — is the
+the **inlined three.js 3D scene** (optional slice scrubber), and the G1–G9
+linter — is the
 **`review-artifact-builder`** skill (composed for this phase). This resource adds
 what is specific to this protocol: which ratios are decisive, which landmarks
 carry them, which spatial views to show, and what operational rules to state.
@@ -84,34 +85,42 @@ Each landmark's tour step shows:
 3. Camera flies to frame this landmark; slices jump to its voxel position
 4. Drag-to-adjust offered AFTER the evidence and rule are presented
 
-## The spatial layout — 3D + 3 linked orthogonal slices
+## The spatial layout — 3D-first, slices optional
 
-Declare the multi-pane layout so the **G9 gate makes the linked slice scrubber
-non-skippable**:
+The **3D scene is the review surface**. Declare the spatial layout so the
+**G9 gate makes the real 3D scene non-skippable** (a painted 2D canvas fails):
 
 ```js
 review_layout: "spatial-multipane",
-required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
-linked_views: true,
+required_views: ["scene3d"],          // 3D is the hero; slices optional
+linked_views: true,                   // only when slices are shipped
 ```
 
-**Export the slice data.** Produce `review/volume.json` from
-`segmentation/filtered.nii.gz` + `labels.nii.gz`, downsampled to stay under the
-5 MB budget. Also export `review/geometry.json` for the 3D scene.
+**Export the geometry.** Produce `review/geometry.json` (femur, tibia as
+separate meshes) for the 3D scene. Inline the r185+ three.js UMD build +
+OrbitControls (CSP-sandboxed — no CDN).
 
-**Three panes + evidence banner + tour:**
+**Slices are optional drill-down.** The downsampled-volume export is the
+hardest step; ship the 3D scene alone first. When you add slices, produce
+`review/volume.json` from `segmentation/filtered.nii.gz` + `labels.nii.gz`
+(downsampled under the 5 MB budget), add the `slice-*` views + `REVIEW_VOLUME`
++ `linked_views: true`, and they appear behind an **"Advanced slices" tab**.
+
+**3D scene + evidence banner + tour:**
 
 - **Evidence banner** (top, always visible) — the decisive ratios from
   `REVIEW_EVIDENCE.decisive`, colored by state, flagged first.
-- **3D scene** — the full labeled segmentation (all structures, distinct colors,
-  femur superior), the placed landmarks (colored rings + confidence halos), and
-  the **measurement lines drawn between landmarks**. Selecting a landmark drives
-  the slices AND shows the tour card.
-- **Three orthogonal slices** (axial/coronal/sagittal) — grayscale with the
-  segmentation overlaid at low alpha, landmark markers, crosshair, and ≥44px
-  slice slider each.
-- **Tour bar** (bottom) — landmark chips ordered by concern; tour card shows
-  the operational rule.
+- **3D scene** (the hero, fills the main area) — the full labeled segmentation
+  (all structures, distinct colors, femur superior), the placed landmarks
+  (colored rings + confidence halos, **named**), the **measurement lines drawn
+  between landmarks** with values + the derived ratio, and an orientation aid.
+  OrbitControls drag rotates the camera; selecting a landmark shows the tour card
+  (and drives the slices when present).
+- **Tour bar** (bottom) — landmark chips ordered by concern, "Step N of M",
+  Prev/Next, and an **Adjust landmark** mode that recomputes lines live.
+- **Advanced slices** (tab, optional) — when shipped: axial/coronal/sagittal
+  grayscale with the segmentation overlaid at low alpha, landmark markers,
+  crosshair, and a ≥44px slice slider each, linked to the 3D scene.
 - **Values + interpretation** (tab) — the rows below plus the OA-progression read
   (shown AFTER spatial evidence, to prevent anchoring).
 
@@ -161,31 +170,32 @@ measurement outputs.
 ## Data contract
 
 `REVIEW_MANIFEST` with `sample_id` = the **task id from your prompt**;
-`review_layout`/`required_views`/`linked_views` as above; `verdict_schema`;
-`data_globals` including `REVIEW_EVIDENCE` (inlined), `REVIEW_GEOMETRY` (mesh,
-injected), and `REVIEW_VOLUME` (slice data, injected); `data_sources` mapping
-the injected globals to their artifacts; and `produced_from` hashing every
-source (`measurements/results.json`, `review/geometry.json`, `review/volume.json`)
-— G8 recomputes them.
+`review_layout`/`required_views` as above; `verdict_schema`; `data_globals`
+including `REVIEW_EVIDENCE` (inlined) and `REVIEW_GEOMETRY` (mesh, injected);
+`data_sources` mapping the injected globals to their artifacts; and
+`produced_from` hashing every source (`measurements/results.json`,
+`review/geometry.json`) — G8 recomputes them. The 3D scene needs only these;
+`REVIEW_VOLUME` + the `slice-*` views + `linked_views: true` are added only when
+the optional Advanced-slices tab ships.
 
 ```js
 window.REVIEW_MANIFEST = {
   sample_id: "<task-id>",
   produced_from: {
     measurement: "measurements/results.json@<sha256>",
-    geometry: "review/geometry.json@<sha256>",
-    volume: "review/volume.json@<sha256>"
+    geometry: "review/geometry.json@<sha256>"
+    // volume: "review/volume.json@<sha256>"   // only if slices are shipped
   },
   verdict_schema: "review-verdict/1",
   review_layout: "spatial-multipane",
-  required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
-  linked_views: true,
-  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE",
-                 "REVIEW_GEOMETRY", "REVIEW_VOLUME"],
+  required_views: ["scene3d"],                  // 3D is the hero; slices optional
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],
   data_sources: {
-    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" },
-    REVIEW_VOLUME:   { artifact: "review/volume.json",   transform: "identity" }
+    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" }
   }
+  // When slices ARE shipped, add: required_views +[slice-axial/coronal/sagittal],
+  // linked_views: true, data_globals +REVIEW_VOLUME,
+  // data_sources.REVIEW_VOLUME, produced_from.volume.
 };
 ```
 
@@ -200,18 +210,21 @@ states. Flagged items are sorted first. Does the evidence banner surface the
 right flags? Are the states correct given the cutoffs?
 
 **Then the spatial evidence.** Open `review-site/index.html` via `file://`
-(inline real data temporarily). The 3D scene shows the labeled knee + landmarks
-+ **measurement lines drawn between landmarks**; each slice pane scrubs with its
-slider; **selecting a landmark in 3D jumps all three slices to it AND shows the
-tour card with the operational rule**. Confirm the measurement lines connect the
-right landmarks and the mm values match the banner.
+(inline real data temporarily). The 3D scene shows the labeled knee + **named
+landmarks** + **measurement lines drawn between landmarks** with values + the
+derived ratio; **a mouse-drag rotates the scene** (OrbitControls — verify this,
+it is the p80 defect); selecting a landmark shows the tour card with the
+operational rule (and drives the slices when present). Confirm the measurement
+lines connect the right landmarks and the mm values match the banner.
 
-**Walk the tour.** Step through each landmark. Does the camera frame it well?
-Do the slices show the landmark in all three planes? Is the operational rule
-stated correctly? Does the drag-to-adjust update the measurement lines live?
+**Walk the tour.** Step through each landmark ("Step N of M", Prev/Next). Does
+the camera frame it well? Is the operational rule stated correctly? Does the
+Adjust-landmark mode update the measurement lines and derived ratio live? (If
+slices are shipped, do they show the landmark in all three planes?)
 
 **Then the structural + fidelity gate.** The harness runs the `check_review_site`
-linter (G1–G9). G9 enforces the scrubber. Read
+linter (G1–G9). G9 enforces the real 3D scene (WebGLRenderer + OrbitControls;
+a painted canvas fails) and, when slices are declared, the linked scrubber. Read
 `review/verification/review-artifact/check_review_site.json`; gate `pass` only
 if `"ok": true` and every finding is `"ok": true`.
 

@@ -50,10 +50,12 @@ There is no one-size-fits-all review layout.
 **Single pane** — one primary view (a plot, a values table, a single
 image). The simplest case. Evidence + interaction + notes in one viewport.
 
-**Multi-pane** — multiple views that the reviewer compares. For micro-CT:
-a full 3D scene + three orthogonal 2D slices (axial, coronal, sagittal).
-The panes link — selecting a landmark in 3D scrolls the 2D slices to
-that position. Adjusting in 2D updates 3D.
+**Multi-pane** — a primary 3D scene with optional secondary views behind
+tabs. For micro-CT: the 3D scene is the hero; orthogonal 2D slices (axial,
+coronal, sagittal) live behind an "Advanced slices" tab when shipped, and
+hidden entirely when no volume is exported. When present they link —
+selecting a landmark (or a tour step) scrolls the slices to that position and
+centers the crosshair. The surface is read-only: rotate, examine, tour, read.
 
 **On mobile:** multi-pane collapses to preview panels. Show preview
 thumbnails of the panes (the screen can't fit 4 usable interactive
@@ -194,52 +196,53 @@ interaction and live on the canvas — they're viewing, not adjusting.
 
 ## The 3D review methodology
 
-For protocols with 3D data, the review component supports a specific
-inspection loop:
+For protocols with 3D data, the **3D scene is the review surface**, and the
+review component supports a specific inspection loop:
 
-1. **See the 3D scene.** Full scene with all structures, landmarks,
-   measurement lines. Get the overall picture — does it look right?
-2. **Examine 2D slices.** Switch to or expand the orthogonal slice
-   panels (axial, coronal, sagittal). Check that what looks right in
-   3D also looks right slice-by-slice — segmentations that look clean
-   in 3D can bleed through in individual slices.
-3. **Reorient.** Adjust the orientation of the slice views — change which
-   slice you're looking at, rotate the cutting plane, navigate through
-   the volume. The reviewer needs to freely explore, not just see
-   pre-selected slices.
-4. **Repeat.** Go back to 3D. Does the reoriented view confirm or
-   contradict the initial impression? If something looks wrong in a
-   slice, find it in 3D. If something looks wrong in 3D, find the
-   slice where it breaks.
+1. **See the 3D scene.** Full scene with all structures, named landmarks,
+   and measurement lines with their values and the derived ratio. Orbit it
+   (drag rotates the camera) — get the overall picture, does it look right?
+2. **Walk the guided tour.** Step through each landmark (Prev/Next, "Step N
+   of M"), lowest confidence first, with its operational rule. The camera
+   frames each landmark; verify the placement against the rule.
+3. **Read the decisive evidence.** The evidence banner leads with the
+   result — big ratio, the cutoff it crosses, the signed delta, and a
+   labelled review/confidence status; the Values tab holds the full table.
+   The artifact is **read-only**: the reviewer verifies each placement
+   against its operational rule and, if the evidence is wrong, comments and
+   marks the phase for revision through the shell rather than editing
+   landmarks in-scene (in-scene editing recomputes the line/ratio while the
+   banner and Values stay put — an internally inconsistent review surface).
+4. **Drill into slices only if needed.** When the optional Advanced-slices
+   tab is shipped, expand the orthogonal slices (axial, coronal, sagittal)
+   to confirm slice-by-slice what a clean 3D surface can hide — a bled label
+   or an off-by-a-slice landmark. Then return to 3D.
 
-This loop is the primary methodology for any 3D review (micro-CT,
-MRI, any volumetric data). The review component must support free
-navigation between 3D and 2D views with linked state — the reviewer's
-position in one view corresponds to a position in the other.
+This loop is the primary methodology for any 3D review (micro-CT, MRI, any
+volumetric data). The 3D scene stands on its own; slices are optional
+secondary evidence, linked to the scene when present.
 
-The multi-pane layout exists to serve this loop: 3D in one pane, three
-orthogonal slices in the others, with linked crosshairs and the ability
-to zoom any pane to fill the view.
-
-**This layout is required for a spatial review, and it is gated.** A
-segmentation or landmark review that ships only the 3D mesh — no linked
-orthogonal slices — is incomplete: the reviewer cannot confirm slice-by-slice
-what the surface hides, which is exactly where a bled label or an off-by-a-slice
-landmark shows up. Declare the layout in the manifest, and the **G9 linter gate
-enforces it** (see `review-ui-testing.md`):
+**The 3D scene is required and gated; slices are optional.** A spatial review
+must ship a **real three.js scene** — OrbitControls (drag rotates), mesh
+rendering, named landmark markers, and measurement overlays — not a static
+painted canvas (the exact defect p80 found). Declare the layout in the
+manifest, and the **G9 linter gate enforces it** (see `review-ui-testing.md`):
 
 ```js
 review_layout: "spatial-multipane",
-required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
-linked_views: true,
+required_views: ["scene3d"],          // 3D is the hero; slices optional
+// When the downsampled volume is exported, add the optional slices:
+// required_views: [..., "slice-axial", "slice-coronal", "slice-sagittal"],
+// linked_views: true,
 ```
 
-The buildable pattern — the injected downsampled-volume data contract and the
-pane/slider/crosshair/linking skeleton — lives in
-`review-ui-threejs-and-layout.md`. A single-pane `values-table` review omits these
-fields and G9 does not apply. Do not leave the slice scrubber to the worker's
-discretion: if the protocol's review is spatial, the resource declares
-`required_views` and the gate makes the scrubber non-skippable.
+The buildable pattern — the inlined three.js scene, the measurement overlays,
+the guided tour, and (optional) the injected downsampled-volume slice
+scrubber — lives in `review-ui-threejs-and-layout.md`. A single-pane
+`values-table` review omits these fields and G9 does not apply. If the
+protocol's review is spatial, the resource declares `required_views` and the
+gate makes the **3D scene** non-skippable (a painted canvas fails G9); the
+slice scrubber, when declared, must be complete and linked.
 
 ## What the component communicates
 

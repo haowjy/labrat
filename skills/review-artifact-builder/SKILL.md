@@ -7,8 +7,9 @@ description: >-
   iframe. Use whenever a protocol has a review-artifact phase: it composes this
   method (the contract, the trust boundary, the build loop, the layout patterns)
   with a protocol-specific resource that supplies the rows and views. Covers the
-  values-table pattern and the interactive 3D pattern (three.js, incl. the
-  linked orthogonal slice scrubber), the REVIEW_MANIFEST/REVIEW_EVIDENCE
+  values-table pattern and the 3D-first interactive pattern (inlined three.js +
+  OrbitControls as the primary view, with an optional linked orthogonal slice
+  scrubber), the REVIEW_MANIFEST/REVIEW_EVIDENCE
   data contract (and the legacy REVIEW_DATA pattern for values-table-only
   protocols), and the G1-G9 linter.
 ---
@@ -129,7 +130,7 @@ views, and customize the display so it reads well for the reviewer. The loop:
 | Generic (this skill) | Protocol-specific (the protocol's `resources/review-artifact.md`) |
 |---|---|
 | The contract (manifest/data globals, single inlined file) | Which ratios are decisive; their cutoffs, states, flags |
-| The G1-G9 linter and how to pass it | Which views — values table, or 3D scene + linked slice scrubber, declared as `review_layout`/`required_views` |
+| The G1-G9 linter and how to pass it | Which views — values table, or a 3D-first scene (required) with optional linked slices, declared as `review_layout`/`required_views` |
 | The trust boundary (exports nothing) | The layout, and how phase outputs map to `REVIEW_EVIDENCE` |
 | The layout *patterns* (single-pane, multi-pane, 3D) | Which pattern this protocol uses |
 | The evidence banner + guided tour patterns | Which landmarks carry which ratios; the operational rules per landmark |
@@ -157,11 +158,15 @@ Load by what the protocol's review needs:
 - `resources/review-ui-interactions.md` — the verdict panel, the postMessage
   bridge (the full message-type contract and trust invariants live here),
   adjust→observe→confirm, linked views.
-- `resources/review-ui-threejs-and-layout.md` — for 3D reviews: three.js scene
-  structure, camera/raycasting, one-WebGL-context viewport management, tabs (not
-  scroll), mobile, the data contract shapes, and the **orthogonal slice scrubber**
-  (the injected downsampled-volume contract + the pane/slider/crosshair/linking
-  pattern the G9 gate checks).
+- `resources/review-ui-threejs-and-layout.md` — for 3D reviews: the inlined
+  three.js scene (WebGLRenderer + OrbitControls — drag rotates the camera), mesh
+  rendering, named landmark markers, measurement overlays + derived ratio, the
+  guided tour, DOM landmark labels + leader lines, camera framing/raycasting,
+  one-WebGL-context
+  viewport management, mobile, the data contract shapes, and the **optional**
+  orthogonal slice scrubber (behind an Advanced-slices tab — the injected
+  downsampled-volume contract + the pane/slider/crosshair/linking pattern the G9
+  gate checks only when a slice view is declared).
 - `resources/review-ui-testing.md` — the linter (G1-G8), the CLI, validating
   without the dashboard, the CSP contract, the authoring checklist.
 
