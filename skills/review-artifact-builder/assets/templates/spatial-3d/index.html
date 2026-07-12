@@ -1343,6 +1343,9 @@ window.REVIEW_MANIFEST = {
   review_layout: "spatial-multipane",
   required_views: ["scene3d"],
   produced_from: {
+    // Shape: "<phase>/<output-file>@<sha256>". The path is relative to the
+    // task's artifacts/ directory — do NOT prefix with "artifacts/" (G8
+    // resolves it under artifacts/, so a prefix double-nests and FAILS).
     measurement: "measurements/results.json@3f179308d75117c096ff1ec771b54779a522b9da8d067c539a551a0ee355ad9d"
   },
   verdict_schema: "review-verdict/1",
