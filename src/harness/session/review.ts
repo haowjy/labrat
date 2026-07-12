@@ -1,6 +1,7 @@
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+  type HookCallback,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { LabratConfig } from "../../config/index.js";
 import type { SubmitGateDecisionInput } from "../../schema/index.js";
@@ -21,12 +22,20 @@ import {
   type LabratToolContext,
 } from "./signals.js";
 import { extractAssistantText, extractSessionId } from "./sdk-messages.js";
+import {
+  createSessionLogger,
+  isSessionLogPath,
+  type SessionLogger,
+} from "./session-log.js";
 
 export type ReviewSessionConfig = {
   readonly taskId: string;
   readonly taskDir: string;
   readonly protocol: LoadedProtocol;
   readonly loadedPhase: LoadedPhase;
+  /** Phase attempt number (1 on first run) — threaded from GateContext so
+   * session logs carry it explicitly, never inferred from archives. */
+  readonly attempt: number;
   readonly runtime: RuntimeHandle;
   /** Resolved harness-wide config (src/config) — the base layer under
    * protocol.yaml/agent-def precedence for model + permission mode. */
@@ -47,6 +56,47 @@ const DEFAULT_DECISION: SubmitGateDecisionInput = {
     "Reviewer did not call submit_gate_decision after 2 attempts — harness default per design §12.",
 };
 
+/**
+ * Independence guard: deny direct reviewer access to worker/author session
+ * logs under `phases/<phase>/sessions/` (live or archived). This is guidance
+ * with a clear error, NOT a security sandbox — a same-UID `Bash` command can
+ * still read the files; the design's bubblewrap profile (out of scope for
+ * this piece) is the actual boundary.
+ */
+export function reviewerToolTargetsSessionLog(
+  toolName: string,
+  toolInput: unknown,
+): boolean {
+  if (toolName !== "Read" && toolName !== "Grep" && toolName !== "Glob") {
+    return false;
+  }
+  if (typeof toolInput !== "object" || toolInput === null) {
+    return false;
+  }
+  const record = toolInput as Record<string, unknown>;
+  return ["file_path", "path", "pattern"].some((key) => {
+    const value = record[key];
+    return typeof value === "string" && isSessionLogPath(value);
+  });
+}
+
+const denySessionLogAccess: HookCallback = async (input) => {
+  if (
+    input.hook_event_name !== "PreToolUse" ||
+    !reviewerToolTargetsSessionLog(input.tool_name, input.tool_input)
+  ) {
+    return {};
+  }
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason:
+        "Session logs under phases/**/sessions/ are off-limits to the gate reviewer — review the on-disk artifacts, not the worker's transcript.",
+    },
+  };
+};
+
 function reviewerUserPrompt(phaseId: string, taskId: string, isReminder: boolean): string {
   const reminder = isReminder
     ? "\n\nREMINDER: Your previous turn ended without calling submit_gate_decision. Finish your verification and call submit_gate_decision now."
@@ -64,6 +114,8 @@ async function runOneReviewQuery(
   systemPromptParts: readonly string[],
   toolCtx: LabratToolContext,
   isReminder: boolean,
+  sessionLog: SessionLogger,
+  queryOrdinal: number,
 ): Promise<string> {
   const mcpServer = createLabratToolServer({ ctx: toolCtx, role: "gate-reviewer" });
   const labratTools = allowedLabratTools("gate-reviewer", toolCtx.subphaseIds);
@@ -98,12 +150,18 @@ async function runOneReviewQuery(
       systemPrompt,
       allowedTools,
       mcpServers: { labrat: mcpServer },
+      hooks: {
+        PreToolUse: [{ matcher: "Read|Grep|Glob", hooks: [denySessionLogAccess] }],
+      },
       ...(isReminder ? { continue: true } : {}),
     },
   });
 
   let sessionId = "";
   for await (const msg of q) {
+    // Persist the sanitized projection BEFORE any message-derived side effect
+    // (review-provenance §3A).
+    await sessionLog.append(msg, { queryOrdinal });
     const sid = extractSessionId(msg);
     if (sid) {
       sessionId = sid;
@@ -155,12 +213,31 @@ export async function runGateReview(
     signals: createOrchestratorSignals(),
   };
 
+  const sessionLog = createSessionLogger({
+    taskDir: config.taskDir,
+    taskId: config.taskId,
+    phase: config.loadedPhase.phase.id,
+    attempt: config.attempt,
+    role: "gate-reviewer",
+    // TODO(review-provenance): source exact secret values from loadConfig()
+    // when the config carries any — LabratConfig currently holds no secret
+    // material. Never read process.env here.
+    secrets: [],
+  });
+
   let sessionId = "";
   const maxAttempts = config.runSettings.retries.reviewAttempts;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const isReminder = attempt > 1;
-    const sid = await runOneReviewQuery(config, systemPromptParts, toolCtx, isReminder);
+  for (let queryAttempt = 1; queryAttempt <= maxAttempts; queryAttempt++) {
+    const isReminder = queryAttempt > 1;
+    const sid = await runOneReviewQuery(
+      config,
+      systemPromptParts,
+      toolCtx,
+      isReminder,
+      sessionLog,
+      queryAttempt,
+    );
     if (sid) {
       sessionId = sid;
     }

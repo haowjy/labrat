@@ -108,8 +108,9 @@ export async function rebuildVerdict(taskDir: string): Promise<VerdictJson> {
     const gateFile = validated.value;
     if (gateFile.decision === "pass-with-concerns") {
       anyConcerns = true;
-      if (gateFile.feedback) {
-        flags.push(`${gateFile.phase}: ${gateFile.feedback}`);
+      const flagText = gateFile.summary ?? gateFile.feedback;
+      if (flagText) {
+        flags.push(`${gateFile.phase}: ${flagText}`);
       }
     }
   }
@@ -274,6 +275,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
         taskDir: ctx.taskDir,
         protocol: ctx.protocol,
         loadedPhase,
+        attempt: ctx.attempt,
         runtime: ctx.runtime,
         runSettings: ctx.config,
       }),

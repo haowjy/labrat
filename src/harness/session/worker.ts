@@ -27,6 +27,7 @@ import {
   extractBackgroundTasks,
   extractSessionId,
 } from "./sdk-messages.js";
+import { createSessionLogger, type SessionLogger } from "./session-log.js";
 
 export type WorkerSessionConfig = {
   readonly taskId: string;
@@ -34,6 +35,9 @@ export type WorkerSessionConfig = {
   readonly inputRel: string;
   readonly protocol: LoadedProtocol;
   readonly phaseId: string;
+  /** Phase attempt number (1 on first run) — threaded from runTask's retry
+   * counter so session logs carry it explicitly, never inferred from archives. */
+  readonly attempt: number;
   readonly runtime: RuntimeHandle;
   readonly priorPhaseSummaries: Readonly<Record<string, string>>;
   /** Resolved harness-wide config (src/config) — the base layer under
@@ -127,6 +131,8 @@ async function runOneQuery(
   toolCtx: LabratToolContext,
   userPrompt: string,
   continueSession: boolean,
+  sessionLog: SessionLogger,
+  queryOrdinal: number,
 ): Promise<string> {
   const mcpServer = createLabratToolServer({ ctx: toolCtx, role: "worker" });
   const labratTools = allowedLabratTools("worker", loadedPhase.subphaseIds);
@@ -175,6 +181,10 @@ async function runOneQuery(
 
   let sessionId = "";
   for await (const msg of q) {
+    // Persist the sanitized projection BEFORE any message-derived side effect
+    // (review-provenance §3A) — the log is the audit trail for what the
+    // harness reacted to.
+    await sessionLog.append(msg, { queryOrdinal });
     const sid = extractSessionId(msg);
     if (sid) {
       sessionId = sid;
@@ -230,6 +240,18 @@ export async function runWorkerPhase(
     signals: createOrchestratorSignals(),
   };
 
+  const sessionLog = createSessionLogger({
+    taskDir: config.taskDir,
+    taskId: config.taskId,
+    phase: config.phaseId,
+    attempt: config.attempt,
+    role: "worker",
+    // TODO(review-provenance): source exact secret values from loadConfig()
+    // when the config carries any — LabratConfig currently holds no secret
+    // material. Never read process.env here.
+    secrets: [],
+  });
+
   let sessionId = "";
   let stallCount = 0;
   let bgGraceCount = 0;
@@ -268,6 +290,8 @@ export async function runWorkerPhase(
       toolCtx,
       userPrompt,
       isContinuation,
+      sessionLog,
+      totalTurns,
     );
 
     if (sid) {

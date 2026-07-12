@@ -280,6 +280,7 @@ export async function runTask(
       inputRel: orchestratorConfig.inputRel,
       protocol: orchestratorConfig.protocol,
       phaseId,
+      attempt,
       runtime,
       priorPhaseSummaries: priorSummaries,
       runSettings: config,
@@ -699,12 +700,16 @@ export async function runPhaseInIsolation(
   notifyEvent({ type: "phase-started", taskId, phase: phaseId });
 
   const startedAt = new Date().toISOString();
+  // Same attempt-numbering source the standalone gate below uses, computed
+  // BEFORE the worker runs so its session log carries the right attempt.
+  const attempt = await nextGateAttempt(taskDir, phaseId);
   const workerResult = await runWorkerPhase({
     taskId,
     taskDir,
     inputRel: task.input,
     protocol,
     phaseId,
+    attempt,
     runtime,
     priorPhaseSummaries: priorSummaries,
     runSettings: config,
@@ -759,7 +764,6 @@ export async function runPhaseInIsolation(
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: true };
   }
 
-  const attempt = await nextGateAttempt(taskDir, phaseId);
   const gate = await runGate({
     taskId,
     taskDir,
