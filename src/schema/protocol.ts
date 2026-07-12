@@ -714,6 +714,25 @@ export function validateProtocolYaml(
 
   const agents = agentsMap as ProtocolYaml["agents"];
 
+  // A phase that resolves to an explicit (non-none, non-legacy) review
+  // artifact needs an executable author profile at LOAD time — the harness
+  // does not load repo-local agents/, so the protocol must carry it (design
+  // §3.D "Protocol contract"). Fail before execution, not mid-settlement.
+  const authoredPhase = phases.find((p) => {
+    const resolved = resolveReviewArtifact(p);
+    return !resolved.legacy && resolved.type !== "none";
+  });
+  if (authoredPhase && agentsMap["review-artifact-author"] === undefined) {
+    return failure([
+      {
+        path: "$.agents.review-artifact-author",
+        message:
+          `phase "${authoredPhase.id}" declares a review_artifact but the protocol ` +
+          "has no agents.review-artifact-author profile — add one (see agents/review-artifact-author.md)",
+      },
+    ]);
+  }
+
   const requires = validateSkillRequires(rec.value["requires"], "$.requires");
   if (!requires.ok) return requires;
 

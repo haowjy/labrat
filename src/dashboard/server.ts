@@ -306,13 +306,17 @@ export function createApp(config: DashboardConfig): Express & { sseBroker: SseBr
   // skill-specific logic. Traversal is guarded solely by resolveTaskFile
   // (path-to-regexp already splits *path into decoded segments; ".." / empty /
   // absolute segments are rejected there, keeping serving inside the task tree).
-  app.get("/api/tasks/:id/review-site/*path", async (req, res) => {
-    const segments = req.params.path as string[];
-    const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
-    if (!file) {
-      res.status(400).json({ error: "invalid path" });
-      return;
-    }
+  /**
+   * Shared serving core for both review-site routes: same CSP quarantine,
+   * same serve-time data injection for index.html, same sendFile fallback.
+   * `file` has already passed resolveTaskFile's traversal/realpath guard.
+   */
+  async function serveReviewSiteFile(
+    res: express.Response,
+    id: string,
+    file: string,
+    segments: readonly string[],
+  ): Promise<void> {
     res.setHeader("Content-Security-Policy", reviewSiteCsp());
 
     // index.html gains the serve-time injection path: if the template carries a
@@ -322,7 +326,7 @@ export function createApp(config: DashboardConfig): Express & { sseBroker: SseBr
     if (segments[segments.length - 1] === "index.html") {
       let injected: string | null;
       try {
-        injected = await injectReviewData(tasksDir, req.params.id, file);
+        injected = await injectReviewData(tasksDir, id, file);
       } catch (err) {
         res.status(500).json({ error: err instanceof Error ? err.message : "review-data injection failed" });
         return;
@@ -337,6 +341,42 @@ export function createApp(config: DashboardConfig): Express & { sseBroker: SseBr
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
+  }
+
+  app.get("/api/tasks/:id/review-site/*path", async (req, res) => {
+    const segments = req.params.path as string[];
+    const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
+    if (!file) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    await serveReviewSiteFile(res, req.params.id, file, segments);
+  });
+
+  // Phase-scoped published review artifacts (review-provenance design §3.D
+  // "Dashboard seams"): serves `artifacts/review-sites/<phase>/` — the
+  // harness-published, linter-gated author output — beside the legacy
+  // single-site route, with the SAME realpath containment (resolveTaskFile),
+  // CSP quarantine, and manifest data injection.
+  app.get("/api/tasks/:id/review-sites/:phase/*path", async (req, res) => {
+    const segments = req.params.path as string[];
+    // Never serve dot-directories under review-sites/ — `.staging/` holds
+    // UNPUBLISHED author attempts the linter has not yet accepted.
+    if (req.params.phase.startsWith(".")) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const file = resolveTaskFile(tasksDir, req.params.id, [
+      "artifacts",
+      "review-sites",
+      req.params.phase,
+      ...segments,
+    ]);
+    if (!file) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    await serveReviewSiteFile(res, req.params.id, file, segments);
   });
 
   // Reviewer verification scratch — proof the reviewer RAN code (design §10, §14).

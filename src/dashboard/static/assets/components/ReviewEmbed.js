@@ -28,11 +28,18 @@ import { html } from "../vendor/preact-htm.js";
  *
  * Renamed from the old three-tab shell's ReviewsView.js — review-site.test.ts
  * greps this file by name and asserts the <iframe> sets `sandbox` from
- * `window.REVIEW_SANDBOX` and `src` from `window.reviewSiteSrc()`, the
- * trust-boundary regression guard; keep those two bindings verbatim.
+ * `window.REVIEW_SANDBOX` and `src` from the review-site.js URL builders
+ * (`window.reviewSiteSrc` / `window.reviewSiteSrcForPhase`), the
+ * trust-boundary regression guard; keep those bindings verbatim.
  */
-export function ReviewEmbed({ taskId, phase, bindIframe, fullScreen, onToggleFullScreen }) {
-  const src = window.reviewSiteSrc(taskId);
+export function ReviewEmbed({ taskId, phase, legacy, bindIframe, fullScreen, onToggleFullScreen }) {
+  // Published author artifacts live at the phase-scoped route; `legacy`
+  // worker-authored sites keep the original single-site URL. Both builders
+  // live in review-site.js (trust-boundary constants) and are read off
+  // `window` so this module cannot drift from the pinned URL shapes.
+  const src = legacy
+    ? window.reviewSiteSrc(taskId)
+    : window.reviewSiteSrcForPhase(taskId, phase);
 
   return html`
     <div class="review-embed ${fullScreen ? "review-embed-fullscreen" : ""}">

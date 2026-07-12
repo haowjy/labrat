@@ -139,6 +139,12 @@ export async function derivePhaseTiming(
   return { started, completed };
 }
 
+export async function readProvenanceManifest(
+  taskDir: string,
+): Promise<ProvenanceManifest> {
+  return readManifest(taskDir);
+}
+
 async function readManifest(taskDir: string): Promise<ProvenanceManifest> {
   const manifestPath = join(taskDir, MANIFEST_REL);
   if (!(await existsAt(manifestPath))) {

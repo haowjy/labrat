@@ -166,26 +166,44 @@ export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }
     };
   }, [taskId, phase]);
 
-  const hasReviewSite = !!(entry && entry.hasReviewSite);
+  // Per-phase review-artifact descriptor (review-provenance §3.D "Dashboard
+  // seams"): `published` embeds the phase-scoped site, `legacy` embeds the
+  // worker-authored single site, `none` renders the exact clean empty state,
+  // and `failed`/`authoring` render a DISTINCT "artifact unavailable"
+  // diagnostic — never the `none` message.
+  const artifact = (entry && entry.reviewArtifact) || { status: "none", type: null };
+  const embeddable = artifact.status === "published" || artifact.status === "legacy";
 
   return html`
     <div class="review-layer">
       <${ReviewChainCard} phaseDetail=${phaseDetail} />
       <${EvidencePanel} phaseDetail=${phaseDetail} />
 
-      ${hasReviewSite
+      ${embeddable
         ? html`<${ReviewEmbed}
             taskId=${taskId}
             phase=${phase}
+            legacy=${artifact.status === "legacy"}
             bindIframe=${bindIframe}
             fullScreen=${fullScreen}
             onToggleFullScreen=${setFullScreen}
           />`
-        : html`
-            <div class="review-stage review-stage-empty">
-              <div class="empty">No interactive review artifact for this phase.</div>
-            </div>
-          `}
+        : artifact.status === "none"
+          ? html`
+              <div class="review-stage review-stage-empty">
+                <div class="empty">No interactive review artifact for this phase.</div>
+              </div>
+            `
+          : html`
+              <div class="review-stage review-stage-empty">
+                <div class="empty review-artifact-unavailable">
+                  Review artifact unavailable — the artifact author
+                  ${artifact.status === "failed"
+                    ? "failed its deterministic checks; the verified science is unaffected. Resume the task to retry authoring."
+                    : "has not finished authoring this phase's artifact yet."}
+                </div>
+              </div>
+            `}
 
       <${VerdictPanel}
         taskId=${taskId}

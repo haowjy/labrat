@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -24,7 +24,7 @@ after(async () => {
   for (const d of dirs) await rm(d, { recursive: true, force: true });
 });
 
-async function boot(): Promise<{ base: string }> {
+async function boot(): Promise<{ base: string; tasksDir: string }> {
   const tasksDir = await mkdtemp(path.join(tmpdir(), "labrat-server-review-"));
   dirs.push(tasksDir);
   await cp(FIXTURE, path.join(tasksDir, TASK_ID), { recursive: true });
@@ -34,7 +34,7 @@ async function boot(): Promise<{ base: string }> {
   });
   servers.push(server);
   const port = (server.address() as AddressInfo).port;
-  return { base: `http://127.0.0.1:${port}` };
+  return { base: `http://127.0.0.1:${port}`, tasksDir };
 }
 
 const validBody = {
@@ -200,5 +200,96 @@ describe("GET /api/tasks/:id/export", () => {
     const { base } = await boot();
     const res = await fetch(`${base}/api/tasks/task-2026-01-01-999/export`);
     assert.equal(res.status, 404);
+  });
+});
+
+/*
+ * Phase-scoped review-site routing (review-provenance §3.D "Dashboard
+ * seams"): /api/tasks/:id/review-sites/:phase/* serves the harness-published
+ * `artifacts/review-sites/<phase>/` tree with the SAME CSP quarantine and
+ * traversal guard as the legacy single-site route — and never serves the
+ * unpublished `.staging/` tree.
+ */
+describe("GET /api/tasks/:id/review-sites/:phase/*path", () => {
+  async function bootWithPublishedSite(): Promise<{ base: string }> {
+    const { base, tasksDir } = await boot();
+    const siteDir = path.join(
+      tasksDir,
+      TASK_ID,
+      "artifacts",
+      "review-sites",
+      "segmentation",
+    );
+    await mkdir(siteDir, { recursive: true });
+    await writeFile(
+      path.join(siteDir, "index.html"),
+      "<!doctype html><html><body>published segmentation artifact</body></html>",
+    );
+    const stagingDir = path.join(
+      tasksDir,
+      TASK_ID,
+      "artifacts",
+      "review-sites",
+      ".staging",
+      "segmentation",
+      "1",
+    );
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(path.join(stagingDir, "index.html"), "UNPUBLISHED");
+    return { base };
+  }
+
+  it("serves a published phase site with the review-site CSP", async () => {
+    const { base } = await bootWithPublishedSite();
+    const res = await fetch(
+      `${base}/api/tasks/${TASK_ID}/review-sites/segmentation/index.html`,
+    );
+    assert.equal(res.status, 200);
+    const csp = res.headers.get("content-security-policy");
+    assert.ok(csp, "phase-scoped route must carry the same CSP quarantine");
+    assert.match(csp ?? "", /default-src 'none'|script-src/);
+    assert.match(await res.text(), /published segmentation artifact/);
+  });
+
+  it("rejects a phase with no published site (resolveTaskFile fails closed)", async () => {
+    const { base } = await bootWithPublishedSite();
+    const res = await fetch(
+      `${base}/api/tasks/${TASK_ID}/review-sites/unknown-phase/index.html`,
+    );
+    // Same contract as the legacy route: an unresolvable path is a 400 from
+    // the traversal-guarded resolver, never a directory listing or a leak.
+    assert.equal(res.status, 400);
+  });
+
+  it("never serves the unpublished .staging tree", async () => {
+    const { base } = await bootWithPublishedSite();
+    const res = await fetch(
+      `${base}/api/tasks/${TASK_ID}/review-sites/.staging/segmentation/1/index.html`,
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects traversal in the phase segment", async () => {
+    const { base } = await bootWithPublishedSite();
+    const res = await fetch(
+      `${base}/api/tasks/${TASK_ID}/review-sites/${encodeURIComponent("..")}/task.json`,
+    );
+    assert.ok(res.status === 400 || res.status === 404);
+    const body = await res.text();
+    assert.ok(!body.includes('"protocol"'), "must not leak task.json through traversal");
+  });
+
+  it("the legacy /review-site/ route still serves beside the new one", async () => {
+    const { base, tasksDir } = await boot();
+    const legacyDir = path.join(tasksDir, TASK_ID, "artifacts", "review-site");
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(
+      path.join(legacyDir, "index.html"),
+      "<!doctype html><html><body>legacy single site</body></html>",
+    );
+    const res = await fetch(`${base}/api/tasks/${TASK_ID}/review-site/index.html`);
+    assert.equal(res.status, 200);
+    assert.ok(res.headers.get("content-security-policy"));
+    assert.match(await res.text(), /legacy single site/);
   });
 });
