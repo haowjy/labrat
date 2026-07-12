@@ -1,8 +1,13 @@
 import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, type LabratConfig } from "../../config/index.js";
-import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
-import { validateTaskJson } from "../../schema/index.js";
+import type {
+  ProtocolYaml,
+  SendBackInvalidationRecord,
+  SendBackRouteRecord,
+  TaskJson,
+} from "../../schema/index.js";
+import { uuidv7, validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 import { configureEvents, notifyEvent } from "../events/index.js";
@@ -22,6 +27,16 @@ import {
 } from "./artifact-settlement.js";
 import { runGate } from "./gate.js";
 import type { GateContext, RunGateResult } from "./gate.js";
+import {
+  collectLiveMarks,
+  completeInvalidationRecord,
+  decideSendBackRoute,
+  persistRouteRecords,
+  runFeedbackRouter,
+  snapshotPhaseAttempts,
+  type FeedbackRouterFn,
+  type FeedbackRouterOutcome,
+} from "../decision/feedback-router.js";
 import { downstreamPhaseIds, invalidateFromPhase } from "./invalidation.js";
 import { findRecordedWorkerSessionId } from "./session-lookup.js";
 
@@ -1029,27 +1044,169 @@ export async function findSendBackPhase(
   return null;
 }
 
+export type SendBackRouteOptions = {
+  /**
+   * LLM seam (design §3E): the proposer `invalidateForSendBack` consults
+   * when no explicit `fromPhase` is given. Defaults to the live confined
+   * Haiku runner when the protocol declares an `agents.feedback-router`
+   * profile; absent both, routing is purely deterministic. Tests inject a
+   * stub here so no live model is ever required.
+   */
+  readonly router?: FeedbackRouterFn;
+};
+
+export type SendBackRouteResult = {
+  readonly phase: string;
+  readonly task: TaskJson;
+  /** The audited routing decision persisted to review/routing/send-back/. */
+  readonly route: SendBackRouteRecord;
+};
+
 /**
- * Send-back invalidation seam: resolve the phase to re-run (an explicit
- * `fromPhase`, else the earliest `changes_requested` verdict on disk) and
- * apply the SAME archive+reset invalidation retry/rewind/reset-to use. Does
- * NOT run any compute — it only rewinds disk state so a subsequent `runTask`
- * resumes there. Returns the resolved phase + updated task.json.
+ * Send-back invalidation seam (review-provenance design §3E, seven steps):
+ *
+ * 1. an explicit CLI/dashboard `fromPhase` wins after structural validation
+ *    (audited as `human-override`);
+ * 2. otherwise collect the live `changes_requested` marks —
+ *    `findSendBackPhase`'s earliest mark remains the deterministic FALLBACK;
+ * 3. call the fresh confined feedback router (when enabled) for a PROPOSAL;
+ * 4. code validates the proposal: phase must exist and must not be
+ *    downstream of the earliest mark; only a valid high-confidence route is
+ *    auto-accepted, everything else falls back to the earliest mark;
+ * 5. persist the route decision + invalidation intent BEFORE any mutation;
+ * 6. pass the accepted phase into the UNCHANGED `resetTaskToPhaseWithProtocol`
+ *    (code-owned archive+reset invalidation, same as retry/rewind/reset-to);
+ * 7. a subsequent `runTask` re-enters the rigid loop and every affected
+ *    phase gets a fresh independent gate.
+ *
+ * Does NOT run any compute — it only rewinds disk state. The router can
+ * never waive a gate, change the protocol, or widen/narrow the closure; the
+ * marks themselves stay live until each phase's own re-run gate passes
+ * (`consumeSendBackVerdict`, phase-local by design — never bulk-consumed at
+ * routing time).
  */
 export async function invalidateForSendBack(
   taskDir: string,
   protocolYaml: ProtocolYaml,
   fromPhase?: string,
-): Promise<{ readonly phase: string; readonly task: TaskJson }> {
-  const phase = fromPhase ?? (await findSendBackPhase(taskDir, protocolYaml));
-  if (!phase) {
+  opts: SendBackRouteOptions = {},
+): Promise<SendBackRouteResult> {
+  const phaseIds = protocolYaml.phases.map((p) => p.id);
+
+  // Step 1: structural validation of the explicit override BEFORE anything
+  // else — same error resetTaskToPhaseWithProtocol raises, surfaced early so
+  // no route record is written for a phase that cannot be reset.
+  if (fromPhase !== undefined && !phaseIds.includes(fromPhase)) {
+    throw new Error(`Protocol "${protocolYaml.name}" has no phase "${fromPhase}"`);
+  }
+
+  // Step 2: live marks in declaration order; earliest is the fallback.
+  const marks = await collectLiveMarks(taskDir, protocolYaml);
+  if (fromPhase === undefined && marks.length === 0) {
     throw new Error(
       "No phase to rerun: pass a phase, or send one back from the dashboard " +
         "(writes a changes_requested verdict to review/verdict/{phase}.json).",
     );
   }
-  const task = await resetTaskToPhaseWithProtocol(taskDir, protocolYaml, phase);
-  return { phase, task };
+  const earliestMarkedPhase = marks[0]?.phase ?? null;
+
+  // Step 3: the confined LLM proposer — consulted only when there is no
+  // human override AND semantic routing is enabled (injected router, or a
+  // protocol `agents.feedback-router` profile). The router is never asked to
+  // invent work: it runs only over existing live marks.
+  let outcome: FeedbackRouterOutcome | null = null;
+  if (fromPhase === undefined && earliestMarkedPhase !== null) {
+    const profile = protocolYaml.agents["feedback-router"];
+    const routerFn = opts.router ?? (profile !== undefined ? runFeedbackRouter : null);
+    if (routerFn !== null) {
+      const task = await loadTaskJson(taskDir);
+      try {
+        outcome = await routerFn({
+          taskId: task.id,
+          taskDir,
+          protocolYaml,
+          marks,
+          earliestMarkedPhase,
+          model: profile?.model ?? "haiku",
+          permissionMode: profile?.permissions ?? "default",
+        });
+      } catch (err) {
+        // Fail safe: a throwing router is a router failure, never a crash of
+        // the send-back path — the decision core falls back to the earliest
+        // mark and the record carries the reason.
+        outcome = {
+          proposal: null,
+          model: null,
+          failure: `router error: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+  }
+
+  // Step 4: code-owned adoption policy (pure, exhaustively tested).
+  const decision = decideSendBackRoute({
+    phaseIds,
+    fromPhase,
+    earliestMarkedPhase,
+    outcome,
+  });
+
+  // Step 5: persist the decision + code-computed invalidation intent BEFORE
+  // any phase state mutates. The router never writes these records.
+  const routeId = uuidv7();
+  const createdAt = new Date().toISOString();
+  const downstream = downstreamPhaseIds(protocolYaml, decision.accepted_phase);
+  const invalidation: SendBackInvalidationRecord = {
+    schema_version: 1,
+    route_id: routeId,
+    created_at: createdAt,
+    accepted_phase: decision.accepted_phase,
+    downstream_phases: downstream,
+    status: "prepared",
+    archived: [],
+  };
+  const route: SendBackRouteRecord = {
+    schema_version: 1,
+    route_id: routeId,
+    created_at: createdAt,
+    source: decision.source,
+    feedback_files: marks.map((m) => ({ path: m.path, sha256: m.sha256 })),
+    protocol: {
+      name: protocolYaml.name,
+      version: protocolYaml.version,
+      phase_ids: phaseIds,
+    },
+    model: outcome?.model ?? null,
+    proposal:
+      outcome?.proposal != null
+        ? {
+            restart_phase: outcome.proposal.restart_phase,
+            confidence: outcome.proposal.confidence,
+            justification: outcome.proposal.justification,
+            alternatives: outcome.proposal.alternatives,
+          }
+        : null,
+    accepted_phase: decision.accepted_phase,
+    acceptance: decision.acceptance,
+    validation_errors: decision.validation_errors,
+    invalidation_record: `review/routing/invalidation/${routeId}.json`,
+  };
+  await persistRouteRecords(taskDir, route, invalidation);
+
+  // Step 6: the UNCHANGED code-owned invalidation (inclusive archive+reset —
+  // the target phase's gate is archived too, so its worker re-runs rather
+  // than short-circuiting on resume).
+  const before = await snapshotPhaseAttempts(taskDir, downstream);
+  const task = await resetTaskToPhaseWithProtocol(
+    taskDir,
+    protocolYaml,
+    decision.accepted_phase,
+  );
+  const after = await snapshotPhaseAttempts(taskDir, downstream);
+  await completeInvalidationRecord(taskDir, invalidation, before, after);
+
+  // Step 7 happens in the caller: runTask re-enters the rigid loop.
+  return { phase: decision.accepted_phase, task, route };
 }
 
 /**

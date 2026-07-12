@@ -10,11 +10,15 @@ import {
   handleMarkSubphase,
   handleReadPastHistory,
   handleRecordPhase,
+  handleSubmitFeedbackRoute,
   handleSubmitGateDecision,
   handleSubmitMonitorVerdict,
   handleViewHumanFeedback,
 } from "./handlers.js";
 import {
+  FEEDBACK_ROUTE_ALTERNATIVES_MAX,
+  FEEDBACK_ROUTE_CONFIDENCES,
+  FEEDBACK_ROUTE_JUSTIFICATION_MAX,
   HISTORY_EXPAND_CAP,
   HISTORY_MAX_TOKENS_DEFAULT,
   HISTORY_MAX_TOKENS_MAX,
@@ -123,6 +127,31 @@ const viewHumanFeedbackSchema = {
   max_tokens: maxTokensSchema,
 };
 
+const submitFeedbackRouteSchema = {
+  restart_phase: z
+    .string()
+    .nullable()
+    .describe(
+      "A supplied phase ID to restart from, or null when the feedback cannot be routed",
+    ),
+  confidence: z
+    .enum(FEEDBACK_ROUTE_CONFIDENCES as unknown as [string, ...string[]])
+    .describe("Calibrated confidence — only a valid high-confidence route is auto-accepted"),
+  justification: z
+    .string()
+    .max(FEEDBACK_ROUTE_JUSTIFICATION_MAX)
+    .describe(
+      `Concise causal rationale for the audit record (max ${FEEDBACK_ROUTE_JUSTIFICATION_MAX} chars), not chain-of-thought`,
+    ),
+  implicated_feedback_phases: z
+    .array(z.string())
+    .describe("Phase IDs the feedback records implicate"),
+  alternatives: z
+    .array(z.object({ phase: z.string(), reason: z.string() }))
+    .max(FEEDBACK_ROUTE_ALTERNATIVES_MAX)
+    .describe(`Up to ${FEEDBACK_ROUTE_ALTERNATIVES_MAX} plausible alternative routes`),
+};
+
 const submitMonitorVerdictSchema = {
   verdict: z
     .enum(MONITOR_VERDICTS as unknown as [string, ...string[]])
@@ -195,6 +224,18 @@ function reviewArtifactAuthorTools(ctx: LabratToolContext) {
   ];
 }
 
+/** The feedback-router role's ONLY tool (design §3E) — no other role gets it. */
+function feedbackRouterTools(ctx: LabratToolContext) {
+  return [
+    tool(
+      "submit_feedback_route",
+      "Propose one restart phase for harness validation. This does not mutate the plan, invalidate files, run a phase, or waive a gate. restart_phase must be a supplied phase ID or null. State the causal reason briefly and calibrated confidence; the harness records and may reject/fallback.",
+      submitFeedbackRouteSchema,
+      async (args) => handleSubmitFeedbackRoute(ctx, args),
+    ),
+  ];
+}
+
 function monitorTools(ctx: LabratToolContext) {
   return [
     tool(
@@ -218,7 +259,9 @@ export function createLabratToolServer(
         ? monitorTools(ctx)
         : role === "review-artifact-author"
           ? reviewArtifactAuthorTools(ctx)
-          : gateReviewerTools(ctx);
+          : role === "feedback-router"
+            ? feedbackRouterTools(ctx)
+            : gateReviewerTools(ctx);
 
   return createSdkMcpServer({
     name: "labrat",
@@ -238,6 +281,10 @@ export function allowedLabratTools(
 
   if (role === "monitor") {
     return ["mcp__labrat__submit_monitor_verdict"];
+  }
+
+  if (role === "feedback-router") {
+    return ["mcp__labrat__submit_feedback_route"];
   }
 
   if (role === "review-artifact-author") {

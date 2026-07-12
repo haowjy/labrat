@@ -7,6 +7,7 @@ import {
   validateBlockedInput,
   validateMarkSubphaseInput,
   validateReadPastHistoryInput,
+  validateSubmitFeedbackRouteInput,
   validateRecordPhaseInput,
   validateSubphasesJson,
   validateSubmitGateDecisionInput,
@@ -269,6 +270,30 @@ export async function handleSubmitMonitorVerdict(
 
   ctx.signals.monitorVerdict = validated.value;
   return textResult(`Monitor verdict recorded: ${validated.value.verdict}.`);
+}
+
+/**
+ * feedback-router role ONLY (design §3E). The router SIGNALS its proposed
+ * restart route through this tool — it never writes review/routing/ itself.
+ * Harness code (orchestrator invalidateForSendBack) validates the proposal,
+ * selects the accepted phase, and writes the append-only route records.
+ */
+export async function handleSubmitFeedbackRoute(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateSubmitFeedbackRouteInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid submit_feedback_route input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  ctx.signals.feedbackRoute = validated.value;
+  return textResult(
+    `Route proposal recorded: ${validated.value.restart_phase ?? "null"} (${validated.value.confidence}). The harness will validate and may reject or fall back.`,
+  );
 }
 
 /**

@@ -1,4 +1,5 @@
 import type {
+  SubmitFeedbackRouteInput,
   SubmitGateDecisionInput,
   SubmitMonitorVerdictInput,
 } from "../../schema/index.js";
@@ -16,6 +17,8 @@ export type OrchestratorSignals = {
   blockedReason: string | null;
   gateDecision: SubmitGateDecisionInput | null;
   monitorVerdict: SubmitMonitorVerdictInput | null;
+  /** The confined feedback-router's proposed restart route (design §3E). */
+  feedbackRoute: SubmitFeedbackRouteInput | null;
   /**
    * Live background tasks at the end of the most recent SDK turn.
    * Updated with REPLACE semantics from `background_tasks_changed` messages.
@@ -32,6 +35,7 @@ export function createOrchestratorSignals(): OrchestratorSignals {
     blockedReason: null,
     gateDecision: null,
     monitorVerdict: null,
+    feedbackRoute: null,
     activeBackgroundTasks: [],
   };
 }
@@ -40,7 +44,8 @@ export type LabratToolRole =
   | "worker"
   | "gate-reviewer"
   | "monitor"
-  | "review-artifact-author";
+  | "review-artifact-author"
+  | "feedback-router";
 
 /** Context passed to createLabratToolServer — closure over task dir + phase scope. */
 export type LabratToolContext = {
