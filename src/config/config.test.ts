@@ -32,6 +32,7 @@ describe("loadConfig", () => {
         reviewAttempts: 2,
         phaseAttempts: 2,
         backgroundGraceRetries: 10,
+        artifactAuthorAttempts: 2,
       });
     });
   });

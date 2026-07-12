@@ -27,7 +27,8 @@ function PhaseSelector({ timeline, activePhase, onSelect }) {
           >
             <span class="phase-tab-dot ${dotClass(entry)}"></span>
             ${entry.phase}
-            ${entry.hasReviewSite
+            ${entry.reviewArtifact &&
+            (entry.reviewArtifact.status === "published" || entry.reviewArtifact.status === "legacy")
               ? html`<span class="phase-tab-review-mark" title="has an interactive review site">◆</span>`
               : null}
           </button>
@@ -48,7 +49,11 @@ function PhaseSelector({ timeline, activePhase, onSelect }) {
  */
 function resolveActivePhase(timeline, selectedPhase) {
   if (selectedPhase && timeline.some((e) => e.phase === selectedPhase)) return selectedPhase;
-  const withReviewSite = timeline.find((e) => e.hasReviewSite);
+  const withReviewSite = timeline.find(
+    (e) =>
+      e.reviewArtifact &&
+      (e.reviewArtifact.status === "published" || e.reviewArtifact.status === "legacy"),
+  );
   if (withReviewSite) return withReviewSite.phase;
   return timeline[0]?.phase ?? null;
 }

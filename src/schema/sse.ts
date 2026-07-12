@@ -68,6 +68,62 @@ export type SseEvent =
   | TaskPausedEvent
   | LogEvent;
 
+/**
+ * Disk-persisted transport envelope (review-provenance §3B). Each SSE event is
+ * appended to `<taskDir>/events/events.jsonl` as one JSON line of this shape;
+ * the wrapped {@link SseEvent} payload stays byte-identical to what the browser
+ * receives in `data:` — the envelope exists only for replay/dedup ordering.
+ */
+export type PersistedSseEvent = {
+  readonly schemaVersion: 1;
+  /** UUIDv7 — globally sortable + dedup-able without a cross-process counter. */
+  readonly id: string;
+  /** Harness-stamped ISO time at append. */
+  readonly emittedAt: string;
+  readonly event: SseEvent;
+};
+
+export const SSE_ENVELOPE_SCHEMA_VERSION = 1 as const;
+
+/** Per-task event-log path, relative to the task dir — written by the harness
+ *  producer, replayed/tailed by the dashboard broker. */
+export const EVENTS_LOG_REL = "events/events.jsonl";
+
+export function validatePersistedSseEvent(
+  value: unknown,
+): ValidationResult<PersistedSseEvent> {
+  const rec = expectRecord(value, "$");
+  if (!rec.ok) return rec;
+
+  if (rec.value["schemaVersion"] !== SSE_ENVELOPE_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      errors: [
+        {
+          path: "$.schemaVersion",
+          message: `expected ${SSE_ENVELOPE_SCHEMA_VERSION}`,
+        },
+      ],
+    };
+  }
+
+  const id = expectNonEmptyString(rec.value["id"], "$.id");
+  if (!id.ok) return id;
+
+  const emittedAt = expectNonEmptyString(rec.value["emittedAt"], "$.emittedAt");
+  if (!emittedAt.ok) return emittedAt;
+
+  const event = validateSseEvent(rec.value["event"]);
+  if (!event.ok) return event;
+
+  return success({
+    schemaVersion: SSE_ENVELOPE_SCHEMA_VERSION,
+    id: id.value,
+    emittedAt: emittedAt.value,
+    event: event.value,
+  });
+}
+
 export const SSE_EVENT_TYPES = [
   "task-started",
   "phase-started",

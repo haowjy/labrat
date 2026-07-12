@@ -715,14 +715,18 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     // stale/abandoned daemon (which would invite a takeover that
     // quarantines the still-active input).
     shuttingDown = true;
-    while (activeRun !== null && !activeRun.finished) {
+    while (true) {
+      // Snapshot: the awaited reconcileOnce() below can null out the
+      // closure's activeRun, so re-reading it after the await would race.
+      const run = activeRun;
+      if (run === null || run.finished) break;
       try {
         await reconcileOnce();
       } catch (err) {
         log(`shutdown tick failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       await Promise.race([
-        activeRun.promise,
+        run.promise,
         new Promise<void>((r) => setTimeout(r, pollIntervalMs)),
       ]);
     }

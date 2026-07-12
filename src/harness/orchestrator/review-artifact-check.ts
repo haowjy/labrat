@@ -61,20 +61,23 @@ export function reviewSiteGateFailure(report: ReviewSiteReport | null): string |
 }
 
 /**
- * Run the deterministic linter and persist its report for the reviewer to read.
- * No-op (returns null) for phases that don't produce a review site. Idempotent:
- * safe to run before every gate.
+ * Run the deterministic G1–G9 linter against an ARBITRARY site directory and
+ * persist the report at `outPath` (review-provenance design §3.D step 5). The
+ * generalized core both the legacy pre-review check and the per-phase
+ * artifact-settlement gate call: same authoritative inputs (phase
+ * `cdn_allowlist`, `artifacts/` measurement root, task id as `sample_id`,
+ * canonical served CSP), different site dir + report location.
  */
-export async function runReviewArtifactCheck(
+export async function runReviewArtifactCheckAtPath(
   taskId: string,
   taskDir: string,
   phase: ProtocolPhase,
-): Promise<ReviewSiteReport | null> {
-  if (!phaseProducesReviewSite(phase)) return null;
-
+  siteDir: string,
+  outPath: string,
+): Promise<ReviewSiteReport> {
   const cdnAllowlist = phase.cdn_allowlist ?? [];
   const report = await checkReviewSite({
-    siteDir: join(taskDir, "artifacts", REVIEW_SITE_DIR),
+    siteDir,
     cdnAllowlist,
     measurementsRoot: join(taskDir, "artifacts"),
     // The harness's authoritative run identity — the site's sample_id must
@@ -87,8 +90,30 @@ export async function runReviewArtifactCheck(
     contentSecurityPolicy: buildReviewSiteCsp(cdnAllowlist),
   });
 
-  const outPath = reviewArtifactCheckPath(taskDir, phase.id);
   await mkdir(dirname(outPath), { recursive: true });
   await atomicWriteJson(outPath, report);
   return report;
+}
+
+/**
+ * Run the deterministic linter and persist its report for the reviewer to read.
+ * No-op (returns null) for phases that don't produce a review site. Idempotent:
+ * safe to run before every gate. LEGACY worker-authored single-site path only —
+ * per-phase author artifacts gate through `runReviewArtifactCheckAtPath`
+ * against their staging dir instead.
+ */
+export async function runReviewArtifactCheck(
+  taskId: string,
+  taskDir: string,
+  phase: ProtocolPhase,
+): Promise<ReviewSiteReport | null> {
+  if (!phaseProducesReviewSite(phase)) return null;
+
+  return runReviewArtifactCheckAtPath(
+    taskId,
+    taskDir,
+    phase,
+    join(taskDir, "artifacts", REVIEW_SITE_DIR),
+    reviewArtifactCheckPath(taskDir, phase.id),
+  );
 }
