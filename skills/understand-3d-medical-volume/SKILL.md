@@ -21,6 +21,7 @@ Use a frontier visual model as the controller and interpreter. Use deterministic
 ## Load only the references needed
 
 - Read [references/spatial-workflow.md](references/spatial-workflow.md) for coordinate frames, orientation, linked-view behavior, and the full 3-D/2-D loop.
+- Read [references/technique-catalogue.md](references/technique-catalogue.md) when deciding how to locate a landmark, verify a concavity, detect a boundary, or choose between computational and visual methods.
 - Read [references/evidence-and-qc.md](references/evidence-and-qc.md) when producing masks, ROIs, landmarks, measurements, batch outputs, or validation results.
 - Read [references/reference-pack.md](references/reference-pack.md) when creating or using annotated reference images and protocol demonstrations.
 

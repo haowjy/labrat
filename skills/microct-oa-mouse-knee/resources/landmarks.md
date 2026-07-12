@@ -8,12 +8,25 @@ height, and growth-plate boundaries (definitions in SKILL.md). The artifact:
 and `landmarks.json` for handoff. Landmarks stay in native volume ZYX
 (`orientation_applied: false`); display alignment is the parent skill's job.
 
-Use the visual/agent path — render, reason, **write detection code**, validate,
-iterate — the core discipline of `understand-3d-medical-volume`. There is no
-frozen heuristic and no package: you write the detection code with
-`scipy`/`skimage`/`numpy`, check it on the render, and revise. Ground every
-placement in the pack (`femoral-length-line…`, `femoral-width-line…`,
-`figure3-tibia…`, `landmark-inspection…`).
+Use the **compute-to-propose, visualize-to-confirm** discipline from
+`understand-3d-medical-volume/references/technique-catalogue.md`. Write detection
+code with `scipy`/`skimage`/`numpy` that produces a measurable candidate (an
+inflection point, an extremum, a threshold crossing), then confirm the candidate
+visually in 3-D and orthogonal slices. Never place a landmark from visual
+inspection alone — there must always be a quantitative step that proposed the
+answer first. Ground every placement in the reference pack
+(`femoral-length-line…`, `femoral-width-line…`, `figure3-tibia…`,
+`landmark-inspection…`).
+
+**Required techniques by landmark:**
+
+| Landmark | Proposal technique | Confirmation |
+|---|---|---|
+| Trochlear groove top | Depth profile along femoral axis — find onset of sustained anterior concavity (first slice where depth dips below the diaphyseal baseline and stays low). The groove is the femoral surface of the patellofemoral joint; onset is proximal to the condylar bulge. | 3-D marker at the inflection slice + sagittal raw slice showing anterior concavity begins there |
+| Intercondylar notch | Cross-sectional fill-ratio profile — find distal-most slice with midline bone (fill ratio > threshold at the AP midpoint). Or: mesh vertex search for minimum-z midline point. | Coronal slice showing the notch floor + 3-D marker at the distal midline |
+| Condyle edges (ML extremes) | Mesh vertex coordinates in the distal condylar slab, filtered to the frontal plane, then ML-extreme points | 3-D front view confirming endpoints at true lateral/medial edges on a common frontal plane |
+| Growth plate | Bone-fill-ratio profile along tibial axis — locate the sharp drop (epiphyseal → growth plate cartilage transition) | Coronal or sagittal slice at the transition showing the plate line |
+| IIOC interval | Articular surface slice (first bone contact from proximal end) and growth-plate slice define the span | Linked views at both boundary slices confirming anatomy |
 
 **Pre-flight (mandatory):** the segmentation CC gate must pass (CC == 1 per bone).
 Placement on a broken mask is wasted — abort and fix segmentation if it doesn't.
@@ -36,31 +49,48 @@ workflow; the tibia-rotation correction is per-specimen) — reference frames
 
 ## Verification
 
-**Look first — this is the whole point of the phase.** Render each landmark on the
-3-D surface and in orthogonal slices and check it sits where the anatomy says:
+Each landmark must pass both a **quantitative check** (does the profile/algorithm
+show a feature here?) and a **visual check** (does the anatomy look right at this
+location?). Neither alone is sufficient.
+
+**Quantitative verification (first):**
+
+- The proposal technique must show a clear feature at the candidate location — an
+  inflection in the depth profile, a threshold crossing in the fill-ratio curve,
+  an extremum in the coordinate search. If the profile is flat or ambiguous at the
+  candidate, the placement is rejected regardless of how the render looks.
+- **Structural invariants:** segmentation pre-flight (CC == 1 per bone);
+  compartment symmetry — |medial - lateral| height small on a normal control
+  (large asymmetry => growth plate too deep on one side); IIOC slice interval a
+  plausible fraction of the tibial span.
+
+**Visual confirmation (second):**
+
+Render each landmark on the 3-D surface and in orthogonal slices and check it
+sits where the anatomy says:
 
 - The **groove top** on the sustained anterior concavity, *proximal* to the
   condylar bulge — not at the condyle merge (the merge is ~1 mm distal and halves
-  the length).
+  the length). The depth profile must show concavity onset here.
 - The **notch** at the distal midline; the **condyle edges** at the true ML
   extremes on a common frontal plane (not on different AP depths, which makes a
   diagonal "width").
-- The **growth-plate boundary** at the epiphyseal line, not sunk into marrow.
+- The **growth-plate boundary** at the epiphyseal line, not sunk into marrow. The
+  fill-ratio profile must show a sharp drop at this slice.
 
-A landmark that looks wrong is wrong, regardless of whether its distance falls in
-any range.
+A landmark that looks wrong visually is wrong, regardless of the computation. A
+landmark that looks plausible visually but has no corresponding feature in the
+quantitative profile is also wrong — visual plausibility on smooth surfaces is
+not evidence of correct placement.
 
-**Then — reproduce and structurally check the placement** (never against an
-expected distance — a range gate would fail a genuinely unusual specimen):
+**Contradiction resolution:**
 
-- **See the error, don't infer it.** The classic half-length femur is a groove
-  landed at the condyle merge — the length line visibly ends in the wrong place on
-  the overlay. Broken placement is *seen*, not read off an out-of-range number.
-- **Structural invariants:** segmentation pre-flight (CC == 1 per bone);
-  compartment symmetry — |medial − lateral| height small on a normal control
-  (large asymmetry ⇒ growth plate too deep on one side); IIOC slice interval a
-  plausible fraction of the tibial span (a slice-count invariant of the region,
-  not a specimen value).
+- Profile shows feature at location A; visual shows anatomy at location B =>
+  re-examine the reference plane/axis definition, recompute. If still
+  contradictory, escalate.
+- Profile is flat (no feature anywhere) => the structure may be absent, variant,
+  or pathological. Escalate with the flat profile as evidence.
+- Profile shows feature; visual confirms => accept.
 
 **Interpretation, applied after — do NOT place landmarks to hit it.** The phenotype
 cutoffs (SKILL.md: W/L normal <1.24 / OA >1.3, ROC 1.245 / 1.312 / 1.282; IIOC H/W
