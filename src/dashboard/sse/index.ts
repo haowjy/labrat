@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Request, Response } from "express";
 import {
@@ -222,15 +222,27 @@ export function createSseBroker(options: SseBrokerOptions): SseBroker {
       }
       if (size === tail.offset) continue;
 
-      let content: string;
+      // Read ONLY the new bytes past the cursor — never the whole file. The
+      // cursor always sits on a line boundary (it only ever advances past
+      // complete lines), and a multi-byte UTF-8 char split at the END of the
+      // read can only fall inside the incomplete final line, which
+      // parseLogChunk never consumes — so decoding the raw byte slice is safe.
+      let chunk: string;
       try {
-        content = await readFile(log.path, "utf8");
+        const handle = await open(log.path, "r");
+        try {
+          const length = size - tail.offset;
+          const buf = Buffer.allocUnsafe(length);
+          const { bytesRead } = await handle.read(buf, 0, length, tail.offset);
+          // A short read just leaves bytes for the next scan — the cursor
+          // only advances past complete lines actually parsed below.
+          chunk = buf.subarray(0, bytesRead).toString("utf8");
+        } finally {
+          await handle.close();
+        }
       } catch {
         continue;
       }
-      const chunk = Buffer.from(content, "utf8")
-        .subarray(tail.offset)
-        .toString("utf8");
       const { envelopes, consumedBytes, corrupt } = parseLogChunk(chunk);
       tail.offset += consumedBytes;
       if (corrupt) {
