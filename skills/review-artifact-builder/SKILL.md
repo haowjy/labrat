@@ -69,7 +69,7 @@ JSON; `file://` and the CSP block it.
 ```js
 window.REVIEW_MANIFEST = {
   sample_id: "<the task id from your prompt>",   // the run id, not the specimen label
-  produced_from: { measurement: "<source-file>@<sha256>" },  // hashed by G8
+  produced_from: { measurement: "<phase>/<output-file>@<sha256>" },  // hashed by G8; path relative to artifacts/
   verdict_schema: "review-verdict/1",
   data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", ...],
   // When using serve-time injection for large data:
@@ -82,6 +82,22 @@ window.REVIEW_MANIFEST = {
 `produced_from` must point at the actual source-of-truth file the numbers came
 from, hashed — the linter (G8) recomputes it to prove the site describes *this*
 run, not a stale or swapped one.
+
+**Path convention (unmissable):** every `produced_from.*` path (and every
+`data_sources.*.artifact` path) is **relative to the task's `artifacts/`
+directory and must NOT include the `artifacts/` prefix**. G8 resolves the
+declared path under `artifacts/`, so a leading `artifacts/` double-nests
+(`artifacts/artifacts/...`), the file is not found, and G8 fails.
+
+- Correct: `"regression/regression.json@<sha256>"` — the file on disk is
+  `<taskDir>/artifacts/regression/regression.json`.
+- Wrong: `"artifacts/regression/regression.json@<sha256>"` — resolves to
+  `<taskDir>/artifacts/artifacts/regression/regression.json` → not found →
+  G8 FAILS, even though the hash is right.
+
+Even though you see and hash the file at `artifacts/<phase>/<file>` from the
+task root (`sha256sum artifacts/<phase>/<file>`), strip the `artifacts/`
+prefix when writing the manifest path.
 
 **`REVIEW_EVIDENCE`** is the new core global. It carries the decisive numbers
 (ratios vs. cutoffs, states, flags), measurement-line geometry (which landmarks

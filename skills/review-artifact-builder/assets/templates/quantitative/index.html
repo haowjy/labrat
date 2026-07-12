@@ -110,6 +110,9 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
 window.REVIEW_MANIFEST = {
   sample_id: "sample-placeholder-0000",
   produced_from: {
+    // Shape: "<phase>/<output-file>@<sha256>". The path is relative to the
+    // task's artifacts/ directory — do NOT prefix with "artifacts/" (G8
+    // resolves it under artifacts/, so a prefix double-nests and FAILS).
     measurement:
       "measurements/results.json@0000000000000000000000000000000000000000000000000000000000000000",
   },
