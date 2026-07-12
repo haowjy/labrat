@@ -35,8 +35,15 @@ which is which.
   parent method's orientation workflow) or escalate; do not apply the posterior
   rule against a guessed axis, or a sesamoid can be folded into femoral width before
   "posterior" was ever defined.
-- **Fibula** is labeled as context when visible (it anchors laterality) but is not
-  required for measurement — assign it if present, don't manufacture it if absent.
+- **Fibula establishes laterality:** its side is lateral. Label it as context when
+  visible, then confirm the selected side in linked 3-D/2-D views so a posterior or
+  wrong-side component is not accepted. It is not required for measurement —
+  assign it if present, don't manufacture it if absent.
+- Segment menisci with a **lower intensity range than bone**. The ligament
+  attachment is not visible in this µCT view; do not invent its boundary.
+- Interpret osteophytes against a normal specimen: they are abnormal new bone
+  expected after meniscal destabilization, not any periarticular mineralized body.
+- Treat patellar enlargement relative to normal as an OA parameter.
 - Write `labels.nii.gz`, per-structure `masks/<structure>.nii.gz`, and
   `structure_assignments.json`.
 
