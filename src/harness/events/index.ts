@@ -29,6 +29,11 @@ export function configureEvents(url: string): void {
 
 const NOTIFY_PATH = "/internal/events";
 
+/** Whether we've already warned that the dashboard is unreachable. After one
+ *  warning we go silent — the harness keeps running regardless (disk is the
+ *  contract), so repeating the message on every event is just noise. */
+let notifyFailureWarned = false;
+
 /** POST an SSE event to the dashboard. Never throws. */
 export function notifyEvent(event: SseEvent): void {
   const url = `${dashboardUrl}${NOTIFY_PATH}`;
@@ -36,11 +41,12 @@ export function notifyEvent(event: SseEvent): void {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(event),
-  }).catch((err: unknown) => {
-    console.warn(
-      `[harness] dashboard notify failed for ${event.type} (${event.taskId}): ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
+  }).catch((_err: unknown) => {
+    if (!notifyFailureWarned) {
+      notifyFailureWarned = true;
+      console.warn(
+        `[harness] dashboard unreachable at ${dashboardUrl} — event notifications will be skipped (disk writes continue)`,
+      );
+    }
   });
 }

@@ -2,6 +2,8 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadConfig } from "../config/index.js";
+import { loadConfig as loadDashboardConfig } from "../dashboard/config.js";
+import { startServerAsync } from "../dashboard/server.js";
 import {
   enqueueAndRun,
   rerunTask,
@@ -16,6 +18,15 @@ import {
   listClaudeScienceSkills,
   listVendoredSkillNames,
 } from "../harness/claude-science/registry.js";
+
+/** Start the dashboard server in-process so SSE events land and the live view
+ *  is available during protocol execution. Skipped when `--no-dashboard` is
+ *  passed. Returns a no-op if the flag is present. */
+async function ensureDashboard(args: readonly string[]): Promise<void> {
+  if (args.includes("--no-dashboard")) return;
+  const config = loadDashboardConfig();
+  await startServerAsync(config);
+}
 
 function expandUserPath(p: string): string {
   return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
@@ -100,6 +111,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    await ensureDashboard(args);
     console.log(`enqueue ${inputAbs} protocol=${protocol}`);
     const result = await enqueueAndRun(inputAbs, protocol, undefined, config);
 
@@ -140,6 +152,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    await ensureDashboard(args);
     console.log(`run-phase ${taskId} phase=${phaseId} gate=${withGate}`);
     const result = await runPhaseInIsolation(taskId, phaseId, withGate);
     console.log(JSON.stringify(result, null, 2));
@@ -169,6 +182,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
+    await ensureDashboard(args);
     console.log(`resume ${taskId}`);
     const result = await resumeTask(taskId);
     console.log(JSON.stringify({
@@ -199,6 +213,7 @@ async function main(): Promise<void> {
     // resume. Without a from-phase, rerun re-runs the earliest phase carrying
     // a human `changes_requested` verdict (dashboard "Send back" writes it).
     // Refuses a task that is still `running` unless --force is passed.
+    await ensureDashboard(args);
     console.log(`rerun ${taskId}${fromPhase ? ` from=${fromPhase}` : ""}`);
     const result = await rerunTask(taskId, fromPhase, undefined, undefined, { force });
     console.log(JSON.stringify({
@@ -230,14 +245,14 @@ async function main(): Promise<void> {
   }
 
   console.error(`Unknown command: ${command}`);
-  console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name]");
+  console.error("Usage: labrat enqueue <dicom-path-or-zip> [protocol-name] [--no-dashboard]");
   console.error("       labrat gate <task-id> <phase>");
-  console.error("       labrat run-phase <task-id> <phase> [--gate]");
+  console.error("       labrat run-phase <task-id> <phase> [--gate] [--no-dashboard]");
   console.error("       labrat check-review-site <site-dir> [--results <path>] [--cdn-allowlist a,b]");
   console.error("       labrat skills [--builtins]");
   console.error("       labrat import-skill <name> [--force]");
-  console.error("       labrat resume <task-id>");
-  console.error("       labrat rerun <task-id> [from-phase] [--force]");
+  console.error("       labrat resume <task-id> [--no-dashboard]");
+  console.error("       labrat rerun <task-id> [from-phase] [--force] [--no-dashboard]");
   console.error("       labrat reset-to <task-id> <phase>");
   process.exit(1);
 }
