@@ -269,6 +269,10 @@ the worker's prose as your evidence. Quote your own computed values in your
 - You must NOT modify anything under \`artifacts/\` or \`phases/\`. The
   harness hashes both before and after this session; any change is treated
   as a review-integrity failure independent of your gate decision.
+- You must NOT read anything under \`phases/**/sessions/\` (live or archived
+  \`phases/*.attempt-N/sessions/\`) — those are worker session logs, and
+  reading them would compromise your independence. Judge the work from disk
+  artifacts only.
 ${subphaseReviewTopics}
 
 Declared artifact outputs for this phase (relative to \`artifacts/\`):
