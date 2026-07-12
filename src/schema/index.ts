@@ -5,6 +5,7 @@ export * from "./protocol.js";
 export * from "./subphases.js";
 export * from "./gate.js";
 export * from "./monitor.js";
+export * from "./feedback-route.js";
 export * from "./provenance.js";
 export * from "./review-verdict.js";
 export * from "./sse.js";

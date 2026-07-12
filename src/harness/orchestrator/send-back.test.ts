@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import type { ProtocolYaml, ReviewVerdictRecord, TaskJson } from "../../schema/index.js";
+import type {
+  ProtocolYaml,
+  ReviewVerdictRecord,
+  SendBackInvalidationRecord,
+  SendBackRouteRecord,
+  TaskJson,
+} from "../../schema/index.js";
 import { readHumanFeedbackNote } from "../review-verdict/index.js";
 import {
   consumeSendBackVerdict,
@@ -102,7 +108,7 @@ describe("send-back seam — a human changes_requested verdict re-runs the phase
         JSON.stringify(humanVerdict("segmentation", "changes_requested", "Fix the femur speckle.")),
       );
 
-      const { phase, task } = await invalidateForSendBack(taskDir, protocolYaml);
+      const { phase, task, route } = await invalidateForSendBack(taskDir, protocolYaml);
       assert.equal(phase, "segmentation");
 
       // Target + downstream phase dirs archived (attempt-1), upstream intact.
@@ -139,6 +145,23 @@ describe("send-back seam — a human changes_requested verdict re-runs the phase
         await readHumanFeedbackNote(taskDir, "segmentation"),
         "Fix the femur speckle.",
       );
+
+      // The seam is audited: harness code (never a model) wrote the routing
+      // decision + applied invalidation record before/around the mutation.
+      const record = JSON.parse(
+        await readFile(
+          join(taskDir, "review", "routing", "send-back", `${route.route_id}.json`),
+          "utf8",
+        ),
+      ) as SendBackRouteRecord;
+      assert.equal(record.source, "deterministic-fallback");
+      assert.equal(record.acceptance, "fallback");
+      assert.equal(record.accepted_phase, "segmentation");
+      const invalidation = JSON.parse(
+        await readFile(join(taskDir, route.invalidation_record), "utf8"),
+      ) as SendBackInvalidationRecord;
+      assert.equal(invalidation.status, "applied");
+      assert.deepEqual(invalidation.downstream_phases, ["segmentation", "measure"]);
     } finally {
       await rm(taskDir, { recursive: true, force: true });
     }
@@ -290,6 +313,49 @@ describe("send-back mark lifecycle — consumed once the re-run re-passes its ga
         await exists(join(taskDir, "review", "verdict", "measure.attempt-1.json")),
         false,
       );
+    } finally {
+      await rm(taskDir, { recursive: true, force: true });
+    }
+  });
+
+  it("multiple live marks: one restart at the earliest mark covers all later marks; each is consumed phase-locally", async () => {
+    const taskDir = await makeCompletedRun();
+    try {
+      // Human sends back BOTH segmentation and measure in one review pass.
+      await writeFile(
+        join(taskDir, "review", "verdict", "segmentation.json"),
+        JSON.stringify(humanVerdict("segmentation", "changes_requested", "mask leaked")),
+      );
+      await writeFile(
+        join(taskDir, "review", "verdict", "measure.json"),
+        JSON.stringify(humanVerdict("measure", "changes_requested", "thickness wrong")),
+      );
+
+      // One routing decision: earliest mark wins; the invalidation closure
+      // covers the later marked phase too.
+      const { phase, route } = await invalidateForSendBack(taskDir, protocolYaml);
+      assert.equal(phase, "segmentation");
+      assert.ok(await exists(join(taskDir, "phases", "segmentation.attempt-1")));
+      assert.ok(await exists(join(taskDir, "phases", "measure.attempt-1")));
+      assert.deepEqual(
+        route.feedback_files.map((f) => f.path),
+        ["review/verdict/segmentation.json", "review/verdict/measure.json"],
+      );
+
+      // Both marks stay live through routing (delivery precedes consumption)…
+      assert.ok(await exists(join(taskDir, "review", "verdict", "segmentation.json")));
+      assert.ok(await exists(join(taskDir, "review", "verdict", "measure.json")));
+
+      // …and the rigid loop consumes each one only when ITS phase re-passes
+      // its fresh gate — so no stale mark can trigger a second rerun.
+      await simulateRerunCompleted(taskDir);
+      await consumeSendBackVerdict(taskDir, "segmentation");
+      await consumeSendBackVerdict(taskDir, "measure");
+      assert.equal(await findSendBackPhase(taskDir, protocolYaml), null);
+      assert.ok(
+        await exists(join(taskDir, "review", "verdict", "segmentation.attempt-1.json")),
+      );
+      assert.ok(await exists(join(taskDir, "review", "verdict", "measure.attempt-1.json")));
     } finally {
       await rm(taskDir, { recursive: true, force: true });
     }
