@@ -444,14 +444,24 @@ export function createApp(config: DashboardConfig): Express {
 
 /** Start the server and (optionally) the dev SSE replay. */
 export function startServer(config: DashboardConfig): void {
-  const app = createApp(config);
-  app.listen(config.port, () => {
-    console.log(`[labrat] dashboard on http://localhost:${config.port}`);
-    console.log(`[labrat] tasks dir: ${config.tasksDir}`);
-    if (config.devReplay) {
-      console.log("[labrat] dev SSE replay ON");
-      void startDevReplay(config.tasksDir);
-    }
+  void startServerAsync(config);
+}
+
+/** Start the server and resolve when it is listening. Callers that need to
+ *  ensure the dashboard is ready before sending events (e.g. the CLI
+ *  co-launch path) await this; callers that don't care use {@link startServer}. */
+export function startServerAsync(config: DashboardConfig): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const app = createApp(config);
+    app.listen(config.port, () => {
+      console.log(`[labrat] dashboard on http://localhost:${config.port}`);
+      console.log(`[labrat] tasks dir: ${config.tasksDir}`);
+      if (config.devReplay) {
+        console.log("[labrat] dev SSE replay ON");
+        void startDevReplay(config.tasksDir);
+      }
+      resolve();
+    });
   });
 }
 
