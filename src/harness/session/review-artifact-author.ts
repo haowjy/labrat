@@ -172,7 +172,10 @@ evidence only; preserve the template's security shell, REVIEW_MANIFEST schema, b
 contract, and required controls. The site's sample_id must be exactly "${config.taskId}".
 Every displayed claim must cite a disk source (path + field/hash); label missing
 evidence as absent rather than inferring it. The harness will run the deterministic
-linter and publish — never write to the published path.`;
+linter and publish — never write to the published path.
+
+End your response with a concise manifest: the files you changed and, for each
+displayed claim, the evidence source (file + field/hash) it draws from.`;
 }
 
 /**
