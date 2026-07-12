@@ -67,7 +67,7 @@ function SampleCard({ task, onSelect }) {
         ${phase ? html`current: <b>${phase}</b>` : "not started"}
       </div>
       <${ProgressDots} task=${task} />
-      ${task.reason ? html`<div class="sample-card-reason">${task.reason}</div>` : null}
+      ${task.reason ? html`<div class="sample-card-reason">${task.reason.length > 120 ? task.reason.slice(0, 117) + "…" : task.reason}</div>` : null}
     </button>
   `;
 }

@@ -17,46 +17,34 @@ information order determines whether the review is substantive or ceremonial.
 
 ## What to show, in order
 
-### 1. The decisive evidence — banner, always visible
+### 1. The decisive evidence — owned by the dashboard shell
 
-The numbers the call depends on. Each measured ratio shown against its
-cutoff, colored by state (`pass` / `concern` / `fail`), with flagged items
-(`requires_human_review`) sorted first. This is the evidence panel — it
-answers "what is this specimen's call, and where is the uncertainty?"
+The decisive numbers (ratios, cutoffs, pass/fail states) are shown by the
+dashboard's trusted `EvidencePanel`, which reads measurements from disk. The
+artifact does NOT duplicate this as a banner — the shell handles it.
 
-The banner stays visible across all views (3D, slices, tour). It is not a
-tab the reviewer navigates to — it is the frame around every view.
+The reviewer reads the decisive numbers in the shell, then enters the
+artifact to verify WHERE those numbers come from spatially.
 
-What belongs here:
-- Each decisive ratio: value, cutoff range, state
-- Flagged sub-measurements (sorted first, visually distinct)
-- The worker's own known-limits narrative for flagged items
-- Concordance summary: do the signals agree?
+### 2. Spatial evidence — four-up multiplanar (the artifact's primary job)
 
-What does NOT belong here:
-- The OA-progression interpretation (that comes after, not before)
-- Raw sub-measurements (those are drill-down detail)
-- The agent's conclusion or confidence (shown after, to prevent anchoring)
-
-### 2. Spatial evidence — 3D + slices with measurement overlays
-
-The 3D scene and linked orthogonal slices, with the actual measurement
-geometry drawn on the bone:
+The artifact's default view is a four-up multiplanar layout: 3D scene +
+three orthogonal slice panes, equal quadrants, linked crosshairs. The
+measurement geometry is drawn on the anatomy:
 
 - **Measurement lines** — the femoral-length line, the width line, drawn as
-  the protocol measured them, labeled with their mm value and the index they
-  contribute to. "The line ends in the wrong place" is the primary spatial
-  failure mode — the overlay makes it visible.
+  the protocol measured them, labeled with their mm value as DOM badges on
+  the line in the 3D quadrant. "The line ends in the wrong place" is the
+  primary spatial failure mode — the overlay makes it visible.
 - **Landmark markers** — colored rings at each placed landmark, with
-  confidence halos (bright = high, dim = needs confirmation).
-- **Linked slices** — selecting a landmark drives all three slice sliders to
-  its position. The reviewer confirms slice-by-slice what the 3D surface
-  hides — bled labels, off-by-a-slice placements.
+  confidence halos (bright = high, dim = needs confirmation). Visible in all
+  four quadrants — the 3D marker and the slice crosshairs are synchronized.
+- **Linked views** — selecting a landmark in any quadrant drives all four
+  views to that position. The reviewer confirms in the 3D what the slices
+  show, and in the slices what the 3D surface hides.
 
-The spatial views serve the banner: when a decisive ratio is flagged, the
-reviewer drills into the spatial view to see whether the contributing
-landmarks are placed correctly. The spatial views do not stand alone — they
-are the evidence for a specific question raised by the banner.
+Each quadrant can be expanded to fill the full stage for detail inspection,
+then collapsed back to the four-up.
 
 ### 3. Guided per-landmark tour — camera, rule, then adjust
 
@@ -126,12 +114,14 @@ they never saw.
 
 ## Anti-patterns
 
-- **3D scene as the primary evidence.** A bare mesh with dots. The reviewer
-  orbits, sees bone, and concludes "looks right" — while the decisive ratio
-  is borderline and invisible. The 3D scene is drill-down, not the lead.
-- **Numbers before spatial context.** A table of measurements at the top
-  with no spatial evidence below. The reviewer evaluates numbers against
-  ranges instead of checking WHERE the measurements come from.
+- **3D scene alone as the primary evidence.** A bare mesh with dots. The
+  reviewer orbits, sees bone, and concludes "looks right" — while the
+  decisive ratio is borderline and the orthogonal slices would have shown
+  the problem. The four-up forces linked verification.
+- **Duplicating the shell's evidence display.** The decisive numbers already
+  live in the dashboard's trusted EvidencePanel. An evidence banner inside
+  the artifact repeats them (untrusted) and steals viewport from the spatial
+  views. The artifact shows measurement values on the lines, not in a banner.
 - **Agent conclusion front and center.** "The agent classified this as early
   OA. Confirm?" The reviewer anchors on the classification instead of
   verifying the placement.
@@ -141,6 +131,6 @@ they never saw.
 - **Reference values as validation gates.** "Published range: 2.2–2.6 mm.
   This measurement: 2.41 mm. PASS." The reviewer skips spatial inspection
   because the number is in range.
-- **Decisive evidence in a tab.** The ratios and flags hidden behind a
-  "Data" tab the reviewer must click. The banner is always visible — it
-  frames every view.
+- **Slices behind a tab.** Orthogonal slices hidden as "Advanced" content
+  the reviewer must click to reach. They are primary verification — they sit
+  beside the 3D in the four-up, not behind a tab.

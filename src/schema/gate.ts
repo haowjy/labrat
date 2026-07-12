@@ -22,6 +22,7 @@ export type GateDecision = (typeof GATE_DECISIONS)[number];
 /** submit_gate_decision MCP tool input (design §10, §11). */
 export type SubmitGateDecisionInput = {
   readonly decision: GateDecision;
+  readonly summary?: string | null;
   readonly rewind_to?: string | null;
   readonly feedback?: string | null;
   readonly subphase_assessments?: Readonly<Record<string, string>>;
@@ -35,6 +36,16 @@ export function validateSubmitGateDecisionInput(
 
   const decision = expectEnum(rec.value["decision"], "$.decision", GATE_DECISIONS);
   if (!decision.ok) return decision;
+
+  let summary: string | null | undefined;
+  const sm = rec.value["summary"];
+  if (sm === null) {
+    summary = null;
+  } else if (sm !== undefined) {
+    const smStr = expectString(sm, "$.summary");
+    if (!smStr.ok) return smStr;
+    summary = smStr.value;
+  }
 
   let rewind_to: string | null | undefined;
   const rt = rec.value["rewind_to"];
@@ -80,6 +91,7 @@ export function validateSubmitGateDecisionInput(
 
   return success({
     decision: decision.value,
+    ...(summary !== undefined ? { summary } : {}),
     ...(rewind_to !== undefined ? { rewind_to } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
     ...(subphase_assessments.value !== undefined
@@ -120,6 +132,9 @@ export function validateGateFile(value: unknown): ValidationResult<GateFile> {
     phase: phase.value,
     decidedAt: decidedAt.value,
     decision: input.value.decision,
+    ...(input.value.summary !== undefined
+      ? { summary: input.value.summary }
+      : {}),
     ...(input.value.rewind_to !== undefined
       ? { rewind_to: input.value.rewind_to }
       : {}),

@@ -89,11 +89,23 @@ connect), per-landmark operational rules and confidence, and the interpretation.
 It is always inlined as a static literal — small enough that injection is
 unnecessary. The full shape is in `resources/review-ui-threejs-and-layout.md`.
 
-## The build loop — the worker owns the template
+## The build loop — template + data injection
 
-The review artifact is worker-authored per run. The template is a starting
-pattern, not a locked form — you have authority to adjust the layout, add
-views, and customize the display so it reads well for the reviewer. The loop:
+The review artifact has two layers: a **maintained template** that owns the
+rendering, interaction, and layout code, and **per-run data** that the worker
+injects.
+
+**The template** (`review-site/template.html` in the skill's assets) is a
+complete, self-contained HTML document with inlined three.js, the four-up
+multiplanar layout, measurement-line rendering, label toggle, guided tour
+framework, per-quadrant expand, and the slice scrubber. It reads its data
+from `window` globals (`REVIEW_MANIFEST`, `REVIEW_EVIDENCE`,
+`REVIEW_GEOMETRY`, `REVIEW_VOLUME`). The template is maintained in source
+control — not regenerated each run. It handles everything the LLM would
+otherwise have to re-implement: orbit controls, crosshair synchronization,
+DOM label projection, tour state machine, tab switching, responsive layout.
+
+**The worker's job** is to prepare the data, not write the UI:
 
 1. **Read the approved outputs** from the earlier phases (the vetted numbers,
    masks, landmark positions, flags). The upstream measurement phase already
@@ -102,28 +114,29 @@ views, and customize the display so it reads well for the reviewer. The loop:
    states, and flags from the measurement outputs. Map each ratio to its
    contributing landmarks and the measurement lines connecting them. Attach
    each landmark's operational rule from the protocol's resource. Build the
-   interpretation. This is the domain content the reviewer verifies — get it
-   right before touching the layout.
-3. **Declare the data contract.** `REVIEW_EVIDENCE` is inlined as a static
-   literal. Large data (geometry, volume) uses `data_sources` entries +
-   sentinel placeholders. `produced_from` must name each source file with its
-   sha256 — G8 enforces provenance.
-4. **Generate `index.html`** — evidence banner at top, spatial views in the
-   middle, tour bar at bottom, values/interpretation in a tab. CSS and app
-   logic inlined. Data globals are either static literals or sentinel
-   placeholders; the server fills placeholders at serve time.
-5. **Inspect it.** Does the evidence banner show the right flags? Do the
-   measurement lines connect the right landmarks? Does the tour walk through
-   flagged items first with correct operational rules? Temporarily inline real
-   data and open via `file://` to spot-check. Before final submission, swap
-   large data to sentinel placeholders
-   (see `resources/review-ui-testing.md`).
-6. **Iterate** until it reads well. You check quality; the linter checks
-   structure. Both must pass.
-7. **Run the linter.** The harness runs it automatically at the gate, but run
-   it yourself while authoring:
+   interpretation.
+3. **Prepare `REVIEW_GEOMETRY`** — extract and decimate meshes from the
+   segmentation. Write to `review/geometry.json`.
+4. **Prepare `REVIEW_VOLUME`** (when slices are shipped) — downsample the
+   filtered volume. Write to `review/volume.json`.
+5. **Assemble `index.html`.** Copy the template, then inject the data
+   globals: `REVIEW_MANIFEST` and `REVIEW_EVIDENCE` as static literals,
+   `REVIEW_GEOMETRY` and `REVIEW_VOLUME` as sentinel placeholders for
+   server-side injection. Declare `produced_from` hashes — G8 enforces
+   provenance.
+6. **Inspect it.** Do the measurement lines connect the right landmarks? Does
+   the tour walk through flagged items first with correct operational rules?
+   Inline real data temporarily and open via `file://` to spot-check.
+7. **Run the linter.**
    `tsx src/review-site/cli.ts check-review-site <site-dir> ...`
-   (see `resources/review-ui-testing.md` — there is no `labrat` bin yet).
+   (see `resources/review-ui-testing.md`).
+
+The worker may make minor adjustments to the template (adding a
+protocol-specific view, adjusting colors for a specific anatomy), but the
+core layout, interaction, and rendering code come from the template — not
+from scratch each run. This makes measurement lines, label toggles,
+linked crosshairs, and per-quadrant expand predictable instead of hoping
+the LLM re-implements them correctly.
 
 ## Generic vs. protocol-specific
 

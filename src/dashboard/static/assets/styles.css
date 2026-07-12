@@ -193,7 +193,20 @@ a { color:var(--accent); }
 .gate-note-concerns { border-color:var(--warn); background:var(--warn-soft); }
 .gate-note-fail { border-color:var(--alert); background:var(--alert-soft); }
 .gate-note-head { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.35rem; }
-.gate-note-body { margin:0; font-size:0.74rem; line-height:1.5; color:var(--ink); white-space:pre-wrap; }
+.gate-note-summary { margin:0; font-size:0.76rem; line-height:1.45; color:var(--ink); }
+.gate-note-details { margin:0.3rem 0 0; }
+.gate-note-expand { font-size:0.7rem; color:var(--muted); cursor:pointer; user-select:none; }
+.gate-note-expand:hover { color:var(--ink); }
+.gate-note-body { margin:0.4rem 0 0; font-size:0.74rem; line-height:1.5; color:var(--ink); white-space:pre-wrap; }
+.gate-note-md { white-space:normal; }
+.gate-note-md h3 { font-size:0.82rem; font-weight:600; margin:0.7rem 0 0.25rem; color:var(--ink); }
+.gate-note-md h4 { font-size:0.76rem; font-weight:600; margin:0.5rem 0 0.2rem; color:var(--ink); }
+.gate-note-md p { margin:0.3rem 0; }
+.gate-note-md ul, .gate-note-md ol { margin:0.25rem 0 0.25rem 1.2rem; padding:0; }
+.gate-note-md li { margin:0.1rem 0; }
+.gate-note-md code { font-family:var(--mono); font-size:0.68rem; background:var(--paper); padding:0.1rem 0.3rem; border-radius:3px; }
+.gate-note-md strong { font-weight:600; }
+.gate-note-md blockquote { margin:0.3rem 0 0.3rem 0.5rem; padding:0.2rem 0 0.2rem 0.5rem; border-left:2px solid var(--accent-line); color:var(--muted); }
 .gate-note-empty { color:var(--muted); font-style:italic; }
 .gate-subphases { margin:0.55rem 0 0; display:flex; flex-direction:column; gap:0.35rem; }
 .gate-subphase { display:flex; gap:0.5rem; align-items:baseline; flex-wrap:wrap; }
@@ -212,9 +225,13 @@ a { color:var(--accent); }
 .review-frame { position:absolute; inset:0; width:100%; height:100%; border:1px solid var(--accent-line); border-radius:6px; background:#fff; display:block; }
 .review-stage-empty { display:flex; align-items:center; justify-content:center; height:auto; min-height:160px; border:1px dashed var(--muted3); border-radius:6px; background:var(--surface); }
 .review-stage-empty .empty { padding:0; }
-.review-embed-fullscreen { position:fixed; inset:0; z-index:60; margin:0; padding:1rem 1.25rem 1.25rem; background:var(--paper); }
-.review-embed-fullscreen .review-embed-head { flex-shrink:0; }
-.review-embed-fullscreen .review-stage { height:auto; flex:1; min-height:0; }
+.review-embed-fullscreen { position:fixed; inset:0; z-index:60; margin:0; padding:0; background:var(--paper); }
+.review-embed-fullscreen .review-embed-head { position:absolute; top:0.5rem; right:0.75rem; z-index:61; background:rgba(0,0,0,0.55); backdrop-filter:blur(4px); border-radius:6px; padding:0.25rem 0.5rem; gap:0.5rem; }
+.review-embed-fullscreen .review-embed-head .section-label,
+.review-embed-fullscreen .review-embed-head .quarantine-note { display:none; }
+.review-embed-fullscreen .review-embed-head .btn { color:#fff; border-color:rgba(255,255,255,0.3); font-size:0.7rem; padding:0.2rem 0.5rem; }
+.review-embed-fullscreen .review-stage { height:100%; flex:1; min-height:0; }
+.review-embed-fullscreen .review-frame { border:none; border-radius:0; }
 
 /* === VERDICT PANEL (trusted receiver, design doc "what lives where": the
    verdict lives in the shell, never inside the sandboxed iframe) — now in

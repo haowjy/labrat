@@ -217,57 +217,65 @@ multiple contexts and stays within the browser limit.
 time. Tabs switch which data is *rendered*, not which data is *loaded* —
 the iframe cannot fetch additional data at runtime (`connect-src 'none'`).
 
-## Evidence-led layout
+## Four-up spatial layout
 
-The layout serves the information hierarchy in
-`review-ui-information-hierarchy.md`: evidence banner → spatial views →
-guided tour → agent conclusion → supporting data.
+The default view is a **four-up multiplanar layout** — four equal quadrants
+filling the viewport. No evidence banner: the decisive numbers are shown by
+the dashboard shell's EvidencePanel (trusted, from disk). The artifact's job
+is spatial evidence.
 
 ```
-┌──────────────────────────────────────────────────┐
-│  Evidence Banner (always visible, ~72-90px)       │
-│  W/L **1.33**   OA cutoff ≥ 1.30 · +0.03 above    │
-│  [⚠ Review required · Low confidence]             │
-├──────────────────────────────────────────────────┤
-│  [ 3D scene ] [ Advanced slices ] [ Values ]      │  ← tabs
-├──────────────────────────────────────────────────┤
-│                                                    │
-│     3D Scene (scene3d) — the hero, fills the area  │
-│     + measurement overlays + derived ratio         │
-│     + named landmark markers + orientation aid     │
-│                                                    │
-├──────────────────────────────────────────────────┤
-│  Reset · Front · Side · +/−   (on-canvas corner)  │
-│  Tour bar: Step N of M · Groove top ● · rule      │
-│  chips [Groove top][Notch][Lat][Med]   [‹Prev][Next›]│
-└──────────────────────────────────────────────────┘
+┌─────────────────────┬─────────────────────┐
+│                     │                     │
+│     3D Scene        │    Axial (Z)        │
+│     orbit, markers, │    crosshair,       │
+│     measurement     │    label overlay,   │
+│     lines + badges  │    slice slider     │
+│                     │                     │
+├─────────────────────┼─────────────────────┤
+│                     │                     │
+│    Coronal (Y)      │   Sagittal (X)      │
+│    crosshair,       │    crosshair,       │
+│    label overlay,   │    label overlay,   │
+│    slice slider     │    slice slider     │
+│                     │                     │
+└─────────────────────┴─────────────────────┘
+  Tour bar: Step N of M · Groove top ● · rule
+  chips [Groove top][Notch][Lat][Med]   [‹Prev][Next›]
+  [ Spatial evidence ] [ Values ] [ Interpretation ] [ Reference ]
 ```
 
-**Desktop:** the 3D scene fills the main area — it is the review surface,
-not one pane among four. The evidence banner spans full width at the top;
-the tour bar (step indicator, human title + rule, chips, Prev/Next) sits at
-the bottom, and Reset/preset/zoom controls overlay a corner of the canvas.
-Orthogonal slices, when shipped, live behind the **"Advanced slices" tab**,
-not beside the scene.
+**Each quadrant gets 50% width × 50% height.** The 3D scene is one of four
+equal views, not a hero. Selecting a landmark in any pane — raycast in 3D,
+click on a slice — drives all four views to that position: the 3D marker
+highlights, all three slice crosshairs center, and the tour card updates.
 
-**Mobile:** the same 3D scene fills the width (drag to orbit, pinch to
-zoom); evidence banner at top, tour bar at the bottom, verdict panel near
-the bottom edge. The Advanced-slices tab collapses to a bottom sheet.
+**Per-quadrant expand.** Each quadrant has a small expand button (corner
+icon) that promotes it to fill the full stage area. The other three
+quadrants hide. A collapse button returns to the four-up. The expand is a
+CSS class swap on the grid container — no remount, so the 3D context and
+slice state survive. Use this to inspect fine detail in one plane (e.g.,
+checking a growth-plate slice at full resolution) then return to the
+linked four-up.
 
-**Tabs for secondary content:** "Values" tab shows the full measurement
-table. "Interpretation" tab shows the OA-progression read. These are
-secondary — the evidence banner + spatial views are the primary surface.
+**Measurement values appear on the lines** in the 3D quadrant as DOM badges
+(e.g., "2.41 mm" on the width line). No separate evidence banner — the
+numbers are spatial context, not chrome.
+
+**Desktop:** four quadrants fill the stage. Tour bar sits below. Tabs
+(Values / Interpretation / Reference) below the tour bar for secondary
+content.
+
+**Mobile:** the four-up collapses to a stacked layout (3D full-width on top,
+three slices as a horizontal scrollable strip below). Tour bar and tabs at
+the bottom. Touch targets ≥ 44px.
 
 **Layout priorities:**
-1. Evidence banner: fixed top, always visible across all views
-2. 3D canvas + DOM label/leader overlay: fills the main area (the hero)
-3. Tour bar: fixed bottom (step indicator, human title, rule, chips, Prev/Next)
-4. Advanced slices: a tab shown ONLY when a volume is exported — hide the tab
-   entirely when `REVIEW_VOLUME` is absent (no empty placeholder tab)
-5. Values/interpretation: a tab, shown after the spatial evidence.
-   Hidden panels must win: `.panel[hidden]{display:none!important}` so the 3D
-   panel's own `display:flex` never leaks a second panel under the scene (a
-   p96 tab bug), and the selected panel fills and scrolls within the stage.
+1. Four-up spatial views: fill the viewport equally
+2. Tour bar: below the views (step indicator, human title, rule, chips, Prev/Next)
+3. Tabs for secondary content: Values, Interpretation, Reference
+   Hidden panels must win: `.panel[hidden]{display:none!important}` so a
+   hidden tab never leaks under the spatial views.
 
 ## Mobile patterns
 
@@ -475,12 +483,11 @@ Vendor a build that passes strict CSP: no `eval`/`new Function` (rules out
 Plotly; three.js is clean). The `validation/fixtures/review-site-spatial`
 fixture inlines the r137 UMD build + classic `OrbitControls` this way.
 
-## Orthogonal slice scrubber (optional drill-down)
+## Orthogonal slice scrubber (three quadrants of the four-up)
 
-The 3D scene is the review surface. Orthogonal slices are **optional
-secondary evidence** behind an **"Advanced slices" tab** — not the hero
-view. They earn their place when they add something the surface hides: a
-clean-looking 3D surface can mask a label bleeding through a slice or a
+The orthogonal slices are **primary evidence** — three of the four equal
+quadrants in the four-up layout. They verify what the 3D surface hides: a
+clean-looking surface can mask a label bleeding through a slice or a
 landmark sitting one slice off the bone. Ship them when the downsampled
 volume is exported; the demo's first pass ships 3D alone.
 

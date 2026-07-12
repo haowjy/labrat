@@ -6,6 +6,7 @@ import {
   gateTint,
   subphasesNeedingReview,
 } from "../lib/evidence.js";
+import { renderMarkdown } from "../lib/markdown.js";
 
 /**
  * The trusted Evidence panel — the lead of the generic review layer (design/
@@ -72,12 +73,23 @@ function ContextRow({ row }) {
   `;
 }
 
+/** Extract the first sentence (or first 120 chars) as a summary line. */
+function gateSummary(feedback) {
+  if (!feedback) return null;
+  const firstLine = feedback.split(/\n/)[0].trim();
+  const dot = firstLine.indexOf(". ");
+  if (dot > 0 && dot < 140) return firstLine.slice(0, dot + 1);
+  if (firstLine.length <= 120) return firstLine;
+  return firstLine.slice(0, 117) + "…";
+}
+
 function GateBand({ gate }) {
   if (!gate) return null;
   const [pc, pl] = decisionPill(gate.decision);
   const assessments = gate.subphase_assessments
     ? Object.entries(gate.subphase_assessments).filter(([, v]) => typeof v === "string")
     : [];
+  const summary = gate.summary || gateSummary(gate.feedback);
   return html`
     <div class="gate-note gate-note-${gateTint(gate.decision)}">
       <div class="gate-note-head">
@@ -85,30 +97,46 @@ function GateBand({ gate }) {
         <span class="pill ${pc}">${pl}</span>
       </div>
       ${gate.feedback
-        ? html`<p class="gate-note-body">${gate.feedback}</p>`
-        : html`<p class="gate-note-body gate-note-empty">No feedback recorded.</p>`}
-      ${assessments.length > 0
         ? html`
-            <dl class="gate-subphases">
-              ${assessments.map(
-                ([name, text]) => html`
-                  <div class="gate-subphase" key=${name}>
-                    <dt><code class="chip">${name}</code></dt>
-                    <dd>${text}</dd>
-                  </div>
-                `,
-              )}
-            </dl>`
-        : null}
+            ${summary ? html`<p class="gate-note-summary">${summary}</p>` : null}
+            <details class="gate-note-details">
+              <summary class="gate-note-expand">Full verification report</summary>
+              <div class="gate-note-body gate-note-md" dangerouslySetInnerHTML=${{ __html: renderMarkdown(gate.feedback) }}></div>
+              ${assessments.length > 0
+                ? html`
+                    <dl class="gate-subphases">
+                      ${assessments.map(
+                        ([name, text]) => html`
+                          <div class="gate-subphase" key=${name}>
+                            <dt><code class="chip">${name}</code></dt>
+                            <dd>${text}</dd>
+                          </div>
+                        `,
+                      )}
+                    </dl>`
+                : null}
+            </details>`
+        : html`<p class="gate-note-body gate-note-empty">No feedback recorded.</p>`}
     </div>
   `;
+}
+
+/** True for values that are human-readable in a measurement row (numbers,
+ * short strings, booleans). Objects, arrays, and long strings are machine
+ * data — useful for drill-down but not the primary evidence surface. */
+function isScalarValue(v) {
+  if (v == null || typeof v === "boolean" || typeof v === "number") return true;
+  if (typeof v === "string" && v.length <= 80) return true;
+  return false;
 }
 
 export function EvidencePanel({ phaseDetail }) {
   if (!phaseDetail) return null;
   const { measurements, subphases, gate } = phaseDetail;
   const { decisive, context, uncheckedNumbers } = deriveMeasurementEvidence(measurements);
-  const hasMeasurements = decisive.length > 0 || context.length > 0;
+  const scalarContext = context.filter((r) => isScalarValue(r.value));
+  const complexContext = context.filter((r) => !isScalarValue(r.value));
+  const hasMeasurements = decisive.length > 0 || scalarContext.length > 0;
 
   return html`
     <div class="evidence-panel">
@@ -118,7 +146,7 @@ export function EvidencePanel({ phaseDetail }) {
         ? html`
             <div class="measure-table">
               ${decisive.map((row) => html`<${DecisiveRow} key=${row.key} row=${row} />`)}
-              ${context.map((row) => html`<${ContextRow} key=${row.key} row=${row} />`)}
+              ${scalarContext.map((row) => html`<${ContextRow} key=${row.key} row=${row} />`)}
             </div>
             ${uncheckedNumbers > 0
               ? html`<p class="evidence-gap">
@@ -127,6 +155,15 @@ export function EvidencePanel({ phaseDetail }) {
                 </p>`
               : null}`
         : html`<p class="evidence-empty">No measurements recorded for this phase — the decisive numbers live inside the review artifact.</p>`}
+      ${complexContext.length > 0
+        ? html`
+            <details class="gate-note-details">
+              <summary class="gate-note-expand">${complexContext.length} machine-readable field(s)</summary>
+              <div class="measure-table">
+                ${complexContext.map((row) => html`<${ContextRow} key=${row.key} row=${row} />`)}
+              </div>
+            </details>`
+        : null}
       <${GateBand} gate=${gate} />
     </div>
   `;
