@@ -36,7 +36,11 @@ export function createOrchestratorSignals(): OrchestratorSignals {
   };
 }
 
-export type LabratToolRole = "worker" | "gate-reviewer" | "monitor";
+export type LabratToolRole =
+  | "worker"
+  | "gate-reviewer"
+  | "monitor"
+  | "review-artifact-author";
 
 /** Context passed to createLabratToolServer — closure over task dir + phase scope. */
 export type LabratToolContext = {
@@ -47,6 +51,14 @@ export type LabratToolContext = {
   readonly phaseOutputs: readonly string[];
   /** Declared subphase ids — drives mark_subphase injection and record_phase checks. */
   readonly subphaseIds: readonly string[];
+  /**
+   * Protocol phase ids in declaration order — bounds the author-visible
+   * scope of read_past_history/view_human_feedback to phases at or before
+   * `currentPhase` (design §3C). Optional because worker/reviewer/monitor
+   * contexts never need it; when absent, scope collapses to the current
+   * phase only.
+   */
+  readonly phaseOrder?: readonly string[];
   /** Shared mutable signals — orchestrator polls after breaking the query loop. */
   readonly signals: OrchestratorSignals;
 };

@@ -222,6 +222,29 @@ async function main(): Promise<void> {
     assert.deepEqual(monitorAllowed, ["mcp__labrat__submit_monitor_verdict"]);
     console.log("OK createLabratToolServer role-scoped tool lists");
 
+    // review-artifact-author gets EXACTLY the two read-only tools; worker,
+    // gate-reviewer, and monitor get NEITHER (design §3C double enforcement).
+    const authorServer = createLabratToolServer({
+      ctx,
+      role: "review-artifact-author",
+    });
+    assert.equal(authorServer.name, "labrat");
+    const authorAllowed = allowedLabratTools("review-artifact-author", ctx.subphaseIds);
+    assert.deepEqual(authorAllowed, [
+      "mcp__labrat__read_past_history",
+      "mcp__labrat__view_human_feedback",
+    ]);
+    const authorOnly = ["read_past_history", "view_human_feedback"];
+    for (const allowed of [workerAllowed, reviewerAllowed, monitorAllowed]) {
+      for (const name of authorOnly) {
+        assert.ok(
+          !allowed.some((t) => t.includes(name)),
+          `${name} must be author-only; found in ${allowed.join(", ")}`,
+        );
+      }
+    }
+    console.log("OK review-artifact-author gets exactly the two read tools; other roles get neither");
+
     console.log("\nAll direct-call harness tool tests passed.");
   } finally {
     await cleanup();

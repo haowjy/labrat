@@ -40,6 +40,10 @@ const LABRAT_MCP_TOOLS = new Set([
   "mark_subphase",
   "blocked",
   "submit_gate_decision",
+  // Author-only read tools (design §3C) — stripped here so a protocol
+  // profile can never smuggle them into another role's SDK tool list.
+  "read_past_history",
+  "view_human_feedback",
 ]);
 
 function intersectTools(
