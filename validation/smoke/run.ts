@@ -9,9 +9,11 @@
  * event types fired.
  *
  * Runs in-process (no port bind — the sandbox SIGTERMs those). SSE events are
- * captured by stubbing `globalThis.fetch`, which is the ONLY thing the harness
- * process uses to emit them (`notifyEvent`); the Agent SDK runs the model in a
- * subprocess, so the stub does not touch model traffic.
+ * read back from the task's authoritative event log
+ * (`<taskDir>/events/events.jsonl` — review-provenance §3B); the dashboard
+ * wake hints `notifyEvent` POSTs are swallowed by stubbing `globalThis.fetch`
+ * (the Agent SDK runs the model in a subprocess, so the stub does not touch
+ * model traffic).
  */
 import { mkdtemp, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,9 +22,9 @@ import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../../src/config/index.js";
 import { enqueueAndRun } from "../../src/harness/orchestrator/index.js";
 
-type Captured = { type: string; taskId?: string; phase?: string };
+type CapturedHint = { taskId?: string; id?: string };
 
-const captured: Captured[] = [];
+const captured: CapturedHint[] = [];
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: unknown, init?: unknown): Promise<Response> => {
   const url = String(
@@ -31,7 +33,7 @@ globalThis.fetch = (async (input: unknown, init?: unknown): Promise<Response> =>
   if (url.endsWith("/internal/events")) {
     try {
       const body = (init as { body?: string } | undefined)?.body;
-      if (typeof body === "string") captured.push(JSON.parse(body) as Captured);
+      if (typeof body === "string") captured.push(JSON.parse(body) as CapturedHint);
     } catch {
       /* ignore malformed capture */
     }
@@ -112,10 +114,19 @@ async function main(): Promise<void> {
     );
   }
 
-  const seen = new Set(captured.map((e) => e.type));
+  const eventsRaw = await readFile(join(taskDir, "events", "events.jsonl"), "utf8");
+  const envelopes = eventsRaw
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as { id?: string; event?: { type?: string } });
+  const seen = new Set(envelopes.map((e) => e.event?.type));
   for (const type of EXPECTED_EVENTS) {
-    assert(seen.has(type), `emitted SSE event "${type}"`);
+    assert(seen.has(type), `persisted SSE event "${type}" in events/events.jsonl`);
   }
+  assert(
+    captured.length > 0 && captured.every((h) => typeof h.id === "string"),
+    `wake hints POSTed to /internal/events carry envelope ids (${captured.length} captured)`,
+  );
 
   console.log("\n[smoke] PASS — toy-stats ran end-to-end through worker → gate → monitor → done");
 }

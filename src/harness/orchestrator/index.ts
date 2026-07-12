@@ -267,7 +267,7 @@ export async function runTask(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(orchestratorConfig.taskDir, task);
-    notifyEvent({
+    await notifyEvent(orchestratorConfig.taskDir, {
       type: "phase-started",
       taskId: orchestratorConfig.taskId,
       phase: phaseId,
@@ -294,7 +294,7 @@ export async function runTask(
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(orchestratorConfig.taskDir, task);
-      notifyEvent({
+      await notifyEvent(orchestratorConfig.taskDir, {
         type: "task-paused",
         taskId: orchestratorConfig.taskId,
         reason: workerResult.blockedReason,
@@ -314,7 +314,7 @@ export async function runTask(
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(orchestratorConfig.taskDir, task);
-      notifyEvent({
+      await notifyEvent(orchestratorConfig.taskDir, {
         type: "task-failed",
         taskId: orchestratorConfig.taskId,
         reason: task.reason ?? `Phase ${phaseId} did not complete`,
@@ -337,7 +337,7 @@ export async function runTask(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(orchestratorConfig.taskDir, task);
-    notifyEvent({
+    await notifyEvent(orchestratorConfig.taskDir, {
       type: "phase-complete",
       taskId: orchestratorConfig.taskId,
       phase: phaseId,
@@ -379,7 +379,7 @@ export async function runTask(
           updatedAt: new Date().toISOString(),
         };
         await writeTaskJson(orchestratorConfig.taskDir, task);
-        notifyEvent({
+        await notifyEvent(orchestratorConfig.taskDir, {
           type: "task-failed",
           taskId: orchestratorConfig.taskId,
           reason: task.reason ?? `Phase ${phaseId} gate failed twice`,
@@ -429,7 +429,7 @@ export async function runTask(
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(orchestratorConfig.taskDir, doneTask);
-  notifyEvent({ type: "task-done", taskId: orchestratorConfig.taskId });
+  await notifyEvent(orchestratorConfig.taskDir, { type: "task-done", taskId: orchestratorConfig.taskId });
 
   return { task: doneTask, phases: phaseResults };
 }
@@ -460,7 +460,7 @@ export async function enqueueAndRun(
     resolvedProtocolName,
     protocol.yaml.phases[0]?.id ?? null,
   );
-  notifyEvent({ type: "task-started", taskId, protocol: resolvedProtocolName });
+  await notifyEvent(taskDir, { type: "task-started", taskId, protocol: resolvedProtocolName });
 
   const result = await runTask({
     taskId,
@@ -697,7 +697,7 @@ export async function runPhaseInIsolation(
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(taskDir, task);
-  notifyEvent({ type: "phase-started", taskId, phase: phaseId });
+  await notifyEvent(taskDir, { type: "phase-started", taskId, phase: phaseId });
 
   const startedAt = new Date().toISOString();
   // Same attempt-numbering source the standalone gate below uses, computed
@@ -723,7 +723,7 @@ export async function runPhaseInIsolation(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(taskDir, task);
-    notifyEvent({ type: "task-paused", taskId, reason: workerResult.blockedReason });
+    await notifyEvent(taskDir, { type: "task-paused", taskId, reason: workerResult.blockedReason });
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
   }
 
@@ -739,7 +739,7 @@ export async function runPhaseInIsolation(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(taskDir, task);
-    notifyEvent({ type: "task-failed", taskId, reason: task.reason ?? `Phase ${phaseId} did not complete` });
+    await notifyEvent(taskDir, { type: "task-failed", taskId, reason: task.reason ?? `Phase ${phaseId} did not complete` });
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
   }
 
@@ -758,7 +758,7 @@ export async function runPhaseInIsolation(
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(taskDir, task);
-  notifyEvent({ type: "phase-complete", taskId, phase: phaseId });
+  await notifyEvent(taskDir, { type: "phase-complete", taskId, phase: phaseId });
 
   if (!withGate) {
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: true };

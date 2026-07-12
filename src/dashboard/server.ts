@@ -14,8 +14,7 @@ import {
   resolveTaskFile,
 } from "./api/index.js";
 import { listClaudeScienceSkillsView } from "./api/claude-science.js";
-import type { SseEvent } from "../schema/index.js";
-import { handleSse, publishEvent } from "./sse/index.js";
+import { createSseBroker, type SseBroker } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
 import { finishReview } from "./review/index.js";
 import { getWatcherStatus, updateWatcherControl } from "./watcher/index.js";
@@ -226,11 +225,12 @@ async function injectReviewData(
  * reads only disk under `config.tasksDir`; the only live channel is /events,
  * which carries notifications, not data.
  */
-export function createApp(config: DashboardConfig): Express {
+export function createApp(config: DashboardConfig): Express & { sseBroker: SseBroker } {
   const app = express();
   app.use(express.json({ limit: "64kb" }));
 
   const { tasksDir } = config;
+  const sseBroker = createSseBroker({ tasksDir });
 
   app.get("/api/tasks", async (_req, res) => {
     res.json(await listTasks(tasksDir));
@@ -427,17 +427,17 @@ export function createApp(config: DashboardConfig): Express {
     res.json(await listClaudeScienceSkillsView(config.scienceHome));
   });
 
-  // Cross-process notify seam (design §4, §13): the harness (Process A)
-  // POSTs here after an atomic write lands; we forward to publishEvent(),
-  // which validates and fans out to connected /events clients. This is the
-  // only coupling from the dashboard back to the harness — a notification,
-  // never primary data (clients still re-read disk).
-  app.post("/internal/events", (req, res) => {
-    publishEvent(req.body as SseEvent);
+  // Cross-process wake seam (review-provenance §3B): the harness (Process A)
+  // appends the event to <taskDir>/events/events.jsonl FIRST, then POSTs a
+  // {taskId, id} hint here. The hint only triggers an immediate tail scan —
+  // the disk log is authoritative, so a lost/duplicate hint is harmless and
+  // the broker's periodic poll recovers events written while we were down.
+  app.post("/internal/events", (_req, res) => {
+    sseBroker.scanNow();
     res.status(204).end();
   });
 
-  app.get("/events", handleSse);
+  app.get("/events", (req, res) => sseBroker.handleSse(req, res));
 
   app.use(express.static(STATIC_ROOT));
 
@@ -460,7 +460,7 @@ export function createApp(config: DashboardConfig): Express {
     },
   );
 
-  return app;
+  return Object.assign(app, { sseBroker });
 }
 
 /** Start the server and (optionally) the dev SSE replay. */
@@ -479,7 +479,7 @@ export function startServerAsync(config: DashboardConfig): Promise<void> {
       console.log(`[labrat] tasks dir: ${config.tasksDir}`);
       if (config.devReplay) {
         console.log("[labrat] dev SSE replay ON");
-        void startDevReplay(config.tasksDir);
+        void startDevReplay(config.tasksDir, app.sseBroker.publishLive);
       }
       resolve();
     });
