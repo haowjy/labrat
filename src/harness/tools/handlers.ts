@@ -1,4 +1,4 @@
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -212,12 +212,36 @@ export async function handleSubmitGateDecision(
     );
   }
 
-  // Validate feedback_file exists on disk when provided
+  // Validate feedback_file: must be under review/verification/{phase}/ and exist on disk.
   if (validated.value.feedback_file) {
-    const feedbackPath = path.join(ctx.taskDir, validated.value.feedback_file);
-    if (!(await existsAt(feedbackPath))) {
+    const feedbackRel = validated.value.feedback_file;
+    const allowedPrefix = `review/verification/${ctx.currentPhase}/`;
+    const normalized = path.posix.normalize(feedbackRel);
+    if (
+      normalized.startsWith("..") ||
+      path.isAbsolute(feedbackRel) ||
+      !normalized.startsWith(allowedPrefix)
+    ) {
       return textResult(
-        `feedback_file not found: ${validated.value.feedback_file}. Write the report file before submitting the gate decision.`,
+        `feedback_file must be a relative path under ${allowedPrefix}. Got: ${feedbackRel}`,
+        true,
+      );
+    }
+    const feedbackPath = path.join(ctx.taskDir, normalized);
+    // Resolve symlinks and confirm the real path is still inside the task dir.
+    let realFeedbackPath: string;
+    try {
+      realFeedbackPath = await realpath(feedbackPath);
+    } catch {
+      return textResult(
+        `feedback_file not found: ${feedbackRel}. Write the report file before submitting the gate decision.`,
+        true,
+      );
+    }
+    const realTaskDir = await realpath(ctx.taskDir);
+    if (!realFeedbackPath.startsWith(realTaskDir + path.sep)) {
+      return textResult(
+        `feedback_file resolves outside the task directory (symlink escape). Got: ${feedbackRel}`,
         true,
       );
     }
