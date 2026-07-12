@@ -41,13 +41,17 @@ Scene
   reviewer identifies structures by color
 - Translucent surfaces where internal features need to be visible
   (landmarks inside a bone)
-- Landmark spheres with colored ring + confidence-scaled halo — bright
-  for high confidence, dim/pulsing for `needs_confirmation`. Visible
-  against both light bone surface and dark background.
-- **Measurement lines drawn between their contributing landmarks**, labeled
-  with the mm value AND the index they feed (e.g. "femoral length: 1.81 mm").
-  These are the primary spatial evidence — "the line ends in the wrong
-  place" is visible because the line exists.
+- Landmark markers scaled to a **constant on-screen size** (recompute the
+  sphere scale each frame from camera distance) with a high-contrast dark
+  outline and a larger invisible hit sphere for easy selection. Unselected
+  markers dim; the selected marker gets an unmistakable DOM selection ring
+  (pulsing, always drawn on top) plus its leader line. A compact confidence
+  legend maps color/ring to high vs. review-needed.
+- **Measurement lines drawn between their contributing landmarks.** The mm
+  value rides in a small DOM badge placed OUTSIDE the bone silhouette (not a
+  world-space sprite), shown only for the line(s) the selected landmark feeds.
+  These are the primary spatial evidence — "the line ends in the wrong place"
+  is visible because the line exists.
 
 ## Measurement-line overlays
 
@@ -59,8 +63,12 @@ becomes a visible overlay in the 3D scene:
   segments between the `from` and `to` landmark positions. Use a
   contrasting color from the bone surface — typically white or yellow with
   a dark outline for visibility.
-- **Label:** a `THREE.Sprite` or CSS2DRenderer label at the line midpoint
-  showing the mm value and the index name. The label faces the camera.
+- **Label:** a **DOM badge** (an absolutely-positioned element over the
+  canvas, projected from the line midpoint each frame) showing the mm value,
+  nudged OUTSIDE the bone silhouette so it never sits on the anatomy. Do NOT
+  use a world-space `THREE.Sprite` with `depthTest:false` — fixed-world-height
+  sprites grow huge on zoom, billboard, overlap, and draw over the bone (the
+  #1 defect p96 found). DOM/CSS2D labels are CSP-clean (plain HTML/CSS).
 - **State coloring:** when the contributing index is `concern` or `fail`
   (from `REVIEW_EVIDENCE.decisive[].state`), tint the line and label to
   match the banner's state color — the spatial view and the banner use the
@@ -69,26 +77,42 @@ becomes a visible overlay in the 3D scene:
   lines that the current landmark contributes to are highlighted (full
   opacity); others dim. This answers "what measurement does this landmark
   affect?" without the reviewer having to reason about it.
-- **Live update on drag:** when the reviewer drags a landmark, the
-  measurement lines update in real time — the mm value recomputes from the
-  new position and the label updates. Emit `metrics-updated` via the
-  bridge with the new values.
+- **Static values (read-only review).** The artifact is a review surface,
+  not an editor: landmarks are not draggable and the mm values never
+  recompute in-scene. In-scene editing produced an internally inconsistent
+  artifact (the line/legend recomputed to a new ratio while the banner and
+  Values tab stayed at the original); the reviewer instead comments and marks
+  the phase for revision through the shell.
 
 ## Camera and controls
 
-- `OrbitControls` for rotate/pan/zoom — three.js built-in, no custom code
-- **Initial camera position:** frame the full specimen with the most
-  concerning measurement line visible (the one flagged in the evidence
-  banner). The reviewer should see the problem, not hunt for it.
-- **Preset camera angles** as buttons: anterior, lateral, superior,
-  posterior. Standard anatomical views without manual rotation.
-- **Orientation aid** — an `AxesHelper` or corner orientation cube showing
-  A/P/S/I/M/L directions. The operational rules are direction-relative
-  ("proximal-most," "distal midline") — the reviewer needs to know which
-  way is proximal.
-- `touch-action: none` on the canvas so pinch/rotate/pan don't scroll
-  the page on mobile
-- Unified Pointer Events (works for mouse + touch)
+- `OrbitControls` for rotate/zoom — three.js built-in, no custom code.
+  Disable panning (`controls.enablePan = false`); a review surface only
+  rotates and zooms.
+- **Auto-fit the joint at load.** Frame the landmark cloud (the distal
+  femur / tibial plateau), NOT the full mesh — the long femoral shaft
+  otherwise dominates and crops the joint. Compute a `Box3` over the
+  landmark positions, target its center, and derive the camera distance from
+  the bounding radius and the vertical FOV (`r / sin(fov/2)` × margin).
+- **Constrain the orbit** so the reviewer can't reach a useless close-up or
+  edge-on pose: set `minDistance`/`maxDistance` around the fit distance and
+  clamp `minPolarAngle`/`maxPolarAngle` (e.g. 0.16π–0.84π).
+- **Visible controls:** a prominent **Reset view** button plus 1–2
+  anatomical presets (Front/anterior, Side/lateral) and zoom in/out buttons,
+  overlaid in a corner of the canvas.
+- **Onboarding hint:** a dismissible "Drag to rotate · scroll to zoom" pill
+  that hides on the first orbit (OrbitControls' `start` event) or on tap of
+  its close button. Set `cursor: grab` on the canvas and `grabbing` while
+  dragging so the drag affordance is discoverable.
+- **Raised opacity + silhouette outline.** Render bones at ~0.82 opacity
+  (not 0.55 — pale translucent surfaces blend together) with distinct
+  warm/cool colors and an inverted-hull dark back-face outline for clean
+  contour separation between femur and tibia.
+- **Orientation aid** — an `AxesHelper` tucked into a lower-anterior corner
+  of the joint box showing the A/P/S/I/M/L directions. The operational rules
+  are direction-relative ("proximal-most," "distal midline").
+- `touch-action: none` on the canvas so pinch/rotate don't scroll the page
+  on mobile. Unified Pointer Events (mouse + touch).
 
 ## Guided landmark tour
 
@@ -99,7 +123,8 @@ the context they need to verify each one.
 ### Tour data — from `REVIEW_EVIDENCE`
 
 Each landmark in `REVIEW_EVIDENCE.landmarks` carries:
-- `name`, `voxel` (position), `confidence`, `color`
+- `name`, `position` (mesh-frame XYZ for the 3D marker), `confidence`, `color`
+  (and `voxel` only when slices are shipped)
 - `operational_rule` — the specific placement rule from the protocol
   (e.g. "proximal-most sustained anterior-midline concavity, proximal to
   the condylar bulge — not where the condyles merge")
@@ -110,25 +135,27 @@ Each landmark in `REVIEW_EVIDENCE.landmarks` carries:
 ### Tour UX
 
 - **Tour bar** — a horizontal step indicator showing all landmarks as
-  chips, ordered by concern (low confidence first, then flagged, then
-  high confidence). The current landmark is highlighted. Tapping any
+  chips, ordered by concern (review-flagged / low confidence first). The
+  current chip is highlighted; visited chips are marked done. Tapping any
   chip jumps to that landmark.
-- **Per-landmark card** — a compact overlay (not a modal) showing:
-  1. The landmark name and confidence badge
-  2. The operational rule (the exact text from the protocol)
-  3. The measurement lines it contributes to, with current values
-  4. Any flags or known-limit narratives
-- **Camera fly-to** — `camera.position` animates (GSAP or
-  `requestAnimationFrame` lerp) to frame the landmark at a good
-  inspection distance. The specimen doesn't jump — it smoothly reframes.
-- **Slice sync** — all three slice sliders jump to the landmark's voxel
-  position. The crosshairs center on it. The reviewer sees the landmark
-  in 3D AND in all three orthogonal planes simultaneously.
-- **Drag-to-adjust** — after the tour presents the evidence and rule,
-  the landmark becomes draggable. An edit handle appears (not shown by
-  default). Dragging updates the measurement lines live and emits
-  `interaction` + `metrics-updated` via the bridge.
-- **Next/Previous** — arrow buttons or keyboard arrows advance the tour.
+- **Human titles, technical id secondary.** Show "Trochlear groove top" as
+  the step title with the raw `trochlear_groove_top` id and a confidence
+  badge beside it — not the bare id.
+- **Canonical camera pose per landmark.** Store a legible viewing direction
+  per landmark (mostly anterior) and fly to a consistent framing each step
+  (`requestAnimationFrame` lerp with smoothstep). Every step lands on the
+  same good pose, pairs with its clearly-selected marker (selection ring +
+  leader), and shows only the measurement badge(s) that landmark feeds.
+- **Per-landmark rule** — the operational rule (exact protocol text) shows
+  in the tour bar under the title.
+- **Completion + restart** — once every landmark is visited, show a
+  completion note ("All N landmarks reviewed") and turn the Next control
+  into a **Restart** that clears the visited set and returns to step 1.
+- **Slice sync (only when slices ship)** — all three slice sliders jump to
+  the landmark's voxel position and the crosshairs center on it.
+- **Next/Previous** — buttons advance the tour. On mobile the tour opens as
+  a collapsed bottom sheet (title + Prev/Next) that expands to the rule and
+  chips on tap, so the scene fills the viewport.
 
 ### Tour is opt-out, not opt-in
 
@@ -137,6 +164,26 @@ or with flags. The reviewer can dismiss it and free-roam at any time. But
 the default path is guided — the reviewer who follows the tour has verified
 every flagged landmark with its rule, its measurement context, and its
 spatial evidence.
+
+## Landmark labels — DOM overlay, not sprites
+
+Labels are the #1 thing that can ruin a spatial review: world-space
+`THREE.Sprite` labels at a fixed world height with `depthTest:false` grow
+huge as the camera nears, billboard, overlap each other, and always draw
+over the bone (p96). Use **DOM/CSS2D labels** instead:
+
+- A transparent `#label-layer` div (plus an SVG `#leader-layer`) overlays the
+  canvas. Each frame, project the landmark world position to screen and
+  position an HTML label (~12–14px, human-readable name) with a thin leader
+  line back to the marker.
+- **Default to the selected landmark's label only.** The tour drives
+  selection, so exactly one label shows at rest and the anatomy stays clearly
+  visible. Reveal others on hover/tap or via an optional "Show all labels"
+  toggle; on narrow (mobile) screens, clamp to selected-only.
+- **Edge-clamp** every label inside the viewport with a margin so it never
+  clips off-canvas, and offset it away from the marker so the leader reads.
+- Measurement mm values are small DOM badges placed OUTSIDE the bone
+  silhouette, shown only for the selected landmark's line(s).
 
 ## Raycasting
 
@@ -155,6 +202,13 @@ per-bone), unmount/remount the WebGL canvas when the tab changes, not
 just hide it — a hidden canvas still holds a context against the
 browser limit.
 
+**Resize the existing renderer — never recreate it.** On resize, call
+`renderer.setSize(w, h, false)` and update `camera.aspect`; do not build a
+new `WebGLRenderer`. Recreating the context on every resize thrashes the GL
+context (p96 saw Context Lost/Restored under repeated resize). Add
+`webglcontextlost`/`webglcontextrestored` listeners (preventDefault on lost,
+re-`resize()` on restored) so a dropped context recovers cleanly.
+
 **Split views within one context:** Use scissor rendering for side-by-side
 views (e.g., 3D + orthogonal 2D) sharing one WebGL context. Cheaper than
 multiple contexts and stays within the browser limit.
@@ -171,27 +225,34 @@ guided tour → agent conclusion → supporting data.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  Evidence Banner (always visible, ~60-80px)       │
-│  [■ W/L 1.33 vs 1.30 ▲concern] [■ IIOC 0.309…] │
-├────────────────────────────┬─────────────────────┤
-│                            │  slice-axial        │
-│     3D Scene (scene3d)     ├─────────────────────┤
-│     + measurement overlays │  slice-coronal      │
-│     + landmark markers     ├─────────────────────┤
-│                            │  slice-sagittal     │
-├────────────────────────────┴─────────────────────┤
-│  Tour bar: [notch] [groove●] [lat-edge] [...]    │
-│  Card: "Groove top — proximal to condylar bulge" │
+│  Evidence Banner (always visible, ~72-90px)       │
+│  W/L **1.33**   OA cutoff ≥ 1.30 · +0.03 above    │
+│  [⚠ Review required · Low confidence]             │
+├──────────────────────────────────────────────────┤
+│  [ 3D scene ] [ Advanced slices ] [ Values ]      │  ← tabs
+├──────────────────────────────────────────────────┤
+│                                                    │
+│     3D Scene (scene3d) — the hero, fills the area  │
+│     + measurement overlays + derived ratio         │
+│     + named landmark markers + orientation aid     │
+│                                                    │
+├──────────────────────────────────────────────────┤
+│  Reset · Front · Side · +/−   (on-canvas corner)  │
+│  Tour bar: Step N of M · Groove top ● · rule      │
+│  chips [Groove top][Notch][Lat][Med]   [‹Prev][Next›]│
 └──────────────────────────────────────────────────┘
 ```
 
-**Desktop:** 3D scene takes ~65% width; three slice panes stack on the
-right (~35%). Evidence banner spans full width at the top. Tour bar and
-card at the bottom.
+**Desktop:** the 3D scene fills the main area — it is the review surface,
+not one pane among four. The evidence banner spans full width at the top;
+the tour bar (step indicator, human title + rule, chips, Prev/Next) sits at
+the bottom, and Reset/preset/zoom controls overlay a corner of the canvas.
+Orthogonal slices, when shipped, live behind the **"Advanced slices" tab**,
+not beside the scene.
 
-**Mobile:** evidence banner stays at top. Below it, a single pane fills
-the viewport; tap preview thumbnails to switch between 3D / axial /
-coronal / sagittal. Tour card collapses to a bottom sheet.
+**Mobile:** the same 3D scene fills the width (drag to orbit, pinch to
+zoom); evidence banner at top, tour bar at the bottom, verdict panel near
+the bottom edge. The Advanced-slices tab collapses to a bottom sheet.
 
 **Tabs for secondary content:** "Values" tab shows the full measurement
 table. "Interpretation" tab shows the OA-progression read. These are
@@ -199,10 +260,14 @@ secondary — the evidence banner + spatial views are the primary surface.
 
 **Layout priorities:**
 1. Evidence banner: fixed top, always visible across all views
-2. 3D canvas + measurement overlays: fills main area
-3. Slice panes: linked, adjacent to 3D
-4. Tour bar + card: fixed bottom
-5. Values/interpretation: tab, not competing with spatial views
+2. 3D canvas + DOM label/leader overlay: fills the main area (the hero)
+3. Tour bar: fixed bottom (step indicator, human title, rule, chips, Prev/Next)
+4. Advanced slices: a tab shown ONLY when a volume is exported — hide the tab
+   entirely when `REVIEW_VOLUME` is absent (no empty placeholder tab)
+5. Values/interpretation: a tab, shown after the spatial evidence.
+   Hidden panels must win: `.panel[hidden]{display:none!important}` so the 3D
+   panel's own `display:flex` never leaks a second panel under the scene (a
+   p96 tab bug), and the selected panel fills and scrolls within the stage.
 
 ## Mobile patterns
 
@@ -288,7 +353,10 @@ window.REVIEW_EVIDENCE = {
   landmarks: [
     {
       name: "intercondylar_notch",
-      voxel: [120, 85, 64],         // ZYX in the downsampled volume frame
+      position: [0.0, 0.35, -0.1],  // XYZ in the mesh frame (mm) — where the
+                                    // 3D marker sits; the PRIMARY placement
+      voxel: [120, 85, 64],         // ZYX in the downsampled volume frame —
+                                    // only when slices are shipped (optional)
       confidence: "high",
       operational_rule: "Distal-most midline bone point (eroded-notch fallback: notch-entrance edge at healthy bone)",
       color: [255, 100, 100],
@@ -328,11 +396,14 @@ window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";
 Injected via `data_sources`. Meshes decimated to ~10K vertices per
 structure. Landmarks are NOT nested here — they live in `REVIEW_EVIDENCE`.
 
-### `REVIEW_VOLUME` — downsampled slice data (injected)
+### `REVIEW_VOLUME` — downsampled slice data (injected, OPTIONAL)
 
-The 2D slices need grayscale pixels the mesh doesn't carry. The worker
-exports one injected artifact — a downsampled volume — from
-`segmentation/filtered.nii.gz` + `labels.nii.gz`:
+Only needed when the optional Advanced-slices tab ships. The 3D scene does
+not use it. The 2D slices need grayscale pixels the mesh doesn't carry, so
+the worker exports one injected artifact — a downsampled volume — from
+`segmentation/filtered.nii.gz` + `labels.nii.gz`. Downsampling the full
+NIfTI is the hardest extraction step; the demo's first pass ships 3D without
+it and adds slices later:
 
 ```js
 window.REVIEW_VOLUME = "__REVIEW_INJECT:REVIEW_VOLUME__";
@@ -362,48 +433,69 @@ stride).
 
 ### Manifest for an evidence-led spatial review
 
+The 3D scene is the primary view; `scene3d` is the only required view.
+Ship the **3D scene alone first** — it needs only `REVIEW_GEOMETRY` (mesh)
+and `REVIEW_EVIDENCE` (numbers, landmarks, rules). Slices are optional
+drill-down evidence: add the `slice-*` views, `REVIEW_VOLUME`, and
+`linked_views: true` only when the downsampled volume is exported.
+
 ```js
 window.REVIEW_MANIFEST = {
   sample_id: "<task-id>",
   produced_from: {
     measurement: "measurements/results.json@<sha256>",
-    geometry: "review/geometry.json@<sha256>",
-    volume: "review/volume.json@<sha256>"
+    geometry: "review/geometry.json@<sha256>"
+    // volume: "review/volume.json@<sha256>"   // only if slices are shipped
   },
   verdict_schema: "review-verdict/1",
   review_layout: "spatial-multipane",
-  required_views: ["scene3d", "slice-axial", "slice-coronal", "slice-sagittal"],
-  linked_views: true,
-  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE",
-                 "REVIEW_GEOMETRY", "REVIEW_VOLUME"],
+  required_views: ["scene3d"],                  // 3D is the hero; slices optional
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],
   data_sources: {
-    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" },
-    REVIEW_VOLUME:   { artifact: "review/volume.json",   transform: "identity" }
+    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" }
   }
+  // When slices ARE shipped, add to the above:
+  //   required_views: [..., "slice-axial", "slice-coronal", "slice-sagittal"],
+  //   linked_views: true,
+  //   data_globals: [..., "REVIEW_VOLUME"],
+  //   data_sources.REVIEW_VOLUME: { artifact: "review/volume.json", transform: "identity" },
+  //   produced_from.volume: "review/volume.json@<sha256>"
 };
 ```
 
 G3 validates all `data_globals` exist. G8 validates all `produced_from`
-hashes. G9 validates the spatial layout markers. `REVIEW_EVIDENCE` is
-inlined (no `data_sources` entry) — G3 confirms it is a non-empty static
-literal.
+hashes. G9 validates the 3D scene (real three.js + OrbitControls) and, when
+present, the optional slice markers. `REVIEW_EVIDENCE` is inlined (no
+`data_sources` entry) — G3 confirms it is a non-empty static literal.
 
-## Orthogonal slice scrubber (spatial reviews)
+**Inline / vendor three.js — no CDN.** The artifact runs in an opaque-origin
+CSP sandbox that drops every external subresource, so the three.js UMD build
+and OrbitControls are inlined in `<script>` blocks (not `<script src>`).
+Vendor a build that passes strict CSP: no `eval`/`new Function` (rules out
+Plotly; three.js is clean). The `validation/fixtures/review-site-spatial`
+fixture inlines the r137 UMD build + classic `OrbitControls` this way.
 
-A segmentation or landmark review is **not complete with the 3D mesh
-alone**. A clean-looking 3D surface can hide a label bleeding through a
-slice or a landmark sitting one slice off the bone. The reviewer needs the
-**linked orthogonal slice scrubber**: three 2D panes (axial, coronal,
-sagittal) they can scrub, with the 3D scene and the slices sharing one
-position. This is required and gated (G9).
+## Orthogonal slice scrubber (optional drill-down)
 
-### The panes — required static markers
+The 3D scene is the review surface. Orthogonal slices are **optional
+secondary evidence** behind an **"Advanced slices" tab** — not the hero
+view. They earn their place when they add something the surface hides: a
+clean-looking 3D surface can mask a label bleeding through a slice or a
+landmark sitting one slice off the bone. Ship them when the downsampled
+volume is exported; the demo's first pass ships 3D alone.
 
-Each view carries a stable `data-review-view` attribute; each slice pane
-carries a canvas and a range slider with `data-review-slice-*` attributes.
-These markers are what the **G9 gate** checks statically (it can't execute
-the wiring), so they are not optional decoration — a missing marker fails
-the gate:
+When slices ARE shipped they must be **linked**: three 2D panes (axial,
+coronal, sagittal) the reviewer can scrub, with the 3D scene and the slices
+sharing one position. G9 gates that a *declared* slice view is complete and
+linked — an incomplete scrubber is worse than none.
+
+### The panes — static markers (when slices are shown)
+
+The `scene3d` view is always required. Each slice pane, when shipped,
+carries a `data-review-view` plus a canvas and range slider with
+`data-review-slice-*` attributes. These markers are what the **G9 gate**
+checks statically (it can't execute the wiring), so once a slice view is
+declared they are not optional decoration — a missing marker fails the gate:
 
 ```html
 <section data-review-view="scene3d"><canvas id="scene3d-canvas"></canvas></section>
@@ -418,8 +510,8 @@ the gate:
 ```
 
 Slider thumbs must be ≥44px (default range thumbs are far under — style
-them up). On mobile the four panes collapse to preview thumbnails; tap to
-fullscreen.
+them up). On mobile the slice panes collapse to preview thumbnails behind the
+Advanced-slices tab; tap to fullscreen.
 
 ### Render and link
 

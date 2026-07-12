@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { checkReviewSite, type Finding, type GateId, type ReviewSiteReport } from "./check.js";
+import { buildReviewSiteCsp } from "./csp.js";
 import { resolveArtifactRefs } from "../harness/provenance/index.js";
 
 const FIXTURE = fileURLToPath(new URL("../../validation/fixtures/review-site", import.meta.url));
@@ -884,28 +885,24 @@ describe("check_review_site — G8 fidelity fails when required-but-unverifiable
   });
 });
 
-describe("check_review_site — G9 spatial-multipane layout", () => {
-  it("the clean spatial fixture passes every gate, G9 included", async () => {
-    const report = await checkReviewSite({ siteDir: SPATIAL_FIXTURE, cdnAllowlist: [] });
+describe("check_review_site — G9 3D-first spatial review", () => {
+  // The 3D-first fixture inlines the real three.js UMD build, whose unused
+  // loaders contain `fetch(<dynamic>)` calls. Under the served CSP the F5
+  // downgrade turns those into G5 warnings (not hard-fails) — exactly as the
+  // harness gate runs the linter — so the spatial invocations pass the CSP.
+  const CSP = buildReviewSiteCsp();
+
+  it("the clean 3D-first fixture passes every gate, G9 included", async () => {
+    const report = await checkReviewSite({
+      siteDir: SPATIAL_FIXTURE,
+      cdnAllowlist: [],
+      contentSecurityPolicy: CSP,
+    });
     for (const f of report.findings) {
       assert.equal(f.ok, true, `${f.gate} should pass clean: ${f.detail}`);
     }
     assert.equal(report.ok, true);
     assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
-  });
-
-  it("REVIEW_SLICES as the slice-data global passes G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      // G9 accepts REVIEW_SLICES in place of REVIEW_VOLUME as the slice-data
-      // global. Rename it everywhere (data_globals, the data_sources key, the
-      // inlined literal, and the render script) so the fixture stays coherent.
-      await edit(dir, "index.html", (s) => s.replaceAll("REVIEW_VOLUME", "REVIEW_SLICES"));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
-    } finally {
-      await cleanup();
-    }
   });
 
   it("N/A auto-pass: a values-table manifest (no review_layout) passes G9", async () => {
@@ -915,116 +912,91 @@ describe("check_review_site — G9 spatial-multipane layout", () => {
     assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
   });
 
-  it("a declared required_view with no [data-review-view] element fails G9", async () => {
+  it("REGRESSION (p80): a static painted canvas with no OrbitControls fails G9", async () => {
+    // p80 shipped a "3D mesh" that was a painted 2D canvas — drag did nothing,
+    // no three.js/OrbitControls. Neutralize the OrbitControls token (as a
+    // painted-canvas artifact would lack it) and G9 must reject it.
     const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
     try {
-      await edit(dir, "index.html", (s) => s.replace(' data-review-view="mesh-3d"', ""));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      await edit(dir, "index.html", (s) => s.replaceAll("OrbitControls", "PanZoom2D"));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
       assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /required view "mesh-3d" has no \[data-review-view="mesh-3d"\]/);
+      assert.match(gate(report, "G9").detail, /no OrbitControls .*drag must rotate/);
+      assert.match(gate(report, "G9").detail, /static painted 2D canvas is not a 3D review/);
       assert.equal(report.ok, false);
     } finally {
       await cleanup();
     }
   });
 
-  it("a slice view missing its range slider fails G9", async () => {
+  it("scene3d missing from required_views fails G9", async () => {
     const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
     try {
-      await edit(dir, "index.html", (s) => s.replace(' data-review-slice-slider="axial"', ""));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      await edit(dir, "index.html", (s) => s.replace('required_views: ["scene3d"]', 'required_views: ["mesh-3d"]'));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
       assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /slice view "slice-axial" has no <input type="range" data-review-slice-slider="axial">/);
+      assert.match(gate(report, "G9").detail, /must declare "scene3d" in required_views/);
     } finally {
       await cleanup();
     }
   });
 
-  it("a slider that is not <input type=range> does not satisfy G9", async () => {
+  it("the scene3d view element missing fails G9", async () => {
     const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
     try {
+      await edit(dir, "index.html", (s) => s.replace(' data-review-view="scene3d"', ""));
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /no \[data-review-view="scene3d"\] element/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("a spatial manifest with no REVIEW_EVIDENCE global fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Landmark markers render from REVIEW_EVIDENCE.landmarks; undeclare it.
       await edit(dir, "index.html", (s) =>
         s.replace(
-          /<input type="range" (data-review-slice-slider="coronal"[^>]*)\/>/,
-          '<div $1></div>',
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_GEOMETRY"]',
         ),
       );
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /data-review-slice-slider="coronal"/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("a slice view missing its canvas fails G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      await edit(dir, "index.html", (s) => s.replace(' data-review-slice-canvas="sagittal"', ""));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /slice view "slice-sagittal" has no \[data-review-slice-canvas="sagittal"\]/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("a spatial-multipane manifest with no slice-data global fails G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      // Drop REVIEW_VOLUME from the manifest declaration entirely (data_globals
-      // + data_sources) — the scrubber then has no declared data to be wired to.
-      await edit(dir, "index.html", (s) =>
-        s
-          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]', 'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE"]')
-          .replace(/data_sources: \{\s*REVIEW_VOLUME: \{[^}]*\},\s*\},/, ""),
-      );
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /no slice-data global \(REVIEW_VOLUME or REVIEW_SLICES\) in data_globals/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("a slice-data data_sources artifact with no produced_from hash fails G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      await edit(dir, "index.html", (s) => s.replace(/^\s*volume:\n\s*"volumes\/volume\.json@[0-9a-f]{64}",\n/m, ""));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /artifact "volumes\/volume\.json" has no produced_from/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("linked_views: false (or missing landmark data) fails G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      await edit(dir, "index.html", (s) => s.replace("linked_views: true", "linked_views: false"));
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
-      assert.equal(gate(report, "G9").ok, false);
-      assert.match(gate(report, "G9").detail, /linked_views is not true/);
-    } finally {
-      await cleanup();
-    }
-  });
-
-  it("a spatial-multipane manifest with no REVIEW_EVIDENCE global fails G9", async () => {
-    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
-    try {
-      // Landmark data lives in REVIEW_EVIDENCE now; undeclare it and the linked
-      // views have no landmark data to synchronise on.
-      await edit(dir, "index.html", (s) =>
-        s.replace(
-          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME", "REVIEW_EVIDENCE"]',
-          'data_globals: ["REVIEW_MANIFEST", "REVIEW_VOLUME"]',
-        ),
-      );
-      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [] });
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
       assert.equal(gate(report, "G9").ok, false);
       assert.match(gate(report, "G9").detail, /no REVIEW_EVIDENCE global in data_globals/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("slices are OPTIONAL: the clean fixture ships no slice views yet passes G9", async () => {
+    // No slice-* view, no REVIEW_VOLUME/REVIEW_SLICES — the 3D scene stands
+    // alone and G9 still passes (the demo-readiness §2 "slices optional" rule).
+    const report = await checkReviewSite({ siteDir: SPATIAL_FIXTURE, cdnAllowlist: [], contentSecurityPolicy: CSP });
+    assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+  });
+
+  it("a DECLARED slice view must still be complete: missing slider fails G9", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Declare a slice-axial view with a canvas but no range slider. Slices
+      // are optional, but a declared one must carry its scrubber markers.
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace('required_views: ["scene3d"]', 'required_views: ["scene3d", "slice-axial"]')
+          .replace(
+            "</main>",
+            '<section class="panel" data-review-view="slice-axial"><canvas data-review-slice-canvas="axial"></canvas></section>\n</main>',
+          ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(
+        gate(report, "G9").detail,
+        /slice view "slice-axial" has no <input type="range" data-review-slice-slider="axial">/,
+      );
     } finally {
       await cleanup();
     }

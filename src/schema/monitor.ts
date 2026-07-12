@@ -47,3 +47,21 @@ export function validateSubmitMonitorVerdictInput(
 
   return success({ verdict: verdict.value, reasons });
 }
+
+/**
+ * The monitor verdict the dashboard reads back from
+ * `review/monitor/{phase}.json` (the authoritative file the harness writes —
+ * see `MonitorReport` in harness/session/monitor.ts). The dashboard needs only
+ * the third-agent verdict + its reasons to surface "reviewer audit:
+ * passed/failed" in the review chain; the on-disk `checked` diagnostics read
+ * through untouched, so this validator tolerates and ignores them rather than
+ * re-declaring the harness's private discriminator shape. The stored file is a
+ * strict superset of the tool input, so the same field checks apply.
+ */
+export type MonitorReportSummary = SubmitMonitorVerdictInput;
+
+export function validateMonitorReport(
+  value: unknown,
+): ValidationResult<MonitorReportSummary> {
+  return validateSubmitMonitorVerdictInput(value);
+}
