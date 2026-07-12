@@ -24,6 +24,9 @@ export type SubmitGateDecisionInput = {
   readonly decision: GateDecision;
   readonly summary?: string | null;
   readonly rewind_to?: string | null;
+  /** Relative path (from task dir) to the reviewer's markdown report file. */
+  readonly feedback_file?: string | null;
+  /** @deprecated Inline feedback — use feedback_file for new submissions. */
   readonly feedback?: string | null;
   readonly subphase_assessments?: Readonly<Record<string, string>>;
 };
@@ -55,6 +58,16 @@ export function validateSubmitGateDecisionInput(
     const rtStr = expectNonEmptyString(rt, "$.rewind_to");
     if (!rtStr.ok) return rtStr;
     rewind_to = rtStr.value;
+  }
+
+  let feedback_file: string | null | undefined;
+  const ff = rec.value["feedback_file"];
+  if (ff === null) {
+    feedback_file = null;
+  } else if (ff !== undefined) {
+    const ffStr = expectNonEmptyString(ff, "$.feedback_file");
+    if (!ffStr.ok) return ffStr;
+    feedback_file = ffStr.value;
   }
 
   let feedback: string | null | undefined;
@@ -93,6 +106,7 @@ export function validateSubmitGateDecisionInput(
     decision: decision.value,
     ...(summary !== undefined ? { summary } : {}),
     ...(rewind_to !== undefined ? { rewind_to } : {}),
+    ...(feedback_file !== undefined ? { feedback_file } : {}),
     ...(feedback !== undefined ? { feedback } : {}),
     ...(subphase_assessments.value !== undefined
       ? { subphase_assessments: subphase_assessments.value }
@@ -137,6 +151,9 @@ export function validateGateFile(value: unknown): ValidationResult<GateFile> {
       : {}),
     ...(input.value.rewind_to !== undefined
       ? { rewind_to: input.value.rewind_to }
+      : {}),
+    ...(input.value.feedback_file !== undefined
+      ? { feedback_file: input.value.feedback_file }
       : {}),
     ...(input.value.feedback !== undefined
       ? { feedback: input.value.feedback }
