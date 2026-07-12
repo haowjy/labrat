@@ -13,6 +13,13 @@ import {
 import { readHumanVerdict } from "../review-verdict/index.js";
 import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
+import {
+  appendPublishedArtifactProvenance,
+  artifactSettlementPending,
+  REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+  scientificGateAccepted,
+  settleReviewArtifact,
+} from "./artifact-settlement.js";
 import { runGate } from "./gate.js";
 import type { GateContext, RunGateResult } from "./gate.js";
 import { downstreamPhaseIds, invalidateFromPhase } from "./invalidation.js";
@@ -205,6 +212,62 @@ async function stageInput(
   return `input/${folderName}`;
 }
 
+/**
+ * Mark one phase SETTLED (review-provenance §3.D): scientific gate accepted
+ * AND its review artifact published (or `none`/legacy). `phasesComplete` is
+ * the list of settled phases — updated ONLY here, AFTER runGate returns a
+ * settled success, never before the gate (the old pre-gate write meant
+ * "worker recorded", and its rollback filters are gone with it).
+ */
+async function markPhaseSettled(
+  taskDir: string,
+  taskId: string,
+  phaseId: string,
+): Promise<TaskJson> {
+  const loaded = await loadTaskJson(taskDir);
+  // Drop any stale pause reason (e.g. a resumed review-artifact-author-failed
+  // pause whose artifact just settled) and put the task back to running.
+  const { reason: _droppedReason, ...rest } = loaded;
+  const task: TaskJson = {
+    ...rest,
+    state: "running",
+    phasesComplete: loaded.phasesComplete.includes(phaseId)
+      ? loaded.phasesComplete
+      : [...loaded.phasesComplete, phaseId],
+    currentPhase: null,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  await notifyEvent(taskDir, { type: "phase-complete", taskId, phase: phaseId });
+  return task;
+}
+
+/**
+ * Clean PAUSE for an exhausted review-artifact author (review-provenance
+ * correction #3): the phase's SCIENCE stays accepted on disk (gate file +
+ * provenance entry untouched), nothing is archived or reset, and a later
+ * `resume` re-enters ONLY the authoring step for this phase.
+ */
+async function pauseForArtifactFailure(
+  taskDir: string,
+  taskId: string,
+): Promise<TaskJson> {
+  let task = await loadTaskJson(taskDir);
+  task = {
+    ...task,
+    state: "paused",
+    reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  await notifyEvent(taskDir, {
+    type: "task-paused",
+    taskId,
+    reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+  });
+  return task;
+}
+
 export async function runTask(
   orchestratorConfig: OrchestratorConfig,
 ): Promise<RunTaskResult> {
@@ -254,6 +317,50 @@ export async function runTask(
     );
     if (!loadedPhaseDef) {
       throw new Error(`Protocol missing phase definition: ${phaseId}`);
+    }
+
+    // Resume-into-authoring (review-provenance §3.D): a phase whose SCIENCE is
+    // already accepted on disk (passing gate file + provenance entry) but that
+    // never settled — a crash between gate acceptance and settlement, or a
+    // pause for `review-artifact-author-failed` — NEVER re-runs its worker.
+    // Only the artifact half of settlement remains.
+    if (await scientificGateAccepted(orchestratorConfig.taskDir, phaseId)) {
+      if (await artifactSettlementPending(orchestratorConfig.taskDir, loadedPhaseDef)) {
+        const settle = await settleReviewArtifact({
+          taskId: orchestratorConfig.taskId,
+          taskDir: orchestratorConfig.taskDir,
+          protocol: orchestratorConfig.protocol,
+          phase: loadedPhaseDef,
+          attempt: attemptByPhase.get(phaseId) ?? 1,
+          runtime,
+          config,
+        });
+        if (settle.kind === "artifact-failed") {
+          const paused = await pauseForArtifactFailure(
+            orchestratorConfig.taskDir,
+            orchestratorConfig.taskId,
+          );
+          return { task: paused, phases: phaseResults };
+        }
+        if (settle.kind === "published") {
+          await appendPublishedArtifactProvenance(
+            orchestratorConfig.taskDir,
+            phaseId,
+            settle,
+          );
+        }
+      }
+      const summary = await readPhaseSummary(orchestratorConfig.taskDir, phaseId);
+      if (summary) {
+        priorSummaries[phaseId] = summary;
+      }
+      await markPhaseSettled(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+        phaseId,
+      );
+      pointer += 1;
+      continue;
     }
 
     const attempt = (attemptByPhase.get(phaseId) ?? 0) + 1;
@@ -327,22 +434,6 @@ export async function runTask(
       priorSummaries[phaseId] = summary;
     }
 
-    const phasesComplete = task.phasesComplete.includes(phaseId)
-      ? task.phasesComplete
-      : [...task.phasesComplete, phaseId];
-    task = {
-      ...task,
-      phasesComplete,
-      currentPhase: null,
-      updatedAt: new Date().toISOString(),
-    };
-    await writeTaskJson(orchestratorConfig.taskDir, task);
-    await notifyEvent(orchestratorConfig.taskDir, {
-      type: "phase-complete",
-      taskId: orchestratorConfig.taskId,
-      phase: phaseId,
-    });
-
     const gate = await runGate({
       taskId: orchestratorConfig.taskId,
       taskDir: orchestratorConfig.taskDir,
@@ -361,19 +452,37 @@ export async function runTask(
       gate,
     });
 
+    if (gate.kind === "artifact-failed") {
+      // Science accepted; only the review artifact is missing. Pause cleanly —
+      // NEVER archive/reset the verified worker outputs — and let a later
+      // `resume` re-enter the authoring step only.
+      const paused = await pauseForArtifactFailure(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+      );
+      return { task: paused, phases: phaseResults };
+    }
+
     if (gate.kind !== "fail" && gate.kind !== "fail-upstream") {
+      // Fully settled: scientific gate accepted AND the review artifact
+      // published (or none/legacy). Only now does the phase join
+      // phasesComplete (review-provenance §3.D settlement state).
+      await markPhaseSettled(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+        phaseId,
+      );
       pointer += 1;
       continue;
     }
 
     if (gate.kind === "fail") {
+      // runGate already archived phases/{phase}/ + reset its outputs on disk
+      // (gate.ts fail path). phasesComplete never contained this phase — it
+      // is written only at settlement now — so there is nothing to roll back.
       if (attempt >= config.retries.phaseAttempts) {
-        // runGate already archived phases/{phase}/ + reset its outputs on
-        // disk (gate.ts fail path) — keep phasesComplete in sync so a later
-        // resume doesn't skip this phase believing it already ran.
         task = {
           ...task,
-          phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
           state: "failed",
           reason: `Gate failed twice on phase ${phaseId}: ${gate.feedback ?? "no feedback"}`,
           updatedAt: new Date().toISOString(),
@@ -386,17 +495,10 @@ export async function runTask(
         });
         throw new Error(task.reason ?? `Phase ${phaseId} gate failed twice`);
       }
-      // Retry: phases/{phase}/ + gate already archived by runGate; drop it
-      // from phasesComplete and re-run the same pointer with a fresh agent.
-      // Drop this phase's own summary (mirrors the rewind cleanup below) so
-      // the retried worker doesn't inherit its failed attempt's summary (F6).
+      // Retry: re-run the same pointer with a fresh agent. Drop this phase's
+      // own summary so the retried worker doesn't inherit its failed
+      // attempt's summary (F6).
       delete priorSummaries[phaseId];
-      task = {
-        ...task,
-        phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
-        updatedAt: new Date().toISOString(),
-      };
-      await writeTaskJson(orchestratorConfig.taskDir, task);
       continue;
     }
 
@@ -411,6 +513,10 @@ export async function runTask(
       delete priorSummaries[invalidated];
       attemptByPhase.delete(invalidated);
     }
+    // Rewind can invalidate phases that HAD settled (earlier passes between
+    // rewindTo and here) — drop them from the settled list to match the disk
+    // invalidation runGate already performed.
+    task = await loadTaskJson(orchestratorConfig.taskDir);
     task = {
       ...task,
       phasesComplete: task.phasesComplete.filter(
@@ -513,9 +619,15 @@ export async function runStandaloneGate(
   configureEvents(config.dashboard.url);
 
   const task = await loadTaskJson(taskDir);
-  if (!task.phasesComplete.includes(phaseId)) {
+  // Gate an ALREADY-RECORDED phase: the worker must have run (its phase dir
+  // is on disk). phasesComplete no longer implies this — it now means SETTLED
+  // (gate + artifact), which is what this command produces, not requires.
+  const phaseRecorded =
+    (await existsAt(join(taskDir, "phases", phaseId, "summary.md"))) ||
+    (await existsAt(join(taskDir, "phases", phaseId)));
+  if (!phaseRecorded && !task.phasesComplete.includes(phaseId)) {
     throw new Error(
-      `Phase "${phaseId}" is not recorded complete for ${taskId} (phasesComplete: ${task.phasesComplete.join(", ") || "none"}). Run the phase first.`,
+      `Phase "${phaseId}" has not been recorded for ${taskId} (no phases/${phaseId}/ on disk). Run the phase first.`,
     );
   }
 
@@ -571,9 +683,10 @@ export async function runStandaloneGate(
 }
 
 /**
- * Bring task.json back in sync with the disk-side invalidation `runGate`
- * already performed, for gate runs that happen outside the `runTask` loop
- * (standalone `gate` and isolated `run-phase --gate`). No-op on pass paths.
+ * Bring task.json back in sync with the disk-side outcome `runGate` already
+ * performed, for gate runs that happen outside the `runTask` loop (standalone
+ * `gate` and isolated `run-phase --gate`): settle the phase on a pass, pause
+ * on an artifact failure, and mirror the invalidation on fail paths.
  */
 async function syncTaskAfterStandaloneGate(
   taskDir: string,
@@ -581,7 +694,24 @@ async function syncTaskAfterStandaloneGate(
   phaseId: string,
   gate: RunGateResult,
 ): Promise<void> {
-  if (gate.kind === "fail") {
+  if (gate.kind === "pass" || gate.kind === "pass-with-concerns") {
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      phasesComplete: refreshed.phasesComplete.includes(phaseId)
+        ? refreshed.phasesComplete
+        : [...refreshed.phasesComplete, phaseId],
+      updatedAt: new Date().toISOString(),
+    });
+  } else if (gate.kind === "artifact-failed") {
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      state: "paused",
+      reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+      updatedAt: new Date().toISOString(),
+    });
+  } else if (gate.kind === "fail") {
     const refreshed = await loadTaskJson(taskDir);
     await writeTaskJson(taskDir, {
       ...refreshed,
@@ -743,16 +873,15 @@ export async function runPhaseInIsolation(
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
   }
 
-  const phasesComplete = task.phasesComplete.includes(phaseId)
-    ? task.phasesComplete
-    : [...task.phasesComplete, phaseId];
+  // Worker recorded ≠ settled: phasesComplete now means SETTLED (gate +
+  // artifact — review-provenance §3.D), so the isolated run-phase no longer
+  // adds this phase; syncTaskAfterStandaloneGate does after a passing gate.
   // NEVER promote to "done" here: the isolated run-phase tool has no authority
   // to declare the task terminal — that requires the gated runTask/resume path
   // (gate + monitor + provenance for every phase). Leave state "running";
   // syncTaskAfterStandaloneGate owns any post-gate state change below (F3).
   task = {
     ...task,
-    phasesComplete,
     currentPhase: null,
     state: "running",
     updatedAt: new Date().toISOString(),

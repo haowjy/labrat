@@ -17,6 +17,10 @@ function protocolWithPhase(phase: Record<string, unknown>): Record<string, unkno
     agents: {
       worker: { tools: ["Read"] },
       "gate-reviewer": { tools: ["Read"] },
+      // An explicit (non-none, non-legacy) review_artifact phase requires an
+      // executable author profile at load time (design §3.D) — carried here
+      // so single-phase round-trips exercise the phase rules, not that gate.
+      "review-artifact-author": { tools: ["Read", "Write", "Edit", "Glob", "Grep"] },
     },
   };
 }
@@ -174,5 +178,67 @@ describe("validatePhase — review_artifact validation", () => {
       }),
     );
     assert.equal(res.ok, false);
+  });
+});
+
+describe("validateProtocolYaml — review-artifact-author profile requirement (design §3.D)", () => {
+  function protocolWithAgents(
+    phase: Record<string, unknown>,
+    agents: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      kind: "protocol",
+      name: "p",
+      version: 1,
+      expects: {},
+      phases: [phase],
+      runtime: { deps: [] },
+      parent_skills: [],
+      agents,
+    };
+  }
+  const baseAgents = {
+    worker: { tools: ["Read"] },
+    "gate-reviewer": { tools: ["Read"] },
+  };
+
+  it("rejects an explicit review_artifact phase without agents.review-artifact-author", () => {
+    const res = validateProtocolYaml(
+      protocolWithAgents(
+        { id: "seg", skills: ["s"], review_artifact: { type: "spatial-3d" } },
+        baseAgents,
+      ),
+    );
+    assert.equal(res.ok, false);
+    if (res.ok) return;
+    assert.match(res.errors[0]?.message ?? "", /review-artifact-author/);
+  });
+
+  it("accepts type: none and legacy review-site phases without the author profile", () => {
+    const nonePhase = validateProtocolYaml(
+      protocolWithAgents(
+        { id: "intake", skills: ["s"], review_artifact: { type: "none" } },
+        baseAgents,
+      ),
+    );
+    assert.equal(nonePhase.ok, true, nonePhase.ok ? "" : JSON.stringify(nonePhase.errors));
+
+    const legacyPhase = validateProtocolYaml(
+      protocolWithAgents(
+        { id: "review", skills: ["s"], outputs: ["review-site/index.html"] },
+        baseAgents,
+      ),
+    );
+    assert.equal(legacyPhase.ok, true, legacyPhase.ok ? "" : JSON.stringify(legacyPhase.errors));
+  });
+
+  it("accepts an explicit review_artifact phase when the author profile is present", () => {
+    const res = validateProtocolYaml(
+      protocolWithAgents(
+        { id: "seg", skills: ["s"], review_artifact: { type: "quantitative" } },
+        { ...baseAgents, "review-artifact-author": { tools: ["Read", "Write"] } },
+      ),
+    );
+    assert.equal(res.ok, true, res.ok ? "" : JSON.stringify(res.errors));
   });
 });
