@@ -4,11 +4,16 @@ import { usePulseOnChange } from "./usePulseOnChange.js";
 
 function TaskCard({ task, active, onSelect }) {
   const [pc, pl] = statePill(task.state);
+  const reasonBrief = task.reason
+    ? task.reason.length > 60
+      ? task.reason.slice(0, 57) + "…"
+      : task.reason
+    : null;
   const sub =
     task.state === "running" && task.currentPhase
       ? task.currentPhase
-      : task.reason
-        ? task.reason
+      : reasonBrief
+        ? reasonBrief
         : `${task.phasesComplete.length} phase${task.phasesComplete.length === 1 ? "" : "s"}`;
   const pulsing = usePulseOnChange(`${task.state}|${task.currentPhase ?? ""}|${task.reason ?? ""}`);
 

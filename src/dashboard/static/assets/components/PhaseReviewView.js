@@ -78,7 +78,7 @@ export function PhaseReviewView({ taskId, taskDetail, selectedPhase, onSelectPha
       ${task.state === "paused" || task.state === "failed"
         ? html`
             <div class="banner ${task.state === "paused" ? "banner-paused" : "banner-failed"}">
-              ${task.state}${task.reason ? `: ${task.reason}` : ""}
+              ${task.state}${task.reason ? `: ${task.reason.length > 120 ? task.reason.slice(0, 117) + "…" : task.reason}` : ""}
             </div>
           `
         : null}

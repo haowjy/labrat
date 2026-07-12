@@ -34,12 +34,17 @@ const submitGateDecisionSchema = {
   decision: z
     .enum(["pass", "fail", "fail-upstream", "pass-with-concerns"])
     .describe("Gate decision"),
+  summary: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("One or two sentence verdict shown as the collapsed headline in the dashboard"),
   rewind_to: z
     .string()
     .nullable()
     .optional()
     .describe("Upstream phase to rewind to (required for fail-upstream)"),
-  feedback: z.string().nullable().optional().describe("Reviewer feedback"),
+  feedback: z.string().nullable().optional().describe("Reviewer feedback (full structured markdown report)"),
   subphase_assessments: z
     .record(z.string(), z.string())
     .optional()

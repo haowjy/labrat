@@ -245,6 +245,7 @@ export async function listTasks(tasksDir: string): Promise<TaskSummary[]> {
 
 export type GateSummary = {
   readonly decision: GateFile["decision"];
+  readonly summary: string | null;
   readonly feedback: string | null;
   readonly confidence: "low" | null;
   readonly hasSubphaseAssessments: boolean;
@@ -356,6 +357,7 @@ export async function getTask(
       gate: gate
         ? {
             decision: gate.decision,
+            summary: gate.summary ?? null,
             feedback: gate.feedback ?? null,
             confidence: gate.confidence ?? null,
             hasSubphaseAssessments: gate.subphase_assessments !== undefined,
