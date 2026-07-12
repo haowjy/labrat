@@ -15,7 +15,9 @@ the Scanco/Tang parameters. Write the code with `scipy` / `scikit-image`.
   (sesamoids, osteophytes, peri-meniscal calcification) — which watershed and
   structure-assignment then separate. Pick the threshold from the histogram on the
   scan's own scale (Scanco unitless ~220–270, or the Amira ~2500–3000 HU mask) and
-  verify it against the surface.
+  verify it against the surface. Treat ~2500 as an empirical starting point, not a
+  universal constant: tune it for each specimen. Do not over-raise it; excessive
+  thresholds roughen the surface and make downstream landmark placement harder.
 - Derive strict, morphologically-opened markers for the watershed seeds.
 
 Record `threshold_observations` in `segmentation/metadata.json`. Mark `threshold`
