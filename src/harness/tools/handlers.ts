@@ -212,6 +212,17 @@ export async function handleSubmitGateDecision(
     );
   }
 
+  // Validate feedback_file exists on disk when provided
+  if (validated.value.feedback_file) {
+    const feedbackPath = path.join(ctx.taskDir, validated.value.feedback_file);
+    if (!(await existsAt(feedbackPath))) {
+      return textResult(
+        `feedback_file not found: ${validated.value.feedback_file}. Write the report file before submitting the gate decision.`,
+        true,
+      );
+    }
+  }
+
   ctx.signals.gateDecision = validated.value;
   return textResult(`Gate decision recorded: ${validated.value.decision}.`);
 }

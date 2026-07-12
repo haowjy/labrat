@@ -44,7 +44,16 @@ const submitGateDecisionSchema = {
     .nullable()
     .optional()
     .describe("Upstream phase to rewind to (required for fail-upstream)"),
-  feedback: z.string().nullable().optional().describe("Reviewer feedback (full structured markdown report)"),
+  feedback_file: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Relative path (from task dir) to markdown report file, e.g. review/verification/{phase}/report.md"),
+  feedback: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("(Deprecated) Inline feedback string — prefer writing a report file and passing feedback_file"),
   subphase_assessments: z
     .record(z.string(), z.string())
     .optional()

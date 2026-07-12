@@ -92,7 +92,19 @@ async function readGateFile(
   );
   if (raw === null) return null;
   const res = validateGateFile(raw);
-  return res.ok ? res.value : null;
+  if (!res.ok) return null;
+
+  // Resolve feedback_file to inline feedback for downstream consumers
+  const gate = res.value;
+  if (gate.feedback_file && !gate.feedback) {
+    const content = await readTextFile(
+      path.join(taskDir(tasksDir, id), gate.feedback_file),
+    );
+    if (content !== null) {
+      return { ...gate, feedback: content };
+    }
+  }
+  return gate;
 }
 
 /**

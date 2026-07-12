@@ -190,6 +190,7 @@ async function writeGateArtifacts(
     decision: decision.decision,
     ...(decision.summary !== undefined ? { summary: decision.summary } : {}),
     ...(decision.rewind_to !== undefined ? { rewind_to: decision.rewind_to } : {}),
+    ...(decision.feedback_file !== undefined ? { feedback_file: decision.feedback_file } : {}),
     ...(decision.feedback !== undefined ? { feedback: decision.feedback } : {}),
     ...(decision.subphase_assessments !== undefined
       ? { subphase_assessments: decision.subphase_assessments }

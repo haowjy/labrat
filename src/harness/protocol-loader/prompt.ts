@@ -275,11 +275,13 @@ Declared artifact outputs for this phase (relative to \`artifacts/\`):
 ${outputs.map((o) => `- artifacts/${o}`).join("\n") || "(none)"}
 ${phase.cdn_allowlist !== undefined ? `\nPhase \`cdn_allowlist\` (external origins this review site may load, review-site linter G6): ${JSON.stringify(phase.cdn_allowlist)}` : ""}
 
+Write your full verification report to \`review/verification/${phase.id}/report.md\` before submitting. Use structured markdown: ## Confirmed, ## Concerns, ## Blocking (fail only). **Bold** for values, \`code\` for paths/thresholds, - bullet lists. Under 800 words.
+
 When finished, call \`submit_gate_decision\` **exactly once** with:
 - \`decision\`: one of \`pass\`, \`fail\`, \`fail-upstream\`, \`pass-with-concerns\`
 - \`summary\`: one or two sentence verdict headline (under 140 chars) — states the decision and the single most important reason. Shown collapsed in the dashboard.
+- \`feedback_file\`: path to your report file, e.g. \`review/verification/${phase.id}/report.md\`
 - \`rewind_to\`: required (an upstream phase id) if decision is \`fail-upstream\`
-- \`feedback\`: structured markdown report (## Confirmed, ## Concerns, ## Blocking sections). Use **bold** for values, \`code\` for paths/thresholds, - bullet lists. Under 800 words.
 - \`subphase_assessments\`: map of subphase id → short assessment string (if this phase has subphases)`;
 
   const taskContext = `## Task context

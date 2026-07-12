@@ -35,15 +35,17 @@ in the dashboard. It must state the decision and the single most important
 reason. Example: "Pass — all 6 landmarks placed within 0.3 mm of independent
 recomputation." Keep it under 140 characters.
 
-The `feedback` field renders as markdown in the dashboard. Structure it for
-a human reviewer who needs to understand the gate decision in seconds, then
-drill into detail:
+## Report file
 
-1. **One-line verdict summary** — the first line states the decision and why.
-2. **`## Confirmed`** — what you independently verified and matched.
-3. **`## Concerns`** — findings that don't block but the reviewer should know.
+Write your full verification report to `review/verification/{phase}/report.md`
+before calling `submit_gate_decision`. Pass the path as `feedback_file`. The
+report renders as markdown in the dashboard. Structure it for a human reviewer
+who needs to understand the gate decision in seconds, then drill into detail:
+
+1. **`## Confirmed`** — what you independently verified and matched.
+2. **`## Concerns`** — findings that don't block but the reviewer should know.
    Each concern is a bullet with a **bold label** and one-sentence explanation.
-4. **`## Blocking`** (fail/fail decisions only) — what specifically failed.
+3. **`## Blocking`** (fail/fail decisions only) — what specifically failed.
 
 Use `**bold**` for key values and finding labels. Use `-` bullet lists, not
 numbered lists or prose paragraphs, for individual findings. Use `` `code` ``
