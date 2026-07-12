@@ -98,6 +98,33 @@ export type ProtocolSubphase = {
   readonly depends_on?: readonly string[];
 };
 
+/**
+ * Per-phase review-artifact selector (design §3.D "Protocol contract"). A
+ * review artifact is an optional, phase-scoped derived VIEW of already-verified
+ * disk evidence; it never affects the scientific gate. `type` picks which
+ * vendored template a fresh author starts from; `template` optionally names a
+ * registered template id (never a path — path-like values are rejected).
+ */
+export type ReviewArtifactType =
+  | "none"
+  | "spatial-3d"
+  | "quantitative"
+  | "document";
+
+export type ReviewArtifactSpec = {
+  /** Omitted WITHIN the block ⇒ `spatial-3d` (the default where an artifact is warranted). */
+  readonly type?: ReviewArtifactType;
+  /** A registered template id, never a path (design §3.D). */
+  readonly template?: string;
+};
+
+export const REVIEW_ARTIFACT_TYPES = [
+  "none",
+  "spatial-3d",
+  "quantitative",
+  "document",
+] as const;
+
 export type ProtocolPhase = {
   readonly id: string;
   readonly skills: readonly string[];
@@ -113,7 +140,71 @@ export type ProtocolPhase = {
    * `check_review_site` reads it for G6.
    */
   readonly cdn_allowlist?: readonly string[];
+  /**
+   * Optional per-phase review-artifact selector (design §3.D). Absent = no new
+   * author artifact; normalization (`resolveReviewArtifact`) decides between the
+   * `none` and legacy `review-site` behaviors from the phase's outputs.
+   */
+  readonly review_artifact?: ReviewArtifactSpec;
 };
+
+/**
+ * The normalized review-artifact decision for a phase (design §3.D
+ * "Normalization rules are decisive"). `legacy` is the authoritative
+ * discriminant: when true, the harness uses the existing worker-authored
+ * `artifacts/review-site/` path and its pre-review check, and `type` is only a
+ * nominal default (callers MUST branch on `legacy` before `type`).
+ */
+export type ResolvedReviewArtifact = {
+  readonly type: ReviewArtifactType;
+  readonly template?: string;
+  readonly legacy: boolean;
+};
+
+const LEGACY_REVIEW_SITE_DIR = "review-site";
+
+function declaresLegacyReviewSite(phase: ProtocolPhase): boolean {
+  return (phase.outputs ?? []).some(
+    (o) => o === LEGACY_REVIEW_SITE_DIR || o.startsWith(`${LEGACY_REVIEW_SITE_DIR}/`),
+  );
+}
+
+/**
+ * Resolve a phase's review-artifact decision from its `review_artifact` block
+ * and outputs (design §3.D). The four decisive cases:
+ *
+ * 1. explicit `type: none` ⇒ author nothing, no G1–G9 check;
+ * 2. present block, `type` omitted ⇒ `spatial-3d` (the warranted default);
+ * 3. absent block + a declared `review-site`/`review-site/*` output ⇒ LEGACY
+ *    worker-authored single-site behavior (`legacy: true`);
+ * 4. absent block otherwise ⇒ `none` (backward compatible; never infer 3D).
+ *
+ * Pure and total — safe to call after `validatePhase` has accepted the phase.
+ */
+export function resolveReviewArtifact(
+  phase: ProtocolPhase,
+): ResolvedReviewArtifact {
+  const spec = phase.review_artifact;
+  if (spec !== undefined) {
+    if (spec.type === "none") {
+      return { type: "none", legacy: false };
+    }
+    const type = spec.type ?? "spatial-3d";
+    return {
+      type,
+      ...(spec.template !== undefined ? { template: spec.template } : {}),
+      legacy: false,
+    };
+  }
+  if (declaresLegacyReviewSite(phase)) {
+    // Legacy artifacts predate typing: the worker authored the single site and
+    // the existing pre-review check gates it. `type` is nominal — `legacy` is
+    // the discriminant callers act on. `spatial-3d` (not `none`) so a naive
+    // `type === "none"` shortcut can never skip the legacy check.
+    return { type: "spatial-3d", legacy: true };
+  }
+  return { type: "none", legacy: false };
+}
 
 export type SubagentDefinition = {
   readonly description: string;
@@ -303,7 +394,14 @@ function validatePhase(
   );
   if (!cdn_allowlist.ok) return cdn_allowlist;
 
-  return success({
+  const review_artifact = expectOptional(
+    rec.value["review_artifact"],
+    `${path}.review_artifact`,
+    (v, p) => validateReviewArtifactSpec(v, p),
+  );
+  if (!review_artifact.ok) return review_artifact;
+
+  const phase: ProtocolPhase = {
     id: id.value,
     skills: skills.value,
     ...(inputs.value !== undefined ? { inputs: inputs.value } : {}),
@@ -311,6 +409,68 @@ function validatePhase(
     ...(subphases !== undefined ? { subphases } : {}),
     ...(agent.value !== undefined ? { agent: agent.value } : {}),
     ...(cdn_allowlist.value !== undefined ? { cdn_allowlist: cdn_allowlist.value } : {}),
+    ...(review_artifact.value !== undefined
+      ? { review_artifact: review_artifact.value }
+      : {}),
+  };
+
+  // Author-generated non-legacy sites are offline by default: a `cdn_allowlist`
+  // on a phase that resolves to `none` is contradictory (design §3.D). Legacy
+  // review-site phases keep their allowlist (the existing G6 uses it).
+  if (
+    cdn_allowlist.value !== undefined &&
+    cdn_allowlist.value.length > 0
+  ) {
+    const resolved = resolveReviewArtifact(phase);
+    if (resolved.type === "none" && !resolved.legacy) {
+      return failure([
+        {
+          path: `${path}.cdn_allowlist`,
+          message:
+            "cdn_allowlist is not allowed on a phase with no review artifact (type: none); author-generated sites are offline by default",
+        },
+      ]);
+    }
+  }
+
+  return success(phase);
+}
+
+const TEMPLATE_PATH_CHARS = /[/.\\]/;
+
+function validateReviewArtifactSpec(
+  value: unknown,
+  path: string,
+): ValidationResult<ReviewArtifactSpec> {
+  const rec = expectRecord(value, path);
+  if (!rec.ok) return rec;
+
+  const type = expectOptional(rec.value["type"], `${path}.type`, (v, p) =>
+    expectEnum(v, p, REVIEW_ARTIFACT_TYPES),
+  );
+  if (!type.ok) return type;
+
+  const template = expectOptional(
+    rec.value["template"],
+    `${path}.template`,
+    (v, p) => expectNonEmptyString(v, p),
+  );
+  if (!template.ok) return template;
+
+  // A template is a registry id, never a path: reject path-like values so it
+  // can never escape the vendored skill dir (design §3.D).
+  if (template.value !== undefined && TEMPLATE_PATH_CHARS.test(template.value)) {
+    return failure([
+      {
+        path: `${path}.template`,
+        message: `template must be a registry id, not a path (got "${template.value}")`,
+      },
+    ]);
+  }
+
+  return success({
+    ...(type.value !== undefined ? { type: type.value } : {}),
+    ...(template.value !== undefined ? { template: template.value } : {}),
   });
 }
 
