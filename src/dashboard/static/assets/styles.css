@@ -299,6 +299,7 @@ a { color:var(--accent); }
   .phase-tab { min-height:44px; }
   .verdict-more-summary { min-height:44px; display:flex; align-items:center; }
   .content, .content-review, .content-dashboard { padding:1rem; }
+  .watch-root-input { min-height:44px; }
 }
 
 /* Claude Science skill browser (import bridge, SkillsView.js). Read-only list:
@@ -314,3 +315,57 @@ a { color:var(--accent); }
 .skill-desc { font-size:0.75rem; color:var(--muted); line-height:1.4; }
 .skill-import { font-size:0.7rem; }
 .skill-cmd { font-family:var(--mono); font-size:0.68rem; background:var(--accent-soft); color:var(--accent); padding:0.2em 0.5em; border-radius:4px; user-select:all; }
+
+/* === WATCH PANEL (folder-watch control panel, WatchPanel.js) ===
+   Heartbeat card (daemon-health dot + the enable/disable-ingestion toggle)
+   above per-protocol rows: the editable watch-root folder, four
+   folder-state counters, and the last drop. Degrades to
+   .banner-unavailable when /api/watcher 404s. */
+.watch-view { display:flex; flex-direction:column; gap:1rem; padding:1.25rem; }
+.watch-head h2 { font-family:var(--mono); font-size:1rem; margin:0 0 0.35rem; }
+.watch-head .note { margin:0; font-size:0.75rem; color:var(--muted); max-width:64ch; }
+.banner-unavailable { background:var(--warn-soft); color:var(--warn); border:1px solid var(--warn); }
+
+.watch-status-card { display:flex; align-items:center; gap:0.9rem; flex-wrap:wrap; padding:0.9rem 1rem; border:1px solid var(--accent-line); border-radius:8px; background:var(--surface); }
+/* Daemon-health dot — same visual grammar as the SSE .live-dot (solid +
+   pulse when alive, hollow when not), sized up for a card. Four states
+   (contract R4/R10): ● running (pass), ● stopping (warn, graceful stop in
+   flight), ○ stopped (daemon alive, ingestion disabled), ○ offline (alert
+   ring: heartbeat stale or absent, which is NOT the same as stopped). */
+.watch-state-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; background:transparent; border:2px solid var(--muted2); }
+.watch-state-dot.running { background:var(--pass); border-color:var(--pass); animation:pulse 2s infinite; }
+.watch-state-dot.stopping { background:var(--warn); border-color:var(--warn); animation:pulse 2s infinite; }
+.watch-state-dot.offline { border-color:var(--alert); }
+.watch-state-text { display:flex; flex-direction:column; min-width:0; }
+.watch-state-label { font-family:var(--mono); font-weight:700; font-size:0.85rem; }
+.watch-state-meta { font-family:var(--mono); font-size:0.66rem; color:var(--muted); }
+.watch-toggle { margin-left:auto; }
+.watch-status-note { flex-basis:100%; font-family:var(--mono); font-size:0.68rem; color:var(--warn); }
+.watch-error { flex-basis:100%; font-family:var(--mono); font-size:0.7rem; color:var(--alert); }
+.watch-saved { font-family:var(--mono); font-size:0.68rem; color:var(--pass); }
+
+.watch-proto-list { display:flex; flex-direction:column; gap:0.6rem; }
+.watch-proto { display:flex; flex-direction:column; gap:0.5rem; padding:0.85rem 1rem; border:1px solid var(--accent-line); border-radius:8px; background:var(--surface); }
+.watch-proto-head { display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; }
+.watch-proto-id { font-family:var(--mono); font-weight:700; font-size:0.85rem; }
+/* Folder-state counters: neutral at rest so a quiet fleet reads quiet;
+   in-progress lights accent while a drop runs, failed lights alert when
+   nonzero (WatchPanel.js's Counts applies the modifier classes). */
+.watch-counts { display:flex; gap:0.35rem; flex-wrap:wrap; margin-left:auto; }
+.watch-count { font-family:var(--mono); font-size:0.62rem; color:var(--muted); border:1px solid var(--accent-line); border-radius:3px; padding:0.15em 0.5em; background:var(--paper); white-space:nowrap; }
+.watch-count b { color:var(--ink); margin-right:0.3em; }
+.watch-count-active { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+.watch-count-active b { color:var(--accent); }
+.watch-count-alert { border-color:var(--alert); color:var(--alert); background:var(--alert-soft); }
+.watch-count-alert b { color:var(--alert); }
+
+.watch-root-label { font-family:var(--mono); font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+.watch-root-row { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+.watch-root-input { flex:1; min-width:220px; border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--mono); font-size:0.74rem; padding:0.45rem 0.55rem; }
+.watch-root-input:focus { outline:none; border-color:var(--accent); }
+.watch-root-input:disabled { opacity:0.6; }
+
+.watch-lastdrop { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+.watch-lastdrop-label { font-family:var(--mono); font-size:0.6rem; color:var(--muted2); text-transform:uppercase; letter-spacing:0.05em; }
+.watch-lastdrop-name { font-family:var(--mono); font-size:0.72rem; font-weight:600; }
+.watch-lastdrop-meta { font-family:var(--mono); font-size:0.66rem; color:var(--muted); }

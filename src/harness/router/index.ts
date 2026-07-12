@@ -1,7 +1,14 @@
 import type { InspectionResult } from "../inspector/index.js";
 import type { ProtocolYaml } from "../../schema/index.js";
 
-/** TODO(wave-stretch): Haiku confirms protocol selection from inspector output */
+/**
+ * SUPERSEDED for folder-watch ingestion (watcher contract rev v2, R11): the
+ * per-protocol `watchRoot` folder IS the routing — a drop's folder decides
+ * its protocol, and NO content auto-detection/router runs on that path.
+ * This inspector→router idea remains only as a stretch seam for the manual
+ * `enqueue` flow.
+ *
+ * TODO(wave-stretch): Haiku confirms protocol selection from inspector output */
 export type RouterResult = {
   readonly protocolName: string;
   readonly confidence: "high" | "medium" | "low";

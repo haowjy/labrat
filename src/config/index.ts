@@ -12,6 +12,7 @@ import {
   success,
   type ValidationResult,
 } from "../schema/validation.js";
+import { watchRootPathError } from "../schema/watcher.js";
 
 /**
  * Single config seam for the whole harness (design: one deep module, not
@@ -36,6 +37,11 @@ export type LabratConfig = {
   readonly microctSrc: string | null;
   /** null means the caller must pass a protocol name explicitly. */
   readonly defaultProtocol: string | null;
+  /** Per-protocol folder-watch roots: protocol id → absolute watchRoot the
+   * `labrat watch` supervisor polls (`incoming/ → in-progress/ → done/ |
+   * failed/` live under it). Baseline only — the dashboard-written
+   * `control/watcher.json` overrides per protocol at runtime. */
+  readonly watchRoots: Readonly<Record<string, string>>;
   readonly dashboard: {
     readonly port: number;
     readonly url: string;
@@ -76,6 +82,7 @@ type LabratConfigFile = {
   readonly scienceHome?: string;
   readonly microctSrc?: string;
   readonly defaultProtocol?: string;
+  readonly watchRoots?: Readonly<Record<string, string>>;
   readonly dashboard?: {
     readonly port?: number;
     readonly url?: string;
@@ -95,6 +102,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "scienceHome",
   "microctSrc",
   "defaultProtocol",
+  "watchRoots",
   "dashboard",
   "retries",
 ]);
@@ -159,6 +167,26 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     (v, p) => expectString(v, p),
   );
   if (!defaultProtocol.ok) return defaultProtocol;
+
+  let watchRoots: LabratConfigFile["watchRoots"];
+  if (rec.value["watchRoots"] !== undefined && rec.value["watchRoots"] !== null) {
+    const wrRec = expectRecord(rec.value["watchRoots"], "$.watchRoots");
+    if (!wrRec.ok) return wrRec;
+    const out: Record<string, string> = {};
+    for (const [protocol, root] of Object.entries(wrRec.value)) {
+      const rootStr = expectString(root, `$.watchRoots.${protocol}`);
+      if (!rootStr.ok) return rootStr;
+      // Shared watch-root rule (schema seam): empty/relative roots would
+      // silently anchor the state dirs to the daemon's cwd. Validate the
+      // tilde-EXPANDED value — `~/dropbox` is fine, `dropbox` is not.
+      const shapeError = watchRootPathError(expandTilde(rootStr.value));
+      if (shapeError !== null) {
+        return singleError(`$.watchRoots.${protocol}`, shapeError);
+      }
+      out[protocol] = rootStr.value;
+    }
+    watchRoots = out;
+  }
 
   let dashboard: LabratConfigFile["dashboard"];
   if (rec.value["dashboard"] !== undefined && rec.value["dashboard"] !== null) {
@@ -245,6 +273,7 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
       ...(defaultProtocol.value !== undefined
         ? { defaultProtocol: defaultProtocol.value }
         : {}),
+      ...(watchRoots !== undefined ? { watchRoots } : {}),
       ...(dashboard !== undefined ? { dashboard } : {}),
       ...(retries !== undefined ? { retries } : {}),
     },
@@ -305,6 +334,39 @@ function isPermissionMode(
   return v !== undefined && (PERMISSION_MODE_VALUES as readonly string[]).includes(v);
 }
 
+/** `LABRAT_WATCH_ROOTS` env layer: a JSON object of protocol → watchRoot.
+ * Lenient like the enum env vars — a malformed value (bad JSON, or any
+ * empty/relative root per the shared `watchRootPathError` rule) is ignored
+ * as a whole, falling back to the file/default layer. */
+function parseWatchRootsEnv(
+  raw: string | undefined,
+): Record<string, string> | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+    const out: Record<string, string> = {};
+    for (const [protocol, root] of Object.entries(parsed)) {
+      if (typeof root !== "string") return undefined;
+      if (watchRootPathError(expandTilde(root)) !== null) return undefined;
+      out[protocol] = root;
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
+}
+
+function expandWatchRoots(
+  roots: Readonly<Record<string, string>>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(roots).map(([protocol, root]) => [protocol, expandTilde(root)]),
+  );
+}
+
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const n = Number.parseInt(raw, 10);
@@ -331,6 +393,7 @@ export function loadConfig(
     scienceHome: DEFAULT_SCIENCE_HOME,
     microctSrc: null,
     defaultProtocol: null,
+    watchRoots: {},
     dashboard: {
       port: DEFAULT_DASHBOARD_PORT,
       url: DEFAULT_DASHBOARD_URL,
@@ -375,6 +438,9 @@ export function loadConfig(
     ),
     defaultProtocol:
       env["LABRAT_PROTOCOL"] ?? file.defaultProtocol ?? defaults.defaultProtocol,
+    watchRoots: expandWatchRoots(
+      parseWatchRootsEnv(env["LABRAT_WATCH_ROOTS"]) ?? file.watchRoots ?? defaults.watchRoots,
+    ),
     dashboard: {
       port,
       url,

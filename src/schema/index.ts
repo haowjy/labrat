@@ -9,3 +9,4 @@ export * from "./review-verdict.js";
 export * from "./sse.js";
 export * from "./suggestions.js";
 export * from "./tools.js";
+export * from "./watcher.js";
