@@ -96,27 +96,27 @@ function GateBand({ gate }) {
         <span class="section-label">Automated gate</span>
         <span class="pill ${pc}">${pl}</span>
       </div>
+      ${summary ? html`<p class="gate-note-summary">${summary}</p>` : null}
       ${gate.feedback
         ? html`
-            ${summary ? html`<p class="gate-note-summary">${summary}</p>` : null}
             <details class="gate-note-details">
               <summary class="gate-note-expand">Full verification report</summary>
               <div class="gate-note-body gate-note-md" dangerouslySetInnerHTML=${{ __html: renderMarkdown(gate.feedback) }}></div>
-              ${assessments.length > 0
-                ? html`
-                    <dl class="gate-subphases">
-                      ${assessments.map(
-                        ([name, text]) => html`
-                          <div class="gate-subphase" key=${name}>
-                            <dt><code class="chip">${name}</code></dt>
-                            <dd>${text}</dd>
-                          </div>
-                        `,
-                      )}
-                    </dl>`
-                : null}
             </details>`
-        : html`<p class="gate-note-body gate-note-empty">No feedback recorded.</p>`}
+        : !summary ? html`<p class="gate-note-body gate-note-empty">No feedback recorded.</p>` : null}
+      ${assessments.length > 0
+        ? html`
+            <dl class="gate-subphases">
+              ${assessments.map(
+                ([name, text]) => html`
+                  <div class="gate-subphase" key=${name}>
+                    <dt><code class="chip">${name}</code></dt>
+                    <dd>${text}</dd>
+                  </div>
+                `,
+              )}
+            </dl>`
+        : null}
     </div>
   `;
 }

@@ -188,6 +188,7 @@ async function writeGateArtifacts(
     phase: phaseId,
     decidedAt: new Date().toISOString(),
     decision: decision.decision,
+    ...(decision.summary !== undefined ? { summary: decision.summary } : {}),
     ...(decision.rewind_to !== undefined ? { rewind_to: decision.rewind_to } : {}),
     ...(decision.feedback !== undefined ? { feedback: decision.feedback } : {}),
     ...(decision.subphase_assessments !== undefined
