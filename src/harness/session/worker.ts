@@ -191,7 +191,7 @@ async function runOneQuery(
     }
     const text = extractAssistantText(msg);
     if (text) {
-      notifyEvent({
+      await notifyEvent(config.taskDir, {
         type: "log",
         taskId: config.taskId,
         line: text.slice(0, 300),
@@ -327,7 +327,7 @@ export async function runWorkerPhase(
         exhaustionReason = "background-grace";
         break;
       }
-      notifyEvent({
+      await notifyEvent(config.taskDir, {
         type: "log",
         taskId: config.taskId,
         line: `[harness] background work active (${toolCtx.signals.activeBackgroundTasks.length} task(s)), grace ${bgGraceCount}/${maxBgGrace} — not counting as stall`,

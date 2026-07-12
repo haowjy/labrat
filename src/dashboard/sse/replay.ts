@@ -1,13 +1,14 @@
-import { publishEvent } from "./index.js";
 import { listTasks, type TaskSummary } from "../api/index.js";
 import type { SseEvent } from "../../schema/index.js";
 
 /**
  * Dev-only scripted SSE source. With no harness attached, this replays a
  * narrated run of a real task already on disk under `tasksDir` through the
- * {@link publishEvent} seam so the live ticker + ephemeral log strip can be
- * exercised end to end. It uses exactly the same seam the harness will use —
- * the client cannot tell the difference, which is the point.
+ * broker's `publishLive` seam so the live ticker + ephemeral log strip can be
+ * exercised end to end. Live envelopes reach the client exactly the way
+ * tailed disk events do, which is the point. (The real harness does NOT use
+ * this seam — it appends to `<taskDir>/events/events.jsonl` and sends a wake
+ * hint.)
  *
  * Protocol-agnostic by construction: the task id, protocol, and phase
  * sequence are read from disk (task.json via {@link listTasks}), never
@@ -63,6 +64,7 @@ function buildScript(task: TaskSummary): SseEvent[] {
  */
 export async function startDevReplay(
   tasksDir: string,
+  publish: (event: SseEvent) => void,
   intervalMs = 2500,
 ): Promise<() => void> {
   const tasks = await listTasks(tasksDir);
@@ -78,7 +80,7 @@ export async function startDevReplay(
   let i = 0;
   const timer = setInterval(() => {
     const event = script[i % script.length];
-    if (event) publishEvent(event);
+    if (event) publish(event);
     i++;
   }, intervalMs);
   return () => clearInterval(timer);

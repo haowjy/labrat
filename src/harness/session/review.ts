@@ -168,7 +168,7 @@ async function runOneReviewQuery(
     }
     const text = extractAssistantText(msg);
     if (text) {
-      notifyEvent({
+      await notifyEvent(config.taskDir, {
         type: "log",
         taskId: config.taskId,
         line: text.slice(0, 300),

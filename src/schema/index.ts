@@ -7,6 +7,7 @@ export * from "./monitor.js";
 export * from "./provenance.js";
 export * from "./review-verdict.js";
 export * from "./sse.js";
+export * from "./uuidv7.js";
 export * from "./suggestions.js";
 export * from "./tools.js";
 export * from "./watcher.js";

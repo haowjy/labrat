@@ -302,7 +302,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   const passing = decision.decision === "pass" || decision.decision === "pass-with-concerns";
   const siteFailure = passing ? reviewSiteGateFailure(siteReport) : null;
 
-  notifyEvent({
+  await notifyEvent(ctx.taskDir, {
     type: "gate-result",
     taskId: ctx.taskId,
     phase: ctx.phase.id,
@@ -312,7 +312,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   if (passing) {
     // Floor runs before the monitor (cheap, exact).
     if (siteFailure !== null) {
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `review-site check FAILED gate for ${ctx.phase.id}: ${siteFailure}`,
@@ -347,7 +347,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
       // now-void pass), skip verdict/provenance, and let runTask retry with a
       // fresh worker + reviewer. The monitor's finding persists in
       // review/monitor/{phase}.json.
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `monitor FAILED gate for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""}`,
@@ -366,7 +366,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
     if (monitor.verdict !== "ok") {
       // Advisory (e.g. insufficient_evidence): recorded in
       // review/monitor/{phase}.json and surfaced, but does NOT fail the gate.
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `monitor ADVISORY for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""} (does not fail the gate)`,
