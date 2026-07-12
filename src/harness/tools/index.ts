@@ -14,9 +14,11 @@ export {
 export {
   handleBlocked,
   handleMarkSubphase,
+  handleReadPastHistory,
   handleRecordPhase,
   handleSubmitGateDecision,
   handleSubmitMonitorVerdict,
+  handleViewHumanFeedback,
 } from "./handlers.js";
 
 /** @deprecated Use createLabratToolServer */

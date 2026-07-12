@@ -6,14 +6,18 @@ import {
   type ValidationError,
   validateBlockedInput,
   validateMarkSubphaseInput,
+  validateReadPastHistoryInput,
   validateRecordPhaseInput,
   validateSubphasesJson,
   validateSubmitGateDecisionInput,
   validateSubmitMonitorVerdictInput,
+  validateViewHumanFeedbackInput,
   type SubphaseMarkEntry,
   type SubphasesJson,
 } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
+import { buildHumanFeedbackView } from "../review-verdict/index.js";
+import { buildPastHistoryView } from "../session/history-view.js";
 import type { LabratToolContext } from "./context.js";
 
 function formatValidationErrors(errors: readonly ValidationError[]): string {
@@ -265,6 +269,76 @@ export async function handleSubmitMonitorVerdict(
 
   ctx.signals.monitorVerdict = validated.value;
   return textResult(`Monitor verdict recorded: ${validated.value.verdict}.`);
+}
+
+/**
+ * Author-visible phase scope: protocol phases at or before the current phase
+ * (design §3C). Falls back to the current phase alone when the context
+ * carries no phase order. Phase params are validated against THIS list —
+ * never joined into paths raw — so traversal input can never resolve a path.
+ */
+function authorVisiblePhases(ctx: LabratToolContext): readonly string[] {
+  const order = ctx.phaseOrder ?? [];
+  const idx = order.indexOf(ctx.currentPhase);
+  if (idx === -1) {
+    return [ctx.currentPhase];
+  }
+  return order.slice(0, idx + 1);
+}
+
+/** read_past_history — PURE read; never writes files or sets signals. */
+export async function handleReadPastHistory(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateReadPastHistoryInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid read_past_history input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  const result = await buildPastHistoryView({
+    taskDir: ctx.taskDir,
+    visiblePhases: authorVisiblePhases(ctx),
+    ...(validated.value.phase !== undefined ? { phase: validated.value.phase } : {}),
+    ...(validated.value.role !== undefined ? { role: validated.value.role } : {}),
+    ...(validated.value.cursor !== undefined ? { cursor: validated.value.cursor } : {}),
+    maxTokens: validated.value.max_tokens,
+    ...(validated.value.expand !== undefined ? { expand: validated.value.expand } : {}),
+  });
+  if (!result.ok) {
+    return textResult(`read_past_history: ${result.error}`, true);
+  }
+  return textResult(JSON.stringify(result.view));
+}
+
+/** view_human_feedback — PURE read; never writes files or sets signals. */
+export async function handleViewHumanFeedback(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateViewHumanFeedbackInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid view_human_feedback input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  const result = await buildHumanFeedbackView({
+    taskDir: ctx.taskDir,
+    visiblePhases: authorVisiblePhases(ctx),
+    ...(validated.value.phase !== undefined ? { phase: validated.value.phase } : {}),
+    includeArchived: validated.value.include_archived,
+    ...(validated.value.cursor !== undefined ? { cursor: validated.value.cursor } : {}),
+    maxTokens: validated.value.max_tokens,
+  });
+  if (!result.ok) {
+    return textResult(`view_human_feedback: ${result.error}`, true);
+  }
+  return textResult(JSON.stringify(result.view));
 }
 
 export async function handleBlocked(
