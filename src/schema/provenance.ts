@@ -27,6 +27,24 @@ export type ProvenanceArtifactRef = {
 export type ProvenanceSessions = {
   readonly worker: string;
   readonly gate: string;
+  /** Review-artifact-author session, present only when a phase published an
+   * authored review artifact (review-provenance design §3.D). */
+  readonly author?: string;
+};
+
+/**
+ * The published review artifact bound into a phase's provenance entry
+ * (review-provenance design §3.D). Present only when the per-phase linter
+ * passed and the harness published the authored site.
+ */
+export type ProvenanceReviewArtifact = {
+  readonly type: string;
+  /** Published path relative to the task dir (artifacts/review-sites/<phase>/). */
+  readonly path: string;
+  /** Deterministic content hash of the published site tree. */
+  readonly hash: string;
+  readonly check_report: string;
+  readonly check_report_hash: string;
 };
 
 export type ProvenanceVerification = {
@@ -48,6 +66,7 @@ export type ProvenanceManifestEntry = {
   readonly sessions: ProvenanceSessions;
   readonly gate_decision: GateDecision;
   readonly verification: ProvenanceVerification;
+  readonly review_artifact?: ProvenanceReviewArtifact;
 };
 
 export type ProvenanceManifest = readonly ProvenanceManifestEntry[];
@@ -177,6 +196,13 @@ export function validateProvenanceManifestEntry(
   const gate = expectNonEmptyString(sessionsRec.value["gate"], "$.sessions.gate");
   if (!gate.ok) return gate;
 
+  const author = expectOptional(
+    sessionsRec.value["author"],
+    "$.sessions.author",
+    (v, p) => expectNonEmptyString(v, p),
+  );
+  if (!author.ok) return author;
+
   const gate_decision = expectEnum(
     rec.value["gate_decision"],
     "$.gate_decision",
@@ -199,6 +225,35 @@ export function validateProvenanceManifestEntry(
   );
   if (!results.ok) return results;
 
+  let review_artifact: ProvenanceReviewArtifact | undefined;
+  if (rec.value["review_artifact"] !== undefined) {
+    const raRec = expectRecord(rec.value["review_artifact"], "$.review_artifact");
+    if (!raRec.ok) return raRec;
+    const raType = expectNonEmptyString(raRec.value["type"], "$.review_artifact.type");
+    if (!raType.ok) return raType;
+    const raPath = expectNonEmptyString(raRec.value["path"], "$.review_artifact.path");
+    if (!raPath.ok) return raPath;
+    const raHash = expectNonEmptyString(raRec.value["hash"], "$.review_artifact.hash");
+    if (!raHash.ok) return raHash;
+    const raReport = expectNonEmptyString(
+      raRec.value["check_report"],
+      "$.review_artifact.check_report",
+    );
+    if (!raReport.ok) return raReport;
+    const raReportHash = expectNonEmptyString(
+      raRec.value["check_report_hash"],
+      "$.review_artifact.check_report_hash",
+    );
+    if (!raReportHash.ok) return raReportHash;
+    review_artifact = {
+      type: raType.value,
+      path: raPath.value,
+      hash: raHash.value,
+      check_report: raReport.value,
+      check_report_hash: raReportHash.value,
+    };
+  }
+
   return success({
     phase: phase.value,
     attempt: attempt.value,
@@ -209,9 +264,14 @@ export function validateProvenanceManifestEntry(
     inputs: inputs.value,
     outputs: outputs.value,
     subphases,
-    sessions: { worker: worker.value, gate: gate.value },
+    sessions: {
+      worker: worker.value,
+      gate: gate.value,
+      ...(author.value !== undefined ? { author: author.value } : {}),
+    },
     gate_decision: gate_decision.value,
     verification: { code: code.value, results: results.value },
+    ...(review_artifact !== undefined ? { review_artifact } : {}),
   });
 }
 

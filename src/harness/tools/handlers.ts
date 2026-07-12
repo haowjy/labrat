@@ -1,4 +1,4 @@
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -6,14 +6,19 @@ import {
   type ValidationError,
   validateBlockedInput,
   validateMarkSubphaseInput,
+  validateReadPastHistoryInput,
+  validateSubmitFeedbackRouteInput,
   validateRecordPhaseInput,
   validateSubphasesJson,
   validateSubmitGateDecisionInput,
   validateSubmitMonitorVerdictInput,
+  validateViewHumanFeedbackInput,
   type SubphaseMarkEntry,
   type SubphasesJson,
 } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
+import { buildHumanFeedbackView } from "../review-verdict/index.js";
+import { buildPastHistoryView } from "../session/history-view.js";
 import type { LabratToolContext } from "./context.js";
 
 function formatValidationErrors(errors: readonly ValidationError[]): string {
@@ -212,12 +217,36 @@ export async function handleSubmitGateDecision(
     );
   }
 
-  // Validate feedback_file exists on disk when provided
+  // Validate feedback_file: must be under review/verification/{phase}/ and exist on disk.
   if (validated.value.feedback_file) {
-    const feedbackPath = path.join(ctx.taskDir, validated.value.feedback_file);
-    if (!(await existsAt(feedbackPath))) {
+    const feedbackRel = validated.value.feedback_file;
+    const allowedPrefix = `review/verification/${ctx.currentPhase}/`;
+    const normalized = path.posix.normalize(feedbackRel);
+    if (
+      normalized.startsWith("..") ||
+      path.isAbsolute(feedbackRel) ||
+      !normalized.startsWith(allowedPrefix)
+    ) {
       return textResult(
-        `feedback_file not found: ${validated.value.feedback_file}. Write the report file before submitting the gate decision.`,
+        `feedback_file must be a relative path under ${allowedPrefix}. Got: ${feedbackRel}`,
+        true,
+      );
+    }
+    const feedbackPath = path.join(ctx.taskDir, normalized);
+    // Resolve symlinks and confirm the real path is still inside the task dir.
+    let realFeedbackPath: string;
+    try {
+      realFeedbackPath = await realpath(feedbackPath);
+    } catch {
+      return textResult(
+        `feedback_file not found: ${feedbackRel}. Write the report file before submitting the gate decision.`,
+        true,
+      );
+    }
+    const realTaskDir = await realpath(ctx.taskDir);
+    if (!realFeedbackPath.startsWith(realTaskDir + path.sep)) {
+      return textResult(
+        `feedback_file resolves outside the task directory (symlink escape). Got: ${feedbackRel}`,
         true,
       );
     }
@@ -241,6 +270,100 @@ export async function handleSubmitMonitorVerdict(
 
   ctx.signals.monitorVerdict = validated.value;
   return textResult(`Monitor verdict recorded: ${validated.value.verdict}.`);
+}
+
+/**
+ * feedback-router role ONLY (design §3E). The router SIGNALS its proposed
+ * restart route through this tool — it never writes review/routing/ itself.
+ * Harness code (orchestrator invalidateForSendBack) validates the proposal,
+ * selects the accepted phase, and writes the append-only route records.
+ */
+export async function handleSubmitFeedbackRoute(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateSubmitFeedbackRouteInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid submit_feedback_route input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  ctx.signals.feedbackRoute = validated.value;
+  return textResult(
+    `Route proposal recorded: ${validated.value.restart_phase ?? "null"} (${validated.value.confidence}). The harness will validate and may reject or fall back.`,
+  );
+}
+
+/**
+ * Author-visible phase scope: protocol phases at or before the current phase
+ * (design §3C). Falls back to the current phase alone when the context
+ * carries no phase order. Phase params are validated against THIS list —
+ * never joined into paths raw — so traversal input can never resolve a path.
+ */
+function authorVisiblePhases(ctx: LabratToolContext): readonly string[] {
+  const order = ctx.phaseOrder ?? [];
+  const idx = order.indexOf(ctx.currentPhase);
+  if (idx === -1) {
+    return [ctx.currentPhase];
+  }
+  return order.slice(0, idx + 1);
+}
+
+/** read_past_history — PURE read; never writes files or sets signals. */
+export async function handleReadPastHistory(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateReadPastHistoryInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid read_past_history input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  const result = await buildPastHistoryView({
+    taskDir: ctx.taskDir,
+    visiblePhases: authorVisiblePhases(ctx),
+    ...(validated.value.phase !== undefined ? { phase: validated.value.phase } : {}),
+    ...(validated.value.role !== undefined ? { role: validated.value.role } : {}),
+    ...(validated.value.cursor !== undefined ? { cursor: validated.value.cursor } : {}),
+    maxTokens: validated.value.max_tokens,
+    ...(validated.value.expand !== undefined ? { expand: validated.value.expand } : {}),
+  });
+  if (!result.ok) {
+    return textResult(`read_past_history: ${result.error}`, true);
+  }
+  return textResult(JSON.stringify(result.view));
+}
+
+/** view_human_feedback — PURE read; never writes files or sets signals. */
+export async function handleViewHumanFeedback(
+  ctx: LabratToolContext,
+  input: unknown,
+): Promise<CallToolResult> {
+  const validated = validateViewHumanFeedbackInput(input);
+  if (!validated.ok) {
+    return textResult(
+      `Invalid view_human_feedback input: ${formatValidationErrors(validated.errors)}`,
+      true,
+    );
+  }
+
+  const result = await buildHumanFeedbackView({
+    taskDir: ctx.taskDir,
+    visiblePhases: authorVisiblePhases(ctx),
+    ...(validated.value.phase !== undefined ? { phase: validated.value.phase } : {}),
+    includeArchived: validated.value.include_archived,
+    ...(validated.value.cursor !== undefined ? { cursor: validated.value.cursor } : {}),
+    maxTokens: validated.value.max_tokens,
+  });
+  if (!result.ok) {
+    return textResult(`view_human_feedback: ${result.error}`, true);
+  }
+  return textResult(JSON.stringify(result.view));
 }
 
 export async function handleBlocked(

@@ -126,6 +126,56 @@ async function main(): Promise<void> {
     assert.equal(gateCtx.signals.gateDecision?.decision, "pass-with-concerns");
     console.log("OK submit_gate_decision captures decision");
 
+    // feedback_file path-traversal rejection
+    result = await handleSubmitGateDecision(gateCtx, {
+      decision: "pass",
+      feedback_file: "../../../etc/passwd",
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /must be a relative path under/);
+    console.log("OK submit_gate_decision rejects traversal in feedback_file");
+
+    // feedback_file absolute path rejection
+    result = await handleSubmitGateDecision(gateCtx, {
+      decision: "pass",
+      feedback_file: "/tmp/evil.md",
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /must be a relative path under/);
+    console.log("OK submit_gate_decision rejects absolute feedback_file");
+
+    // feedback_file outside phase directory rejection
+    result = await handleSubmitGateDecision(gateCtx, {
+      decision: "pass",
+      feedback_file: "review/verification/other-phase/report.md",
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /must be a relative path under/);
+    console.log("OK submit_gate_decision rejects feedback_file outside own phase dir");
+
+    // feedback_file valid path but file missing
+    result = await handleSubmitGateDecision(gateCtx, {
+      decision: "pass",
+      feedback_file: "review/verification/segmentation/report.md",
+    });
+    assert.equal(result.isError, true);
+    assert.match(textOf(result), /not found/);
+    console.log("OK submit_gate_decision rejects missing feedback_file");
+
+    // feedback_file valid path with existing file
+    const verDir = path.join(taskDir, "review", "verification", "segmentation");
+    await mkdir(verDir, { recursive: true });
+    await writeFile(path.join(verDir, "report.md"), "# Test report\n");
+    result = await handleSubmitGateDecision(gateCtx, {
+      decision: "pass",
+      summary: "Pass — all checks confirmed.",
+      feedback_file: "review/verification/segmentation/report.md",
+    });
+    assert.equal(result.isError, undefined);
+    assert.match(textOf(result), /pass/);
+    assert.equal(gateCtx.signals.gateDecision?.feedback_file, "review/verification/segmentation/report.md");
+    console.log("OK submit_gate_decision accepts valid feedback_file");
+
     result = await handleSubmitGateDecision(gateCtx, {
       decision: "fail-upstream",
     });
@@ -171,6 +221,29 @@ async function main(): Promise<void> {
     const monitorAllowed = allowedLabratTools("monitor", []);
     assert.deepEqual(monitorAllowed, ["mcp__labrat__submit_monitor_verdict"]);
     console.log("OK createLabratToolServer role-scoped tool lists");
+
+    // review-artifact-author gets EXACTLY the two read-only tools; worker,
+    // gate-reviewer, and monitor get NEITHER (design §3C double enforcement).
+    const authorServer = createLabratToolServer({
+      ctx,
+      role: "review-artifact-author",
+    });
+    assert.equal(authorServer.name, "labrat");
+    const authorAllowed = allowedLabratTools("review-artifact-author", ctx.subphaseIds);
+    assert.deepEqual(authorAllowed, [
+      "mcp__labrat__read_past_history",
+      "mcp__labrat__view_human_feedback",
+    ]);
+    const authorOnly = ["read_past_history", "view_human_feedback"];
+    for (const allowed of [workerAllowed, reviewerAllowed, monitorAllowed]) {
+      for (const name of authorOnly) {
+        assert.ok(
+          !allowed.some((t) => t.includes(name)),
+          `${name} must be author-only; found in ${allowed.join(", ")}`,
+        );
+      }
+    }
+    console.log("OK review-artifact-author gets exactly the two read tools; other roles get neither");
 
     console.log("\nAll direct-call harness tool tests passed.");
   } finally {

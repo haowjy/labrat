@@ -8,6 +8,7 @@ import {
   validateGateFile,
   validateMonitorReport,
   validateProvenanceManifest,
+  validateReviewArtifactStatus,
   validateReviewVerdictRecord,
   validateSubphasesJson,
   validateSuggestionsJson,
@@ -17,6 +18,7 @@ import {
   type ProvenanceArtifactRef,
   type ProvenanceManifest,
   type ProvenanceManifestEntry,
+  type ReviewArtifactStatusState,
   type ReviewVerdictRecord,
   type SubphaseMark,
   type SubphaseConfidence,
@@ -271,15 +273,17 @@ export type TimelineEntry = {
   readonly completed: string | null;
   readonly gate: GateSummary | null;
   /**
-   * True when this phase's recorded outputs include the review-site contract
-   * folder (design/review-template.md vocabulary: "review site — the concrete
-   * produced folder instance under artifacts/review-site/"). Contract-based,
-   * not a hardcoded phase-id check, so any protocol's review-producing phase
-   * lights up the same way — the dashboard renders it as a first-class node
-   * in the chain (an "Open review site" link into the Reviews view) with no
-   * per-protocol wiring.
+   * Per-phase review-artifact descriptor (review-provenance design §3.D
+   * "Dashboard seams"), read from the harness-owned
+   * `review/artifact-author/<phase>/status.json`. When that file is absent the
+   * LEGACY fallback applies: a phase whose recorded outputs include the
+   * worker-authored `artifacts/review-site/` contract folder is `legacy`
+   * (served by the single legacy route), anything else is `none`. The client
+   * renders `published` phases through the phase-scoped route, `none` as the
+   * clean empty state, and `failed`/`authoring` as a distinct "artifact
+   * unavailable" diagnostic — never the `none` message.
    */
-  readonly hasReviewSite: boolean;
+  readonly reviewArtifact: ReviewArtifactDescriptor;
   /**
    * The persisted human review verdict for this phase
    * (review/verdict/{phase}.json), or null when no human has finished
@@ -295,6 +299,36 @@ const REVIEW_SITE_OUTPUT_PREFIX = "artifacts/review-site/";
 
 function producesReviewSite(outputs: readonly ProvenanceArtifactRef[]): boolean {
   return outputs.some((o) => o.path.startsWith(REVIEW_SITE_OUTPUT_PREFIX));
+}
+
+export type ReviewArtifactDescriptor = {
+  readonly status: ReviewArtifactStatusState | "legacy";
+  /** Resolved review type from status.json; null for legacy/fallback states. */
+  readonly type: string | null;
+};
+
+/**
+ * Resolve one phase's review-artifact descriptor: the harness-owned
+ * status.json wins; absent → legacy inference from recorded outputs.
+ */
+async function readReviewArtifactDescriptor(
+  tasksDir: string,
+  id: string,
+  phase: string,
+  outputs: readonly ProvenanceArtifactRef[],
+): Promise<ReviewArtifactDescriptor> {
+  const raw = await readJsonFile(
+    path.join(taskDir(tasksDir, id), "review", "artifact-author", phase, "status.json"),
+  );
+  if (raw !== null) {
+    const res = validateReviewArtifactStatus(raw);
+    if (res.ok) {
+      return { status: res.value.status, type: res.value.type };
+    }
+  }
+  return producesReviewSite(outputs)
+    ? { status: "legacy", type: null }
+    : { status: "none", type: null };
 }
 
 export type TaskDetail = {
@@ -375,7 +409,12 @@ export async function getTask(
             hasSubphaseAssessments: gate.subphase_assessments !== undefined,
           }
         : null,
-      hasReviewSite: producesReviewSite(entry?.outputs ?? []),
+      reviewArtifact: await readReviewArtifactDescriptor(
+        tasksDir,
+        id,
+        phase,
+        entry?.outputs ?? [],
+      ),
       humanVerdict,
     });
   }

@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LabratConfig } from "../../config/index.js";
 import {
+  resolveReviewArtifact,
   validateGateFile,
   validateVerdictJson,
   type GateFile,
@@ -34,6 +35,10 @@ import {
   invalidateFromPhase,
 } from "./invalidation.js";
 import { runReviewArtifactCheck, reviewSiteGateFailure } from "./review-artifact-check.js";
+import {
+  settleReviewArtifact,
+  type SettleArtifactResult,
+} from "./artifact-settlement.js";
 
 export type GateContext = {
   readonly taskId: string;
@@ -72,6 +77,20 @@ export type RunGateResult =
       readonly sessionId: string;
       readonly rewindTo: string;
       readonly feedback: string | null;
+    }
+  | {
+      /**
+       * The scientific gate PASSED and stays accepted, but the review-artifact
+       * author/linter exhausted its retries. NOT a gate fail: the fail path
+       * archives + resets verified worker outputs, which an artifact failure
+       * must never do (review-provenance correction #3). runTask handles this
+       * by PAUSING with reason `review-artifact-author-failed`; resume
+       * re-enters at the authoring step only.
+       */
+      readonly kind: "artifact-failed";
+      readonly phase: string;
+      readonly sessionId: string;
+      readonly reason: string;
     };
 
 /** review/gates/{phase}.json — excludes .trust-boundary.json and archived .attempt-N.json. */
@@ -108,8 +127,9 @@ export async function rebuildVerdict(taskDir: string): Promise<VerdictJson> {
     const gateFile = validated.value;
     if (gateFile.decision === "pass-with-concerns") {
       anyConcerns = true;
-      if (gateFile.feedback) {
-        flags.push(`${gateFile.phase}: ${gateFile.feedback}`);
+      const flagText = gateFile.summary ?? gateFile.feedback;
+      if (flagText) {
+        flags.push(`${gateFile.phase}: ${flagText}`);
       }
     }
   }
@@ -274,6 +294,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
         taskDir: ctx.taskDir,
         protocol: ctx.protocol,
         loadedPhase,
+        attempt: ctx.attempt,
         runtime: ctx.runtime,
         runSettings: ctx.config,
       }),
@@ -300,7 +321,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   const passing = decision.decision === "pass" || decision.decision === "pass-with-concerns";
   const siteFailure = passing ? reviewSiteGateFailure(siteReport) : null;
 
-  notifyEvent({
+  await notifyEvent(ctx.taskDir, {
     type: "gate-result",
     taskId: ctx.taskId,
     phase: ctx.phase.id,
@@ -310,7 +331,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
   if (passing) {
     // Floor runs before the monitor (cheap, exact).
     if (siteFailure !== null) {
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `review-site check FAILED gate for ${ctx.phase.id}: ${siteFailure}`,
@@ -345,7 +366,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
       // now-void pass), skip verdict/provenance, and let runTask retry with a
       // fresh worker + reviewer. The monitor's finding persists in
       // review/monitor/{phase}.json.
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `monitor FAILED gate for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""}`,
@@ -364,7 +385,7 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
     if (monitor.verdict !== "ok") {
       // Advisory (e.g. insufficient_evidence): recorded in
       // review/monitor/{phase}.json and surfaced, but does NOT fail the gate.
-      notifyEvent({
+      await notifyEvent(ctx.taskDir, {
         type: "log",
         taskId: ctx.taskId,
         line: `monitor ADVISORY for ${ctx.phase.id}: ${monitor.verdict} — ${monitor.reasons[0] ?? ""} (does not fail the gate)`,
@@ -387,6 +408,25 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
       ? { started: ctx.startedAt, completed: new Date().toISOString() }
       : await derivePhaseTiming(ctx.taskDir, ctx.phase.id);
 
+    // Settlement split (review-provenance §3.D): the scientific PASS above is
+    // fully accepted; what remains is the phase's OPTIONAL review artifact.
+    // Branch on `legacy` BEFORE `type` — a legacy phase keeps the existing
+    // worker-authored review-site check (ran pre-review above) and route, and
+    // never runs the new author.
+    const resolvedArtifact = resolveReviewArtifact(ctx.phase);
+    let settledArtifact: SettleArtifactResult | null = null;
+    if (!resolvedArtifact.legacy) {
+      settledArtifact = await settleReviewArtifact({
+        taskId: ctx.taskId,
+        taskDir: ctx.taskDir,
+        protocol: ctx.protocol,
+        phase: ctx.phase,
+        attempt: ctx.attempt,
+        runtime: ctx.runtime,
+        config: ctx.config,
+      });
+    }
+
     const entry: ProvenanceManifestEntry = {
       phase: ctx.phase.id,
       attempt: ctx.attempt,
@@ -397,14 +437,49 @@ export async function runGate(ctx: GateContext): Promise<RunGateResult> {
       inputs: await resolveArtifactRefs(ctx.taskDir, ctx.phase.inputs ?? []),
       outputs: await resolveArtifactRefs(ctx.taskDir, ctx.phase.outputs ?? []),
       subphases: await readSubphaseSummary(ctx.taskDir, ctx.phase.id),
-      sessions: { worker: ctx.workerSessionId, gate: review.sessionId },
+      sessions: {
+        worker: ctx.workerSessionId,
+        gate: review.sessionId,
+        ...(settledArtifact?.kind === "published"
+          ? { author: settledArtifact.authorSessionId }
+          : {}),
+      },
       gate_decision: decision.decision,
       verification: {
         code: `review/verification/${ctx.phase.id}/`,
         results: `review/gates/${ctx.phase.id}.json`,
       },
+      ...(settledArtifact?.kind === "published"
+        ? {
+            review_artifact: {
+              type: settledArtifact.type,
+              path: settledArtifact.publishedPath,
+              hash: settledArtifact.artifactHash,
+              check_report: settledArtifact.checkReportPath,
+              check_report_hash: settledArtifact.checkReportHash,
+            },
+          }
+        : {}),
     };
+    // Appended even when the artifact failed: the SCIENCE is accepted and
+    // durable — resume detects (provenance entry + passing gate file) and
+    // re-enters ONLY the authoring step, never the worker.
     await appendManifestEntry(ctx.taskDir, entry);
+
+    if (settledArtifact?.kind === "artifact-failed") {
+      await notifyEvent(ctx.taskDir, {
+        type: "log",
+        taskId: ctx.taskId,
+        line: `review-artifact author FAILED for ${ctx.phase.id} (science stays accepted): ${settledArtifact.reason}`,
+        ephemeral: true,
+      });
+      return {
+        kind: "artifact-failed",
+        phase: ctx.phase.id,
+        sessionId: review.sessionId,
+        reason: settledArtifact.reason,
+      };
+    }
 
     return {
       kind: decision.decision,

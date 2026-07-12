@@ -341,7 +341,7 @@ export async function runMonitor(
   } catch (err) {
     // Fail-open on the MODEL layer only: the deterministic floor below still
     // catches the hard cheats. Surface the failure but never crash the gate.
-    notifyEvent({
+    await notifyEvent(config.taskDir, {
       type: "log",
       taskId: config.taskId,
       line: `monitor session error (${phaseId}): ${err instanceof Error ? err.message : String(err)}`,
@@ -462,7 +462,7 @@ async function runMonitorQuery(
   for await (const msg of q) {
     const text = extractAssistantText(msg);
     if (text) {
-      notifyEvent({
+      await notifyEvent(config.taskDir, {
         type: "log",
         taskId: config.taskId,
         line: text.slice(0, 300),

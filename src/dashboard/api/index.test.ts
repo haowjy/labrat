@@ -17,12 +17,12 @@ const FIXTURES_TASKS_DIR = join(
 );
 
 /*
- * getTask()'s `hasReviewSite` is the signal the chain/provenance views use to
- * render the review site as a first-class node (design/review-template.md
- * vocabulary: "review site" = the folder under artifacts/review-site/). It is
- * contract-based (matches on the recorded output path), not a hardcoded
- * phase-id check, so this test proves the general rule, not one protocol's
- * phase name.
+ * getTask()'s per-phase `reviewArtifact` descriptor is the signal the
+ * chain/provenance views use to render the review artifact as a first-class
+ * node. The harness-owned `review/artifact-author/<phase>/status.json` wins;
+ * absent, the LEGACY fallback applies (contract-based match on the recorded
+ * `artifacts/review-site/` output path, not a hardcoded phase-id check), so
+ * these tests prove the general rule, not one protocol's phase name.
  */
 
 async function withTaskDir<T>(
@@ -57,8 +57,8 @@ function manifestEntry(overrides: Record<string, unknown>) {
   };
 }
 
-describe("getTask — hasReviewSite (design/review-template.md vocabulary)", () => {
-  it("is true only for the phase whose outputs include artifacts/review-site/", async () => {
+describe("getTask — reviewArtifact descriptor (legacy fallback from outputs)", () => {
+  it("is legacy only for the phase whose outputs include artifacts/review-site/", async () => {
     await withTaskDir(async (tasksDir, id) => {
       const dir = join(tasksDir, id);
       await mkdir(join(dir, "provenance"), { recursive: true });
@@ -95,12 +95,12 @@ describe("getTask — hasReviewSite (design/review-template.md vocabulary)", () 
       const detail = await getTask(tasksDir, id);
       assert.ok(detail);
       const byPhase = new Map(detail.timeline.map((e) => [e.phase, e]));
-      assert.equal(byPhase.get("measurement")?.hasReviewSite, false);
-      assert.equal(byPhase.get("review-artifact")?.hasReviewSite, true);
+      assert.deepEqual(byPhase.get("measurement")?.reviewArtifact, { status: "none", type: null });
+      assert.deepEqual(byPhase.get("review-artifact")?.reviewArtifact, { status: "legacy", type: null });
     });
   });
 
-  it("is false for a phase with no manifest entry yet (currently running)", async () => {
+  it("is none for a phase with no manifest entry yet (currently running)", async () => {
     await withTaskDir(async (tasksDir, id) => {
       const dir = join(tasksDir, id);
       await mkdir(join(dir, "provenance"), { recursive: true });
@@ -122,7 +122,7 @@ describe("getTask — hasReviewSite (design/review-template.md vocabulary)", () 
       const detail = await getTask(tasksDir, id);
       assert.ok(detail);
       assert.equal(detail.timeline.length, 1);
-      assert.equal(detail.timeline[0]?.hasReviewSite, false);
+      assert.deepEqual(detail.timeline[0]?.reviewArtifact, { status: "none", type: null });
     });
   });
 
@@ -155,7 +155,73 @@ describe("getTask — hasReviewSite (design/review-template.md vocabulary)", () 
 
       const detail = await getTask(tasksDir, id);
       assert.ok(detail);
-      assert.equal(detail.timeline[0]?.hasReviewSite, false);
+      assert.deepEqual(detail.timeline[0]?.reviewArtifact, { status: "none", type: null });
+    });
+  });
+
+  it("reads the harness-owned status.json over any output inference", async () => {
+    await withTaskDir(async (tasksDir, id) => {
+      const dir = join(tasksDir, id);
+      await mkdir(join(dir, "provenance"), { recursive: true });
+      await writeFile(
+        join(dir, "task.json"),
+        JSON.stringify({
+          id,
+          protocol: "microct-oa-mouse-knee",
+          input: "input/x/",
+          state: "paused",
+          reason: "review-artifact-author-failed",
+          currentPhase: null,
+          phasesComplete: ["segmentation", "measurement", "intake"],
+          createdAt: "2026-07-10T09:00:00.000Z",
+          updatedAt: "2026-07-10T10:05:00.000Z",
+        }),
+      );
+      await writeFile(
+        join(dir, "provenance", "manifest.yaml"),
+        stringify([
+          manifestEntry({ phase: "segmentation" }),
+          manifestEntry({ phase: "measurement" }),
+          manifestEntry({ phase: "intake" }),
+        ]),
+      );
+      const statusBase = {
+        created_at: "2026-07-10T10:00:00.000Z",
+        updated_at: "2026-07-10T10:05:00.000Z",
+      };
+      await mkdir(join(dir, "review", "artifact-author", "segmentation"), { recursive: true });
+      await writeFile(
+        join(dir, "review", "artifact-author", "segmentation", "status.json"),
+        JSON.stringify({ status: "published", type: "spatial-3d", ...statusBase }),
+      );
+      await mkdir(join(dir, "review", "artifact-author", "measurement"), { recursive: true });
+      await writeFile(
+        join(dir, "review", "artifact-author", "measurement", "status.json"),
+        JSON.stringify({ status: "failed", type: "quantitative", ...statusBase }),
+      );
+      await mkdir(join(dir, "review", "artifact-author", "intake"), { recursive: true });
+      await writeFile(
+        join(dir, "review", "artifact-author", "intake", "status.json"),
+        JSON.stringify({ status: "none", type: "none", ...statusBase }),
+      );
+
+      const detail = await getTask(tasksDir, id);
+      assert.ok(detail);
+      const byPhase = new Map(detail.timeline.map((e) => [e.phase, e]));
+      assert.deepEqual(byPhase.get("segmentation")?.reviewArtifact, {
+        status: "published",
+        type: "spatial-3d",
+      });
+      // failed is DISTINCT from none — the client must never render the
+      // clean empty state for an unavailable artifact.
+      assert.deepEqual(byPhase.get("measurement")?.reviewArtifact, {
+        status: "failed",
+        type: "quantitative",
+      });
+      assert.deepEqual(byPhase.get("intake")?.reviewArtifact, {
+        status: "none",
+        type: "none",
+      });
     });
   });
 });

@@ -29,3 +29,19 @@ var REVIEW_SANDBOX = "allow-scripts";
 function reviewSiteSrc(taskId) {
   return "/api/tasks/" + encodeURIComponent(taskId) + "/review-site/index.html";
 }
+
+/**
+ * GET .../review-sites/:phase/index.html — the phase-scoped route for
+ * harness-published author artifacts (review-provenance §3.D). Same encoding
+ * discipline as reviewSiteSrc; the legacy single-site URL stays untouched for
+ * legacy worker-authored sites.
+ */
+function reviewSiteSrcForPhase(taskId, phase) {
+  return (
+    "/api/tasks/" +
+    encodeURIComponent(taskId) +
+    "/review-sites/" +
+    encodeURIComponent(phase) +
+    "/index.html"
+  );
+}

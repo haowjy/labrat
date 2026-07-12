@@ -1,8 +1,13 @@
 import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, type LabratConfig } from "../../config/index.js";
-import type { ProtocolYaml, TaskJson } from "../../schema/index.js";
-import { validateTaskJson } from "../../schema/index.js";
+import type {
+  ProtocolYaml,
+  SendBackInvalidationRecord,
+  SendBackRouteRecord,
+  TaskJson,
+} from "../../schema/index.js";
+import { uuidv7, validateTaskJson } from "../../schema/index.js";
 import { atomicWriteJson } from "../../util/atomic-write.js";
 import { resolveDeclaredArtifactPath } from "../../util/artifact-path.js";
 import { configureEvents, notifyEvent } from "../events/index.js";
@@ -13,8 +18,25 @@ import {
 import { readHumanVerdict } from "../review-verdict/index.js";
 import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
 import { runWorkerPhase } from "../session/worker.js";
+import {
+  appendPublishedArtifactProvenance,
+  artifactSettlementPending,
+  REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+  scientificGateAccepted,
+  settleReviewArtifact,
+} from "./artifact-settlement.js";
 import { runGate } from "./gate.js";
 import type { GateContext, RunGateResult } from "./gate.js";
+import {
+  collectLiveMarks,
+  completeInvalidationRecord,
+  decideSendBackRoute,
+  persistRouteRecords,
+  runFeedbackRouter,
+  snapshotPhaseAttempts,
+  type FeedbackRouterFn,
+  type FeedbackRouterOutcome,
+} from "../decision/feedback-router.js";
 import { downstreamPhaseIds, invalidateFromPhase } from "./invalidation.js";
 import { findRecordedWorkerSessionId } from "./session-lookup.js";
 
@@ -205,6 +227,62 @@ async function stageInput(
   return `input/${folderName}`;
 }
 
+/**
+ * Mark one phase SETTLED (review-provenance §3.D): scientific gate accepted
+ * AND its review artifact published (or `none`/legacy). `phasesComplete` is
+ * the list of settled phases — updated ONLY here, AFTER runGate returns a
+ * settled success, never before the gate (the old pre-gate write meant
+ * "worker recorded", and its rollback filters are gone with it).
+ */
+async function markPhaseSettled(
+  taskDir: string,
+  taskId: string,
+  phaseId: string,
+): Promise<TaskJson> {
+  const loaded = await loadTaskJson(taskDir);
+  // Drop any stale pause reason (e.g. a resumed review-artifact-author-failed
+  // pause whose artifact just settled) and put the task back to running.
+  const { reason: _droppedReason, ...rest } = loaded;
+  const task: TaskJson = {
+    ...rest,
+    state: "running",
+    phasesComplete: loaded.phasesComplete.includes(phaseId)
+      ? loaded.phasesComplete
+      : [...loaded.phasesComplete, phaseId],
+    currentPhase: null,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  await notifyEvent(taskDir, { type: "phase-complete", taskId, phase: phaseId });
+  return task;
+}
+
+/**
+ * Clean PAUSE for an exhausted review-artifact author (review-provenance
+ * correction #3): the phase's SCIENCE stays accepted on disk (gate file +
+ * provenance entry untouched), nothing is archived or reset, and a later
+ * `resume` re-enters ONLY the authoring step for this phase.
+ */
+async function pauseForArtifactFailure(
+  taskDir: string,
+  taskId: string,
+): Promise<TaskJson> {
+  let task = await loadTaskJson(taskDir);
+  task = {
+    ...task,
+    state: "paused",
+    reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeTaskJson(taskDir, task);
+  await notifyEvent(taskDir, {
+    type: "task-paused",
+    taskId,
+    reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+  });
+  return task;
+}
+
 export async function runTask(
   orchestratorConfig: OrchestratorConfig,
 ): Promise<RunTaskResult> {
@@ -256,6 +334,50 @@ export async function runTask(
       throw new Error(`Protocol missing phase definition: ${phaseId}`);
     }
 
+    // Resume-into-authoring (review-provenance §3.D): a phase whose SCIENCE is
+    // already accepted on disk (passing gate file + provenance entry) but that
+    // never settled — a crash between gate acceptance and settlement, or a
+    // pause for `review-artifact-author-failed` — NEVER re-runs its worker.
+    // Only the artifact half of settlement remains.
+    if (await scientificGateAccepted(orchestratorConfig.taskDir, phaseId)) {
+      if (await artifactSettlementPending(orchestratorConfig.taskDir, loadedPhaseDef)) {
+        const settle = await settleReviewArtifact({
+          taskId: orchestratorConfig.taskId,
+          taskDir: orchestratorConfig.taskDir,
+          protocol: orchestratorConfig.protocol,
+          phase: loadedPhaseDef,
+          attempt: attemptByPhase.get(phaseId) ?? 1,
+          runtime,
+          config,
+        });
+        if (settle.kind === "artifact-failed") {
+          const paused = await pauseForArtifactFailure(
+            orchestratorConfig.taskDir,
+            orchestratorConfig.taskId,
+          );
+          return { task: paused, phases: phaseResults };
+        }
+        if (settle.kind === "published") {
+          await appendPublishedArtifactProvenance(
+            orchestratorConfig.taskDir,
+            phaseId,
+            settle,
+          );
+        }
+      }
+      const summary = await readPhaseSummary(orchestratorConfig.taskDir, phaseId);
+      if (summary) {
+        priorSummaries[phaseId] = summary;
+      }
+      await markPhaseSettled(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+        phaseId,
+      );
+      pointer += 1;
+      continue;
+    }
+
     const attempt = (attemptByPhase.get(phaseId) ?? 0) + 1;
     attemptByPhase.set(phaseId, attempt);
 
@@ -267,7 +389,7 @@ export async function runTask(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(orchestratorConfig.taskDir, task);
-    notifyEvent({
+    await notifyEvent(orchestratorConfig.taskDir, {
       type: "phase-started",
       taskId: orchestratorConfig.taskId,
       phase: phaseId,
@@ -280,6 +402,7 @@ export async function runTask(
       inputRel: orchestratorConfig.inputRel,
       protocol: orchestratorConfig.protocol,
       phaseId,
+      attempt,
       runtime,
       priorPhaseSummaries: priorSummaries,
       runSettings: config,
@@ -293,7 +416,7 @@ export async function runTask(
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(orchestratorConfig.taskDir, task);
-      notifyEvent({
+      await notifyEvent(orchestratorConfig.taskDir, {
         type: "task-paused",
         taskId: orchestratorConfig.taskId,
         reason: workerResult.blockedReason,
@@ -313,7 +436,7 @@ export async function runTask(
         updatedAt: new Date().toISOString(),
       };
       await writeTaskJson(orchestratorConfig.taskDir, task);
-      notifyEvent({
+      await notifyEvent(orchestratorConfig.taskDir, {
         type: "task-failed",
         taskId: orchestratorConfig.taskId,
         reason: task.reason ?? `Phase ${phaseId} did not complete`,
@@ -325,22 +448,6 @@ export async function runTask(
     if (summary) {
       priorSummaries[phaseId] = summary;
     }
-
-    const phasesComplete = task.phasesComplete.includes(phaseId)
-      ? task.phasesComplete
-      : [...task.phasesComplete, phaseId];
-    task = {
-      ...task,
-      phasesComplete,
-      currentPhase: null,
-      updatedAt: new Date().toISOString(),
-    };
-    await writeTaskJson(orchestratorConfig.taskDir, task);
-    notifyEvent({
-      type: "phase-complete",
-      taskId: orchestratorConfig.taskId,
-      phase: phaseId,
-    });
 
     const gate = await runGate({
       taskId: orchestratorConfig.taskId,
@@ -360,42 +467,53 @@ export async function runTask(
       gate,
     });
 
+    if (gate.kind === "artifact-failed") {
+      // Science accepted; only the review artifact is missing. Pause cleanly —
+      // NEVER archive/reset the verified worker outputs — and let a later
+      // `resume` re-enter the authoring step only.
+      const paused = await pauseForArtifactFailure(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+      );
+      return { task: paused, phases: phaseResults };
+    }
+
     if (gate.kind !== "fail" && gate.kind !== "fail-upstream") {
+      // Fully settled: scientific gate accepted AND the review artifact
+      // published (or none/legacy). Only now does the phase join
+      // phasesComplete (review-provenance §3.D settlement state).
+      await markPhaseSettled(
+        orchestratorConfig.taskDir,
+        orchestratorConfig.taskId,
+        phaseId,
+      );
       pointer += 1;
       continue;
     }
 
     if (gate.kind === "fail") {
+      // runGate already archived phases/{phase}/ + reset its outputs on disk
+      // (gate.ts fail path). phasesComplete never contained this phase — it
+      // is written only at settlement now — so there is nothing to roll back.
       if (attempt >= config.retries.phaseAttempts) {
-        // runGate already archived phases/{phase}/ + reset its outputs on
-        // disk (gate.ts fail path) — keep phasesComplete in sync so a later
-        // resume doesn't skip this phase believing it already ran.
         task = {
           ...task,
-          phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
           state: "failed",
           reason: `Gate failed twice on phase ${phaseId}: ${gate.feedback ?? "no feedback"}`,
           updatedAt: new Date().toISOString(),
         };
         await writeTaskJson(orchestratorConfig.taskDir, task);
-        notifyEvent({
+        await notifyEvent(orchestratorConfig.taskDir, {
           type: "task-failed",
           taskId: orchestratorConfig.taskId,
           reason: task.reason ?? `Phase ${phaseId} gate failed twice`,
         });
         throw new Error(task.reason ?? `Phase ${phaseId} gate failed twice`);
       }
-      // Retry: phases/{phase}/ + gate already archived by runGate; drop it
-      // from phasesComplete and re-run the same pointer with a fresh agent.
-      // Drop this phase's own summary (mirrors the rewind cleanup below) so
-      // the retried worker doesn't inherit its failed attempt's summary (F6).
+      // Retry: re-run the same pointer with a fresh agent. Drop this phase's
+      // own summary so the retried worker doesn't inherit its failed
+      // attempt's summary (F6).
       delete priorSummaries[phaseId];
-      task = {
-        ...task,
-        phasesComplete: task.phasesComplete.filter((p) => p !== phaseId),
-        updatedAt: new Date().toISOString(),
-      };
-      await writeTaskJson(orchestratorConfig.taskDir, task);
       continue;
     }
 
@@ -410,6 +528,10 @@ export async function runTask(
       delete priorSummaries[invalidated];
       attemptByPhase.delete(invalidated);
     }
+    // Rewind can invalidate phases that HAD settled (earlier passes between
+    // rewindTo and here) — drop them from the settled list to match the disk
+    // invalidation runGate already performed.
+    task = await loadTaskJson(orchestratorConfig.taskDir);
     task = {
       ...task,
       phasesComplete: task.phasesComplete.filter(
@@ -428,7 +550,7 @@ export async function runTask(
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(orchestratorConfig.taskDir, doneTask);
-  notifyEvent({ type: "task-done", taskId: orchestratorConfig.taskId });
+  await notifyEvent(orchestratorConfig.taskDir, { type: "task-done", taskId: orchestratorConfig.taskId });
 
   return { task: doneTask, phases: phaseResults };
 }
@@ -459,7 +581,7 @@ export async function enqueueAndRun(
     resolvedProtocolName,
     protocol.yaml.phases[0]?.id ?? null,
   );
-  notifyEvent({ type: "task-started", taskId, protocol: resolvedProtocolName });
+  await notifyEvent(taskDir, { type: "task-started", taskId, protocol: resolvedProtocolName });
 
   const result = await runTask({
     taskId,
@@ -512,9 +634,15 @@ export async function runStandaloneGate(
   configureEvents(config.dashboard.url);
 
   const task = await loadTaskJson(taskDir);
-  if (!task.phasesComplete.includes(phaseId)) {
+  // Gate an ALREADY-RECORDED phase: the worker must have run (its phase dir
+  // is on disk). phasesComplete no longer implies this — it now means SETTLED
+  // (gate + artifact), which is what this command produces, not requires.
+  const phaseRecorded =
+    (await existsAt(join(taskDir, "phases", phaseId, "summary.md"))) ||
+    (await existsAt(join(taskDir, "phases", phaseId)));
+  if (!phaseRecorded && !task.phasesComplete.includes(phaseId)) {
     throw new Error(
-      `Phase "${phaseId}" is not recorded complete for ${taskId} (phasesComplete: ${task.phasesComplete.join(", ") || "none"}). Run the phase first.`,
+      `Phase "${phaseId}" has not been recorded for ${taskId} (no phases/${phaseId}/ on disk). Run the phase first.`,
     );
   }
 
@@ -570,9 +698,10 @@ export async function runStandaloneGate(
 }
 
 /**
- * Bring task.json back in sync with the disk-side invalidation `runGate`
- * already performed, for gate runs that happen outside the `runTask` loop
- * (standalone `gate` and isolated `run-phase --gate`). No-op on pass paths.
+ * Bring task.json back in sync with the disk-side outcome `runGate` already
+ * performed, for gate runs that happen outside the `runTask` loop (standalone
+ * `gate` and isolated `run-phase --gate`): settle the phase on a pass, pause
+ * on an artifact failure, and mirror the invalidation on fail paths.
  */
 async function syncTaskAfterStandaloneGate(
   taskDir: string,
@@ -580,7 +709,24 @@ async function syncTaskAfterStandaloneGate(
   phaseId: string,
   gate: RunGateResult,
 ): Promise<void> {
-  if (gate.kind === "fail") {
+  if (gate.kind === "pass" || gate.kind === "pass-with-concerns") {
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      phasesComplete: refreshed.phasesComplete.includes(phaseId)
+        ? refreshed.phasesComplete
+        : [...refreshed.phasesComplete, phaseId],
+      updatedAt: new Date().toISOString(),
+    });
+  } else if (gate.kind === "artifact-failed") {
+    const refreshed = await loadTaskJson(taskDir);
+    await writeTaskJson(taskDir, {
+      ...refreshed,
+      state: "paused",
+      reason: REVIEW_ARTIFACT_AUTHOR_PAUSE_REASON,
+      updatedAt: new Date().toISOString(),
+    });
+  } else if (gate.kind === "fail") {
     const refreshed = await loadTaskJson(taskDir);
     await writeTaskJson(taskDir, {
       ...refreshed,
@@ -696,15 +842,19 @@ export async function runPhaseInIsolation(
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(taskDir, task);
-  notifyEvent({ type: "phase-started", taskId, phase: phaseId });
+  await notifyEvent(taskDir, { type: "phase-started", taskId, phase: phaseId });
 
   const startedAt = new Date().toISOString();
+  // Same attempt-numbering source the standalone gate below uses, computed
+  // BEFORE the worker runs so its session log carries the right attempt.
+  const attempt = await nextGateAttempt(taskDir, phaseId);
   const workerResult = await runWorkerPhase({
     taskId,
     taskDir,
     inputRel: task.input,
     protocol,
     phaseId,
+    attempt,
     runtime,
     priorPhaseSummaries: priorSummaries,
     runSettings: config,
@@ -718,7 +868,7 @@ export async function runPhaseInIsolation(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(taskDir, task);
-    notifyEvent({ type: "task-paused", taskId, reason: workerResult.blockedReason });
+    await notifyEvent(taskDir, { type: "task-paused", taskId, reason: workerResult.blockedReason });
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
   }
 
@@ -734,32 +884,30 @@ export async function runPhaseInIsolation(
       updatedAt: new Date().toISOString(),
     };
     await writeTaskJson(taskDir, task);
-    notifyEvent({ type: "task-failed", taskId, reason: task.reason ?? `Phase ${phaseId} did not complete` });
+    await notifyEvent(taskDir, { type: "task-failed", taskId, reason: task.reason ?? `Phase ${phaseId} did not complete` });
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: false };
   }
 
-  const phasesComplete = task.phasesComplete.includes(phaseId)
-    ? task.phasesComplete
-    : [...task.phasesComplete, phaseId];
+  // Worker recorded ≠ settled: phasesComplete now means SETTLED (gate +
+  // artifact — review-provenance §3.D), so the isolated run-phase no longer
+  // adds this phase; syncTaskAfterStandaloneGate does after a passing gate.
   // NEVER promote to "done" here: the isolated run-phase tool has no authority
   // to declare the task terminal — that requires the gated runTask/resume path
   // (gate + monitor + provenance for every phase). Leave state "running";
   // syncTaskAfterStandaloneGate owns any post-gate state change below (F3).
   task = {
     ...task,
-    phasesComplete,
     currentPhase: null,
     state: "running",
     updatedAt: new Date().toISOString(),
   };
   await writeTaskJson(taskDir, task);
-  notifyEvent({ type: "phase-complete", taskId, phase: phaseId });
+  await notifyEvent(taskDir, { type: "phase-complete", taskId, phase: phaseId });
 
   if (!withGate) {
     return { task, workerSessionId: workerResult.sessionId, phaseComplete: true };
   }
 
-  const attempt = await nextGateAttempt(taskDir, phaseId);
   const gate = await runGate({
     taskId,
     taskDir,
@@ -896,27 +1044,169 @@ export async function findSendBackPhase(
   return null;
 }
 
+export type SendBackRouteOptions = {
+  /**
+   * LLM seam (design §3E): the proposer `invalidateForSendBack` consults
+   * when no explicit `fromPhase` is given. Defaults to the live confined
+   * Haiku runner when the protocol declares an `agents.feedback-router`
+   * profile; absent both, routing is purely deterministic. Tests inject a
+   * stub here so no live model is ever required.
+   */
+  readonly router?: FeedbackRouterFn;
+};
+
+export type SendBackRouteResult = {
+  readonly phase: string;
+  readonly task: TaskJson;
+  /** The audited routing decision persisted to review/routing/send-back/. */
+  readonly route: SendBackRouteRecord;
+};
+
 /**
- * Send-back invalidation seam: resolve the phase to re-run (an explicit
- * `fromPhase`, else the earliest `changes_requested` verdict on disk) and
- * apply the SAME archive+reset invalidation retry/rewind/reset-to use. Does
- * NOT run any compute — it only rewinds disk state so a subsequent `runTask`
- * resumes there. Returns the resolved phase + updated task.json.
+ * Send-back invalidation seam (review-provenance design §3E, seven steps):
+ *
+ * 1. an explicit CLI/dashboard `fromPhase` wins after structural validation
+ *    (audited as `human-override`);
+ * 2. otherwise collect the live `changes_requested` marks —
+ *    `findSendBackPhase`'s earliest mark remains the deterministic FALLBACK;
+ * 3. call the fresh confined feedback router (when enabled) for a PROPOSAL;
+ * 4. code validates the proposal: phase must exist and must not be
+ *    downstream of the earliest mark; only a valid high-confidence route is
+ *    auto-accepted, everything else falls back to the earliest mark;
+ * 5. persist the route decision + invalidation intent BEFORE any mutation;
+ * 6. pass the accepted phase into the UNCHANGED `resetTaskToPhaseWithProtocol`
+ *    (code-owned archive+reset invalidation, same as retry/rewind/reset-to);
+ * 7. a subsequent `runTask` re-enters the rigid loop and every affected
+ *    phase gets a fresh independent gate.
+ *
+ * Does NOT run any compute — it only rewinds disk state. The router can
+ * never waive a gate, change the protocol, or widen/narrow the closure; the
+ * marks themselves stay live until each phase's own re-run gate passes
+ * (`consumeSendBackVerdict`, phase-local by design — never bulk-consumed at
+ * routing time).
  */
 export async function invalidateForSendBack(
   taskDir: string,
   protocolYaml: ProtocolYaml,
   fromPhase?: string,
-): Promise<{ readonly phase: string; readonly task: TaskJson }> {
-  const phase = fromPhase ?? (await findSendBackPhase(taskDir, protocolYaml));
-  if (!phase) {
+  opts: SendBackRouteOptions = {},
+): Promise<SendBackRouteResult> {
+  const phaseIds = protocolYaml.phases.map((p) => p.id);
+
+  // Step 1: structural validation of the explicit override BEFORE anything
+  // else — same error resetTaskToPhaseWithProtocol raises, surfaced early so
+  // no route record is written for a phase that cannot be reset.
+  if (fromPhase !== undefined && !phaseIds.includes(fromPhase)) {
+    throw new Error(`Protocol "${protocolYaml.name}" has no phase "${fromPhase}"`);
+  }
+
+  // Step 2: live marks in declaration order; earliest is the fallback.
+  const marks = await collectLiveMarks(taskDir, protocolYaml);
+  if (fromPhase === undefined && marks.length === 0) {
     throw new Error(
       "No phase to rerun: pass a phase, or send one back from the dashboard " +
         "(writes a changes_requested verdict to review/verdict/{phase}.json).",
     );
   }
-  const task = await resetTaskToPhaseWithProtocol(taskDir, protocolYaml, phase);
-  return { phase, task };
+  const earliestMarkedPhase = marks[0]?.phase ?? null;
+
+  // Step 3: the confined LLM proposer — consulted only when there is no
+  // human override AND semantic routing is enabled (injected router, or a
+  // protocol `agents.feedback-router` profile). The router is never asked to
+  // invent work: it runs only over existing live marks.
+  let outcome: FeedbackRouterOutcome | null = null;
+  if (fromPhase === undefined && earliestMarkedPhase !== null) {
+    const profile = protocolYaml.agents["feedback-router"];
+    const routerFn = opts.router ?? (profile !== undefined ? runFeedbackRouter : null);
+    if (routerFn !== null) {
+      const task = await loadTaskJson(taskDir);
+      try {
+        outcome = await routerFn({
+          taskId: task.id,
+          taskDir,
+          protocolYaml,
+          marks,
+          earliestMarkedPhase,
+          model: profile?.model ?? "haiku",
+          permissionMode: profile?.permissions ?? "default",
+        });
+      } catch (err) {
+        // Fail safe: a throwing router is a router failure, never a crash of
+        // the send-back path — the decision core falls back to the earliest
+        // mark and the record carries the reason.
+        outcome = {
+          proposal: null,
+          model: null,
+          failure: `router error: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
+  }
+
+  // Step 4: code-owned adoption policy (pure, exhaustively tested).
+  const decision = decideSendBackRoute({
+    phaseIds,
+    fromPhase,
+    earliestMarkedPhase,
+    outcome,
+  });
+
+  // Step 5: persist the decision + code-computed invalidation intent BEFORE
+  // any phase state mutates. The router never writes these records.
+  const routeId = uuidv7();
+  const createdAt = new Date().toISOString();
+  const downstream = downstreamPhaseIds(protocolYaml, decision.accepted_phase);
+  const invalidation: SendBackInvalidationRecord = {
+    schema_version: 1,
+    route_id: routeId,
+    created_at: createdAt,
+    accepted_phase: decision.accepted_phase,
+    downstream_phases: downstream,
+    status: "prepared",
+    archived: [],
+  };
+  const route: SendBackRouteRecord = {
+    schema_version: 1,
+    route_id: routeId,
+    created_at: createdAt,
+    source: decision.source,
+    feedback_files: marks.map((m) => ({ path: m.path, sha256: m.sha256 })),
+    protocol: {
+      name: protocolYaml.name,
+      version: protocolYaml.version,
+      phase_ids: phaseIds,
+    },
+    model: outcome?.model ?? null,
+    proposal:
+      outcome?.proposal != null
+        ? {
+            restart_phase: outcome.proposal.restart_phase,
+            confidence: outcome.proposal.confidence,
+            justification: outcome.proposal.justification,
+            alternatives: outcome.proposal.alternatives,
+          }
+        : null,
+    accepted_phase: decision.accepted_phase,
+    acceptance: decision.acceptance,
+    validation_errors: decision.validation_errors,
+    invalidation_record: `review/routing/invalidation/${routeId}.json`,
+  };
+  await persistRouteRecords(taskDir, route, invalidation);
+
+  // Step 6: the UNCHANGED code-owned invalidation (inclusive archive+reset —
+  // the target phase's gate is archived too, so its worker re-runs rather
+  // than short-circuiting on resume).
+  const before = await snapshotPhaseAttempts(taskDir, downstream);
+  const task = await resetTaskToPhaseWithProtocol(
+    taskDir,
+    protocolYaml,
+    decision.accepted_phase,
+  );
+  const after = await snapshotPhaseAttempts(taskDir, downstream);
+  await completeInvalidationRecord(taskDir, invalidation, before, after);
+
+  // Step 7 happens in the caller: runTask re-enters the rigid loop.
+  return { phase: decision.accepted_phase, task, route };
 }
 
 /**

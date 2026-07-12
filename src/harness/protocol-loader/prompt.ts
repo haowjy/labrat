@@ -40,6 +40,10 @@ const LABRAT_MCP_TOOLS = new Set([
   "mark_subphase",
   "blocked",
   "submit_gate_decision",
+  // Author-only read tools (design §3C) — stripped here so a protocol
+  // profile can never smuggle them into another role's SDK tool list.
+  "read_past_history",
+  "view_human_feedback",
 ]);
 
 function intersectTools(
@@ -269,6 +273,10 @@ the worker's prose as your evidence. Quote your own computed values in your
 - You must NOT modify anything under \`artifacts/\` or \`phases/\`. The
   harness hashes both before and after this session; any change is treated
   as a review-integrity failure independent of your gate decision.
+- You must NOT read anything under \`phases/**/sessions/\` (live or archived
+  \`phases/*.attempt-N/sessions/\`) — those are worker session logs, and
+  reading them would compromise your independence. Judge the work from disk
+  artifacts only.
 ${subphaseReviewTopics}
 
 Declared artifact outputs for this phase (relative to \`artifacts/\`):

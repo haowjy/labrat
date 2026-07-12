@@ -14,8 +14,7 @@ import {
   resolveTaskFile,
 } from "./api/index.js";
 import { listClaudeScienceSkillsView } from "./api/claude-science.js";
-import type { SseEvent } from "../schema/index.js";
-import { handleSse, publishEvent } from "./sse/index.js";
+import { createSseBroker, type SseBroker } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
 import { finishReview } from "./review/index.js";
 import { getWatcherStatus, updateWatcherControl } from "./watcher/index.js";
@@ -226,11 +225,12 @@ async function injectReviewData(
  * reads only disk under `config.tasksDir`; the only live channel is /events,
  * which carries notifications, not data.
  */
-export function createApp(config: DashboardConfig): Express {
+export function createApp(config: DashboardConfig): Express & { sseBroker: SseBroker } {
   const app = express();
   app.use(express.json({ limit: "64kb" }));
 
   const { tasksDir } = config;
+  const sseBroker = createSseBroker({ tasksDir });
 
   app.get("/api/tasks", async (_req, res) => {
     res.json(await listTasks(tasksDir));
@@ -306,13 +306,17 @@ export function createApp(config: DashboardConfig): Express {
   // skill-specific logic. Traversal is guarded solely by resolveTaskFile
   // (path-to-regexp already splits *path into decoded segments; ".." / empty /
   // absolute segments are rejected there, keeping serving inside the task tree).
-  app.get("/api/tasks/:id/review-site/*path", async (req, res) => {
-    const segments = req.params.path as string[];
-    const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
-    if (!file) {
-      res.status(400).json({ error: "invalid path" });
-      return;
-    }
+  /**
+   * Shared serving core for both review-site routes: same CSP quarantine,
+   * same serve-time data injection for index.html, same sendFile fallback.
+   * `file` has already passed resolveTaskFile's traversal/realpath guard.
+   */
+  async function serveReviewSiteFile(
+    res: express.Response,
+    id: string,
+    file: string,
+    segments: readonly string[],
+  ): Promise<void> {
     res.setHeader("Content-Security-Policy", reviewSiteCsp());
 
     // index.html gains the serve-time injection path: if the template carries a
@@ -322,7 +326,7 @@ export function createApp(config: DashboardConfig): Express {
     if (segments[segments.length - 1] === "index.html") {
       let injected: string | null;
       try {
-        injected = await injectReviewData(tasksDir, req.params.id, file);
+        injected = await injectReviewData(tasksDir, id, file);
       } catch (err) {
         res.status(500).json({ error: err instanceof Error ? err.message : "review-data injection failed" });
         return;
@@ -337,6 +341,42 @@ export function createApp(config: DashboardConfig): Express {
     res.sendFile(file, (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });
+  }
+
+  app.get("/api/tasks/:id/review-site/*path", async (req, res) => {
+    const segments = req.params.path as string[];
+    const file = resolveReviewSiteFile(tasksDir, req.params.id, segments);
+    if (!file) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    await serveReviewSiteFile(res, req.params.id, file, segments);
+  });
+
+  // Phase-scoped published review artifacts (review-provenance design §3.D
+  // "Dashboard seams"): serves `artifacts/review-sites/<phase>/` — the
+  // harness-published, linter-gated author output — beside the legacy
+  // single-site route, with the SAME realpath containment (resolveTaskFile),
+  // CSP quarantine, and manifest data injection.
+  app.get("/api/tasks/:id/review-sites/:phase/*path", async (req, res) => {
+    const segments = req.params.path as string[];
+    // Never serve dot-directories under review-sites/ — `.staging/` holds
+    // UNPUBLISHED author attempts the linter has not yet accepted.
+    if (req.params.phase.startsWith(".")) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    const file = resolveTaskFile(tasksDir, req.params.id, [
+      "artifacts",
+      "review-sites",
+      req.params.phase,
+      ...segments,
+    ]);
+    if (!file) {
+      res.status(400).json({ error: "invalid path" });
+      return;
+    }
+    await serveReviewSiteFile(res, req.params.id, file, segments);
   });
 
   // Reviewer verification scratch — proof the reviewer RAN code (design §10, §14).
@@ -427,17 +467,17 @@ export function createApp(config: DashboardConfig): Express {
     res.json(await listClaudeScienceSkillsView(config.scienceHome));
   });
 
-  // Cross-process notify seam (design §4, §13): the harness (Process A)
-  // POSTs here after an atomic write lands; we forward to publishEvent(),
-  // which validates and fans out to connected /events clients. This is the
-  // only coupling from the dashboard back to the harness — a notification,
-  // never primary data (clients still re-read disk).
-  app.post("/internal/events", (req, res) => {
-    publishEvent(req.body as SseEvent);
+  // Cross-process wake seam (review-provenance §3B): the harness (Process A)
+  // appends the event to <taskDir>/events/events.jsonl FIRST, then POSTs a
+  // {taskId, id} hint here. The hint only triggers an immediate tail scan —
+  // the disk log is authoritative, so a lost/duplicate hint is harmless and
+  // the broker's periodic poll recovers events written while we were down.
+  app.post("/internal/events", (_req, res) => {
+    sseBroker.scanNow();
     res.status(204).end();
   });
 
-  app.get("/events", handleSse);
+  app.get("/events", (req, res) => sseBroker.handleSse(req, res));
 
   app.use(express.static(STATIC_ROOT));
 
@@ -460,7 +500,7 @@ export function createApp(config: DashboardConfig): Express {
     },
   );
 
-  return app;
+  return Object.assign(app, { sseBroker });
 }
 
 /** Start the server and (optionally) the dev SSE replay. */
@@ -479,7 +519,7 @@ export function startServerAsync(config: DashboardConfig): Promise<void> {
       console.log(`[labrat] tasks dir: ${config.tasksDir}`);
       if (config.devReplay) {
         console.log("[labrat] dev SSE replay ON");
-        void startDevReplay(config.tasksDir);
+        void startDevReplay(config.tasksDir, app.sseBroker.publishLive);
       }
       resolve();
     });

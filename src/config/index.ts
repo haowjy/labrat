@@ -55,6 +55,10 @@ export type LabratConfig = {
      *  long Python script). Each grace turn sends a gentle "continue when
      *  ready" instead of a stall reminder. */
     readonly backgroundGraceRetries: number;
+    /** Max review-artifact-author attempts per settled phase — bounded
+     *  SEPARATELY from phaseAttempts: an artifact retry gets a fresh author
+     *  and never re-runs verified worker science (review-provenance §3.D). */
+    readonly artifactAuthorAttempts: number;
   };
 };
 
@@ -93,6 +97,7 @@ type LabratConfigFile = {
     readonly reviewAttempts?: number;
     readonly phaseAttempts?: number;
     readonly backgroundGraceRetries?: number;
+    readonly artifactAuthorAttempts?: number;
   };
 };
 
@@ -107,7 +112,7 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "retries",
 ]);
 const KNOWN_DASHBOARD_KEYS = new Set(["port", "url", "user"]);
-const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts", "backgroundGraceRetries"]);
+const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts", "backgroundGraceRetries", "artifactAuthorAttempts"]);
 
 /** Reject unknown keys so a typo (e.g. `defualtModel`) fails loudly instead
  * of being silently dropped, matching the strictness of value validation. */
@@ -247,6 +252,12 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
       (v, p) => expectPositiveInt(v, p),
     );
     if (!backgroundGraceRetries.ok) return backgroundGraceRetries;
+    const artifactAuthorAttempts = expectOptional(
+      retRec.value["artifactAuthorAttempts"],
+      "$.retries.artifactAuthorAttempts",
+      (v, p) => expectPositiveInt(v, p),
+    );
+    if (!artifactAuthorAttempts.ok) return artifactAuthorAttempts;
     retries = {
       ...(workerStall.value !== undefined ? { workerStall: workerStall.value } : {}),
       ...(reviewAttempts.value !== undefined
@@ -257,6 +268,9 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
         : {}),
       ...(backgroundGraceRetries.value !== undefined
         ? { backgroundGraceRetries: backgroundGraceRetries.value }
+        : {}),
+      ...(artifactAuthorAttempts.value !== undefined
+        ? { artifactAuthorAttempts: artifactAuthorAttempts.value }
         : {}),
     };
   }
@@ -399,7 +413,7 @@ export function loadConfig(
       url: DEFAULT_DASHBOARD_URL,
       user: userInfo().username,
     },
-    retries: { workerStall: 3, reviewAttempts: 2, phaseAttempts: 2, backgroundGraceRetries: 10 },
+    retries: { workerStall: 3, reviewAttempts: 2, phaseAttempts: 2, backgroundGraceRetries: 10, artifactAuthorAttempts: 2 },
   };
 
   // Overlay labrat.config.json (search cwd, then the default scienceHome —
@@ -463,6 +477,10 @@ export function loadConfig(
         parsePositiveInt(env["LABRAT_BG_GRACE_RETRIES"]) ??
         file.retries?.backgroundGraceRetries ??
         defaults.retries.backgroundGraceRetries,
+      artifactAuthorAttempts:
+        parsePositiveInt(env["LABRAT_ARTIFACT_AUTHOR_ATTEMPTS"]) ??
+        file.retries?.artifactAuthorAttempts ??
+        defaults.retries.artifactAuthorAttempts,
     },
   };
 }

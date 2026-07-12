@@ -24,9 +24,10 @@ function loadReviewSite(): Record<string, unknown> {
   return sandbox;
 }
 
-const { REVIEW_SANDBOX, reviewSiteSrc } = loadReviewSite() as {
+const { REVIEW_SANDBOX, reviewSiteSrc, reviewSiteSrcForPhase } = loadReviewSite() as {
   REVIEW_SANDBOX: string;
   reviewSiteSrc: (taskId: string) => string;
+  reviewSiteSrcForPhase: (taskId: string, phase: string) => string;
 };
 
 /*
@@ -71,6 +72,21 @@ describe("reviewSiteSrc (Lane A URL shape, fixture README)", () => {
   });
 });
 
+describe("reviewSiteSrcForPhase (phase-scoped published artifacts, review-provenance §3.D)", () => {
+  it("points at GET /api/tasks/:id/review-sites/:phase/index.html", () => {
+    assert.equal(
+      reviewSiteSrcForPhase("task-2026-07-09-001", "segmentation"),
+      "/api/tasks/task-2026-07-09-001/review-sites/segmentation/index.html",
+    );
+  });
+
+  it("encodes both the task id and the phase so neither can break out of its segment", () => {
+    const src = reviewSiteSrcForPhase("../etc", "../../passwd");
+    assert.equal(src, "/api/tasks/..%2Fetc/review-sites/..%2F..%2Fpasswd/index.html");
+    assert.ok(!src.includes("/../"));
+  });
+});
+
 /*
  * The tests above protect the constant. They would NOT catch the shell
  * hardcoding its own sandbox string instead of using REVIEW_SANDBOX (e.g. a
@@ -110,8 +126,9 @@ describe("ReviewEmbed.js <iframe> markup (source-level regression guard)", () =>
     }
   });
 
-  it("the <iframe> src is built from window.reviewSiteSrc(), not a hardcoded path", () => {
+  it("the <iframe> src is built from the window URL builders, not a hardcoded path", () => {
     assert.match(iframeTag ?? "", /src=\$\{src\}/);
-    assert.match(reviewEmbed, /const src = window\.reviewSiteSrc\(taskId\);/);
+    assert.match(reviewEmbed, /window\.reviewSiteSrc\(taskId\)/);
+    assert.match(reviewEmbed, /window\.reviewSiteSrcForPhase\(taskId, phase\)/);
   });
 });

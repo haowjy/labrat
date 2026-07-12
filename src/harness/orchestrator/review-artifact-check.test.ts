@@ -133,6 +133,43 @@ describe("harness-bound review-site gate (Lane C — the REAL gate path)", () =>
     }
   });
 
+  it("produced_from path convention: artifacts-relative (no prefix) passes G8; an 'artifacts/' prefix fails", async () => {
+    // The convention the author must follow (and the live-run failure mode):
+    // G8 resolves produced_from paths under measurementsRoot = taskDir/artifacts,
+    // so "regression/regression.json" is correct while the natural-looking
+    // "artifacts/regression/regression.json" double-nests to
+    // taskDir/artifacts/artifacts/... → not found → G8 fails.
+    const { taskDir, hash, cleanup } = await makeTaskTree();
+    try {
+      // makeTaskTree writes the unprefixed form — the convention-correct case.
+      const ok = await runReviewArtifactCheck(TASK_ID, taskDir, REVIEW_PHASE);
+      assert.ok(ok);
+      const g8ok = ok.findings.find((f) => f.gate === "G8");
+      assert.equal(g8ok?.ok, true, g8ok?.detail);
+      assert.equal(ok.fidelity, "verified");
+
+      // Same file, same correct hash, but prefixed with "artifacts/" — fails.
+      const indexPath = join(taskDir, "artifacts", "review-site", "index.html");
+      const html = await readFile(indexPath, "utf8");
+      await writeFile(
+        indexPath,
+        html.replace(
+          `"regression/regression.json@${hash}"`,
+          `"artifacts/regression/regression.json@${hash}"`,
+        ),
+      );
+      const bad = await runReviewArtifactCheck(TASK_ID, taskDir, REVIEW_PHASE);
+      assert.ok(bad);
+      const g8bad = bad.findings.find((f) => f.gate === "G8");
+      assert.equal(g8bad?.ok, false, "an 'artifacts/'-prefixed path must fail G8");
+      assert.match(g8bad?.detail ?? "", /fidelity required/);
+      assert.equal(bad.fidelity, "unverified");
+      assert.ok(reviewSiteGateFailure(bad));
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("no-ops (returns null, writes nothing) for a non-review-site phase", async () => {
     const { taskDir, cleanup } = await makeTaskTree();
     try {
