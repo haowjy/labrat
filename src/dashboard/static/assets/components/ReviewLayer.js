@@ -176,9 +176,6 @@ export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }
 
   return html`
     <div class="review-layer">
-      <${ReviewChainCard} phaseDetail=${phaseDetail} />
-      <${EvidencePanel} phaseDetail=${phaseDetail} />
-
       ${embeddable
         ? html`<${ReviewEmbed}
             taskId=${taskId}
@@ -212,6 +209,16 @@ export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }
         setVerdict=${setVerdict}
         onFinished=${onVerdictFinished}
       />
+
+      <details class="review-section">
+        <summary class="review-section-summary">Review chain</summary>
+        <${ReviewChainCard} phaseDetail=${phaseDetail} />
+      </details>
+
+      <details class="review-section">
+        <summary class="review-section-summary">Decisive evidence</summary>
+        <${EvidencePanel} phaseDetail=${phaseDetail} />
+      </details>
 
       <${SuggestionBox} taskId=${taskId} phase=${phase} />
       <${SignOffActions} taskId=${taskId} taskDir=${taskDir} />

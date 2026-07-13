@@ -11,8 +11,7 @@ The system is currently task-scoped: one review site per task, served at
 `/api/tasks/:id/review-site/index.html`. The shell loads it into an iframe.
 The component shows the task's evidence, lets the reviewer interact with it,
 and communicates verdict-relevant events back to the shell via the postMessage
-bridge. Per-phase review sites (one iframe per phase tab) are a planned
-extension; the contract and trust boundary are the same either way.
+bridge.
 
 The component does not know about other phases, the sidebar, or task
 navigation. It shows evidence and supports interaction. The shell handles
@@ -121,9 +120,6 @@ loads two things:
   are decisive, which landmarks carry them, what operational rules to
   state, what views to show.
 
-Same composition pattern as every other phase: methodology skill teaches
-the technique, phase resource adds study-specific parameters.
-
 The worker in this phase has authority to edit the template — adjust the
 layout, add views, customize the data display. The template is a starting
 pattern, not a locked-down form. The worker:
@@ -179,6 +175,32 @@ bridge.
 
 Free text notes accompany every verdict state. The reviewer writes what
 they observed, what they adjusted, or why they failed.
+
+## The artifact is the answer; everything else is depth
+
+The reviewer opens a phase and sees the evidence — not metadata, not
+provenance hashes, not the gate's prose. The artifact fills the viewport.
+Verdict controls sit below the fold. The review chain and measurement
+tables collapse behind disclosure: available on tap, invisible by default.
+
+This hierarchy applies at every layer:
+
+**The shell already puts the artifact first.** The iframe is the largest
+element; verdict, review chain, and evidence panels follow below the fold
+in collapsed `<details>`. The component doesn't need to replicate this
+hierarchy — it should fill its viewport with evidence, not chrome.
+
+**Inside the artifact**, a "Hide labels" toggle strips provenance paths,
+source hashes, badge pills, and confidence strings. What remains is the
+decisive content: claim statements, key numbers, state indicators, and
+excerpts. The templates in `assets/templates/` include this toggle;
+preserve it when authoring.
+
+**On phones**, build mobile-first: single scrolling column is the base.
+Side-by-side split is a desktop enhancement. Sections need clear visual
+boundaries (distinct backgrounds, borders, spacing) so they read as
+separate panels, not a wall of similar-looking cards. Touch targets are
+44px minimum.
 
 ## Interaction controls are separate from evidence
 
