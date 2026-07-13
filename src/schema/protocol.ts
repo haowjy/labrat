@@ -1,5 +1,6 @@
 import {
   expectArray,
+  expectBoolean,
   expectEnum,
   expectNonEmptyString,
   expectNumber,
@@ -116,6 +117,15 @@ export type ReviewArtifactSpec = {
   readonly type?: ReviewArtifactType;
   /** A registered template id, never a path (design §3.D). */
   readonly template?: string;
+  /**
+   * `false` ⇒ this phase legitimately has NO landmark source (intake volume,
+   * segmentation/seed-review before landmarking), so the review-site linter's
+   * G9 skips its non-empty-landmarks requirement for this phase. Omitted/`true`
+   * ⇒ real landmarks are required (landmarks, measurement). This is PROTOCOL
+   * policy, not author-written: the harness passes it to G9 authoritatively so
+   * a per-phase author cannot set it in their manifest to bypass the check.
+   */
+  readonly landmarks_available?: boolean;
 };
 
 export const REVIEW_ARTIFACT_TYPES = [
@@ -468,9 +478,17 @@ function validateReviewArtifactSpec(
     ]);
   }
 
+  const landmarksAvailable = expectOptional(
+    rec.value["landmarks_available"],
+    `${path}.landmarks_available`,
+    (v, p) => expectBoolean(v, p),
+  );
+  if (!landmarksAvailable.ok) return landmarksAvailable;
+
   return success({
     ...(type.value !== undefined ? { type: type.value } : {}),
     ...(template.value !== undefined ? { template: template.value } : {}),
+    ...(landmarksAvailable.value !== undefined ? { landmarks_available: landmarksAvailable.value } : {}),
   });
 }
 

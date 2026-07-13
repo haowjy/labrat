@@ -47,6 +47,39 @@ which is which.
 - Write `labels.nii.gz`, per-structure `masks/<structure>.nii.gz`, and
   `structure_assignments.json`.
 
+## Emit the shared 3D mesh — `segmentation/geometry.json` (once)
+
+`labels.nii.gz` now exists, so this is the ONE place the labeled scene becomes a
+surface mesh. Emit `segmentation/geometry.json` here; **every downstream phase's
+3D review site references this one file** (server-side injection, hash-verified —
+seed-review, landmarks, and measurement do NOT recompute geometry). Emit it once,
+correctly.
+
+- Extract a mesh per structure from `labels.nii.gz` — marching cubes
+  (`skimage.measure.marching_cubes`) on each label's binary mask, in the label
+  volume's own frame (apply voxel spacing so the mesh is in mm).
+- **Decimate to ~10K vertices per structure** (`skimage`/`vtk`/`open3d`
+  quadric-decimation, or a coarser marching-cubes step) so the total payload
+  stays well within the 5 MB site budget alongside the inlined ~785 KB three.js.
+- One entry per named structure (`femur`, `tibia`, and the others you assigned);
+  faces are 0-based triangle vertex indices. Shape:
+
+  ```json
+  {
+    "meshes": {
+      "femur": { "vertices": [[x,y,z], ...], "faces": [[i,j,k], ...] },
+      "tibia": { "vertices": [...], "faces": [...] }
+    }
+  }
+  ```
+
+- This is a **visualization artifact only** — it does not change the science.
+  The scientific gate checks it exists and is well-formed like any other output;
+  the shared mesh feeds the review chain, not the measurements.
+- **Do not overwrite** any `review/geometry.json` (that path belongs to the final
+  `review-artifact` phase; keeping this at `segmentation/geometry.json` is what
+  lets the earlier phases' hash-verified sites survive that phase's own recompute).
+
 **Femur/tibia identity** carries both ratio indices and is only moderately
 reliable on an unlabeled scan (condyle-count discriminator) — confirm in review.
 

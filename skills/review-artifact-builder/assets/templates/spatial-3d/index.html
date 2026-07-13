@@ -135,6 +135,14 @@ body {
 .scene-hint button { font: inherit; border: none; background: rgba(255,255,255,0.18); color: #fff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; line-height: 1; }
 .scene-hint[hidden] { display: none; }
 
+/* Label toggle: hide all DOM overlays on the 3D scene so the reviewer
+   can see the geometry without visual clutter. */
+body.hide-labels .orient-legend,
+body.hide-labels .conf-legend,
+body.hide-labels .line-labels,
+body.hide-labels .line-label { display: none !important; }
+.ctrl-labels-off { opacity: 0.5; }
+
 .tourbar { background: var(--card); border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px; padding: 0.55rem 0.8rem; }
 .tour-head { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
 .tour-step { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
@@ -214,6 +222,7 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
           <button type="button" id="btn-zoom-in" aria-label="Zoom in">+</button>
           <button type="button" id="btn-zoom-out" aria-label="Zoom out">&minus;</button>
         </div>
+        <button type="button" id="btn-labels">Labels</button>
       </div>
       <div class="orient-legend">X lateral &middot; Y proximal &middot; Z anterior<br /><span id="ratio-value"></span></div>
       <div class="conf-legend" id="conf-legend"></div>
@@ -1414,15 +1423,39 @@ window.REVIEW_EVIDENCE = {
 
   var THREE = window.THREE;
   var MANIFEST = window.REVIEW_MANIFEST;
-  var GEO = window.REVIEW_GEOMETRY;
-  var EV = window.REVIEW_EVIDENCE;
-  var HAS_VOLUME = !!window.REVIEW_VOLUME; // slices are optional drill-down
+  var GEO = window.REVIEW_GEOMETRY || {};
+  var EV = window.REVIEW_EVIDENCE || {};
+  var VOLUME = window.REVIEW_VOLUME || null;
+  var HAS_VOLUME = !!VOLUME; // volume-only phases render grayscale slice planes
+
+  // --- Render mode -----------------------------------------------------------
+  // One template serves every micro-CT phase. Which parts render is driven by
+  // which verified data the phase actually shipped — never by fabricating the
+  // rest:
+  //   • mesh mode        — REVIEW_GEOMETRY.meshes present (segmentation onward)
+  //   • volume-only mode — no meshes but a REVIEW_VOLUME (intake, pre-segmentation)
+  //   • landmarks        — REVIEW_EVIDENCE.landmarks non-empty (landmarks/measurement)
+  //   • evidence/measurement — REVIEW_EVIDENCE.decisive[0] present (measurement)
+  // Absent data is simply not drawn; the 3D OrbitControls scene is always the
+  // primary view.
+  var meshNames = GEO && GEO.meshes ? Object.keys(GEO.meshes) : [];
+  var HAS_MESH = meshNames.length > 0;
+  var landmarkList = EV && Array.isArray(EV.landmarks) ? EV.landmarks : [];
+  var HAS_LANDMARKS = landmarkList.length > 0;
+  var decisive = EV && Array.isArray(EV.decisive) && EV.decisive[0] ? EV.decisive[0] : null;
+  var HAS_EVIDENCE = !!decisive;
 
   // --- Header --------------------------------------------------------------
   document.getElementById("sample-title").textContent = "Review " + MANIFEST.sample_id;
   // Provenance collapses to a short, hoverable link (full hash off-screen on mobile).
   (function () {
-    var src = MANIFEST.produced_from.measurement;
+    // Phases differ in what they were produced from: measurement ships a
+    // results.json, segmentation a geometry.json, intake a volume.json. Show
+    // whichever provenance the manifest actually carries.
+    var pf = MANIFEST.produced_from || {};
+    var src = pf.measurement || pf.geometry || pf.volume || pf[Object.keys(pf)[0]];
+    var p = document.getElementById("sample-source");
+    if (!src) { p.textContent = ""; return; }
     var name = src.split("/").pop().split("@")[0];
     var hash = (src.split("@")[1] || "").slice(0, 10);
     var a = document.createElement("a");
@@ -1430,7 +1463,6 @@ window.REVIEW_EVIDENCE = {
     a.title = "from " + src;
     a.textContent = "from " + name + (hash ? " @" + hash + "…" : "");
     a.addEventListener("click", function (e) { e.preventDefault(); });
-    var p = document.getElementById("sample-source");
     p.textContent = "";
     p.appendChild(a);
   })();
@@ -1441,7 +1473,6 @@ window.REVIEW_EVIDENCE = {
   }
 
   var STATE_COLOR = { pass: "#1f8a4c", concern: "#b26a00", fail: "#b3261e" };
-  var decisive = EV.decisive[0];
 
   // --- Evidence banner: big result, cutoff, delta, status -----------------
   function renderBanner() {
@@ -1500,7 +1531,27 @@ window.REVIEW_EVIDENCE = {
     status.appendChild(stext);
     banner.appendChild(status);
   }
-  renderBanner();
+  // Phases without a decisive measurement (intake volume, segmentation mesh)
+  // show a neutral phase note instead of a metric banner — never a fabricated
+  // number.
+  if (HAS_EVIDENCE) {
+    renderBanner();
+  } else {
+    var banner = document.getElementById("evidence-banner");
+    banner.textContent = "";
+    var note = document.createElement("div");
+    note.className = "ev-metric";
+    note.style.setProperty("--state", "#4b5563");
+    var nlabel = document.createElement("span");
+    nlabel.className = "ev-label";
+    nlabel.textContent = HAS_MESH ? "Segmentation review — 3D structures" : "Intake review — grayscale volume";
+    var nsub = document.createElement("span");
+    nsub.className = "ev-cut";
+    nsub.textContent = "No quantitative measurement in this phase yet.";
+    note.appendChild(nlabel);
+    note.appendChild(nsub);
+    banner.appendChild(note);
+  }
 
   var ratioEl = document.getElementById("ratio-value");
 
@@ -1549,10 +1600,91 @@ window.REVIEW_EVIDENCE = {
     group.add(outline);
     return group;
   }
+
+  // Build the three center orthogonal slice planes from a REVIEW_VOLUME
+  // (shape [nz, ny, nx], grayscale_b64 = window-normalized uint8, row-major
+  // z→y→x). Returns a Group centered on the origin, or null if the volume is
+  // malformed. Grayscale is baked into the texture (MeshBasicMaterial), so the
+  // planes read the same under any lighting.
+  function buildVolumePlanes(vol) {
+    if (!vol || !Array.isArray(vol.shape) || typeof vol.grayscale_b64 !== "string") return null;
+    var nz = vol.shape[0], ny = vol.shape[1], nx = vol.shape[2];
+    if (!(nz > 0 && ny > 0 && nx > 0)) return null;
+    var sp = Array.isArray(vol.spacing_mm) ? vol.spacing_mm : [1, 1, 1];
+    var sz = sp[0] || 1, sy = sp[1] || 1, sx = sp[2] || 1;
+
+    // Decode base64 → Uint8Array (one byte per voxel).
+    var bin;
+    try { bin = atob(vol.grayscale_b64); } catch (e) { return null; }
+    var expected = nz * ny * nx;
+    if (bin.length < expected) return null;
+    var data = new Uint8Array(expected);
+    for (var i = 0; i < expected; i++) data[i] = bin.charCodeAt(i);
+
+    // Build an RGBA DataTexture for one slice plane.
+    function sliceTexture(w, h, sample) {
+      var rgba = new Uint8Array(w * h * 4);
+      for (var yy = 0; yy < h; yy++) {
+        for (var xx = 0; xx < w; xx++) {
+          var g = sample(xx, yy);
+          var o = (yy * w + xx) * 4;
+          rgba[o] = g; rgba[o + 1] = g; rgba[o + 2] = g; rgba[o + 3] = 255;
+        }
+      }
+      var tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
+      tex.needsUpdate = true;
+      return tex;
+    }
+    function plane(w, h, tex) {
+      return new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }),
+      );
+    }
+    function vox(z, y, x) { return data[z * ny * nx + y * nx + x]; }
+
+    var z0 = nz >> 1, y0 = ny >> 1, x0 = nx >> 1;
+    var group = new THREE.Group();
+
+    // Axial (constant z): nx × ny in the XY plane.
+    var axial = plane(nx * sx, ny * sy, sliceTexture(nx, ny, function (x, y) { return vox(z0, y, x); }));
+    axial.position.set(0, 0, (z0 - nz / 2) * sz);
+    group.add(axial);
+
+    // Coronal (constant y): nx × nz in the XZ plane.
+    var coronal = plane(nx * sx, nz * sz, sliceTexture(nx, nz, function (x, z) { return vox(z, y0, x); }));
+    coronal.rotation.x = -Math.PI / 2;
+    coronal.position.set(0, (y0 - ny / 2) * sy, 0);
+    group.add(coronal);
+
+    // Sagittal (constant x): ny × nz in the YZ plane.
+    var sagittal = plane(ny * sy, nz * sz, sliceTexture(ny, nz, function (y, z) { return vox(z, y, x0); }));
+    sagittal.rotation.y = Math.PI / 2;
+    sagittal.position.set((x0 - nx / 2) * sx, 0, 0);
+    group.add(sagittal);
+
+    return group;
+  }
+  // Canonical structure colors; any other structure gets a neutral bone tone.
+  var MESH_COLORS = { femur: 0xe4c98f, tibia: 0x9fb6cf }; // warm tan / cool blue
   var boneGroup = new THREE.Group();
-  boneGroup.add(buildMesh(GEO.meshes.femur, 0xe4c98f)); // warm tan femur
-  boneGroup.add(buildMesh(GEO.meshes.tibia, 0x9fb6cf)); // cool blue tibia
-  scene.add(boneGroup);
+  if (HAS_MESH) {
+    meshNames.forEach(function (name) {
+      boneGroup.add(buildMesh(GEO.meshes[name], MESH_COLORS[name] || 0xbfc8d4));
+    });
+    scene.add(boneGroup);
+  }
+
+  // --- Volume-only mode: grayscale orthogonal slice planes -----------------
+  // Intake ships a downsampled REVIEW_VOLUME but no mesh. Render the three
+  // center slice planes (axial/coronal/sagittal) as textured planes inside the
+  // same OrbitControls scene — a genuine 3D grayscale volume view, no fabricated
+  // geometry.
+  var volumeGroup = null;
+  if (!HAS_MESH && HAS_VOLUME) {
+    volumeGroup = buildVolumePlanes(VOLUME);
+    if (volumeGroup) scene.add(volumeGroup);
+  }
 
   // Orientation axes, tucked into a corner near the joint.
   var axes = new THREE.AxesHelper(1.0);
@@ -1560,7 +1692,7 @@ window.REVIEW_EVIDENCE = {
 
   // --- Landmarks: constant-screen-size markers + outline -------------------
   var landmarks = {};
-  var landmarkList = EV.landmarks;
+  // landmarkList is resolved at the top (empty when the phase has no landmarks).
   var order = landmarkList.map(function (l) { return l.name; });
   var MARKER_GEO = new THREE.SphereGeometry(1, 20, 16); // unit sphere; scaled per frame
   var OUTLINE_GEO = new THREE.SphereGeometry(1.35, 18, 14);
@@ -1642,7 +1774,10 @@ window.REVIEW_EVIDENCE = {
     var l = landmarks[name];
     return l ? l.pos : new THREE.Vector3();
   }
-  decisive.measurement_lines.forEach(function (ml) {
+  // Measurement lines only exist on a decisive measurement (they connect named
+  // landmarks); phases without evidence draw none.
+  var measurementLines = HAS_EVIDENCE && Array.isArray(decisive.measurement_lines) ? decisive.measurement_lines : [];
+  measurementLines.forEach(function (ml) {
     var a = lmPos(ml.from), b = lmPos(ml.to);
     var geom = new THREE.BufferGeometry().setFromPoints([a.clone(), b.clone()]);
     var mat = new THREE.LineBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.9 });
@@ -1657,17 +1792,26 @@ window.REVIEW_EVIDENCE = {
     lines[ml.id] = { line: line, badge: badge, from: ml.from, to: ml.to, mid: a.clone().add(b).multiplyScalar(0.5) };
   });
   var len0 = 0, wid0 = 0;
-  decisive.measurement_lines.forEach(function (ml) {
+  measurementLines.forEach(function (ml) {
     if (ml.id === "femoral_length") len0 = ml.value_mm;
     if (ml.id === "femoral_width") wid0 = ml.value_mm;
   });
   if (len0 && wid0) ratioEl.textContent = "W/L = " + (wid0 / len0).toFixed(2);
 
-  // --- Camera framing: fit the joint (landmark cloud), not the long shaft --
+  // --- Camera framing ------------------------------------------------------
+  // Fit whatever the phase actually renders: the landmark cloud when present
+  // (fit the joint, not the long shaft), else the mesh, else the volume planes.
   var lmBox = new THREE.Box3();
-  landmarkList.forEach(function (lm) {
-    lmBox.expandByPoint(new THREE.Vector3(lm.position[0], lm.position[1], lm.position[2]));
-  });
+  if (HAS_LANDMARKS) {
+    landmarkList.forEach(function (lm) {
+      lmBox.expandByPoint(new THREE.Vector3(lm.position[0], lm.position[1], lm.position[2]));
+    });
+  } else if (HAS_MESH) {
+    lmBox.setFromObject(boneGroup);
+  } else if (volumeGroup) {
+    lmBox.setFromObject(volumeGroup);
+  }
+  if (lmBox.isEmpty()) lmBox.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
   var jointCenter = lmBox.getCenter(new THREE.Vector3());
   var jointSize = lmBox.getSize(new THREE.Vector3());
   var jointRadius = Math.max(jointSize.length() * 0.5, 0.9);
@@ -1755,6 +1899,7 @@ window.REVIEW_EVIDENCE = {
   }
 
   function updateOverlay() {
+    if (!HAS_LANDMARKS) return; // no markers/labels/badges to project
     var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
     var narrow = w < 520;
     var m = 8; // edge margin
@@ -1864,6 +2009,10 @@ window.REVIEW_EVIDENCE = {
   document.getElementById("btn-side").addEventListener("click", function () { flyTo(dirPose(1, 0.14, 0.12)); });
   document.getElementById("btn-zoom-in").addEventListener("click", function () { snapZoom(0.82); });
   document.getElementById("btn-zoom-out").addEventListener("click", function () { snapZoom(1.22); });
+  document.getElementById("btn-labels").addEventListener("click", function () {
+    document.body.classList.toggle("hide-labels");
+    this.classList.toggle("ctrl-labels-off");
+  });
 
   // --- Raycast: click a marker to select it -------------------------------
   var raycaster = new THREE.Raycaster();
@@ -1988,10 +2137,12 @@ window.REVIEW_EVIDENCE = {
     collapseBtn.textContent = "▴";
   }
 
-  // --- Tabs (Slices only when a volume is shipped) ------------------------
+  // --- Tabs ---------------------------------------------------------------
+  // 3D scene is always present (volume planes render inside it in volume-only
+  // mode). Values only when there is a decisive measurement. No separate slices
+  // tab: there is no slice-drilldown panel in this template.
   var tabDefs = [{ btn: "tab-3d", panel: "panel-3d", label: "3D scene" }];
-  if (HAS_VOLUME) tabDefs.push({ btn: "tab-slices", panel: "panel-slices", label: "Advanced slices" });
-  tabDefs.push({ btn: "tab-values", panel: "panel-values", label: "Values" });
+  if (HAS_EVIDENCE) tabDefs.push({ btn: "tab-values", panel: "panel-values", label: "Values" });
 
   var tabsEl = document.getElementById("tabs");
   tabDefs.forEach(function (t, i) {
@@ -2014,26 +2165,30 @@ window.REVIEW_EVIDENCE = {
       var panel = document.getElementById(t.panel);
       if (panel) panel.hidden = !on;
     });
-    // Tour bar belongs to the 3D scene only.
-    tourbar.style.display = id === "tab-3d" ? "" : "none";
+    // Tour bar belongs to the 3D scene only — and only when landmarks exist.
+    tourbar.style.display = id === "tab-3d" && HAS_LANDMARKS ? "" : "none";
     if (id === "tab-3d") resize();
   }
 
-  // Values tab body.
-  var vbody = document.getElementById("values-body");
-  decisive.sub_measurements.concat([
-    { id: decisive.id, label: decisive.label, value: decisive.value, unit: decisive.unit },
-  ]).forEach(function (row) {
-    var tr = document.createElement("tr");
-    var td1 = document.createElement("td"); td1.textContent = row.label;
-    var td2 = document.createElement("td"); td2.className = "num"; td2.textContent = row.value.toFixed(2) + " " + row.unit;
-    tr.appendChild(td1); tr.appendChild(td2);
-    vbody.appendChild(tr);
-  });
-  document.getElementById("interpretation").textContent =
-    EV.interpretation.stage + " (" + EV.interpretation.confidence + " confidence) — " + EV.interpretation.basis;
+  // Values tab body — only rendered when there is a decisive measurement.
+  if (HAS_EVIDENCE) {
+    var vbody = document.getElementById("values-body");
+    (decisive.sub_measurements || []).concat([
+      { id: decisive.id, label: decisive.label, value: decisive.value, unit: decisive.unit },
+    ]).forEach(function (row) {
+      var tr = document.createElement("tr");
+      var td1 = document.createElement("td"); td1.textContent = row.label;
+      var td2 = document.createElement("td"); td2.className = "num"; td2.textContent = row.value.toFixed(2) + " " + row.unit;
+      tr.appendChild(td1); tr.appendChild(td2);
+      vbody.appendChild(tr);
+    });
+    if (EV.interpretation) {
+      document.getElementById("interpretation").textContent =
+        EV.interpretation.stage + " (" + EV.interpretation.confidence + " confidence) — " + EV.interpretation.basis;
+    }
+  }
 
-  goStep(0);
+  if (HAS_LANDMARKS) goStep(0);
   showTab("tab-3d");
 })();
 

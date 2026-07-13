@@ -179,6 +179,36 @@ describe("validatePhase — review_artifact validation", () => {
     );
     assert.equal(res.ok, false);
   });
+
+  it("accepts landmarks_available: false and preserves it (G9 authority)", () => {
+    const phase = parsePhase({
+      id: "intake",
+      skills: ["s"],
+      review_artifact: { type: "spatial-3d", landmarks_available: false },
+    });
+    assert.equal(phase.review_artifact?.landmarks_available, false);
+  });
+
+  it("omits landmarks_available when absent (defaults true at the G9 seam)", () => {
+    const phase = parsePhase({
+      id: "landmarks",
+      skills: ["s"],
+      review_artifact: { type: "spatial-3d" },
+    });
+    assert.equal(phase.review_artifact?.landmarks_available, undefined);
+  });
+
+  it("rejects a non-boolean landmarks_available", () => {
+    const res = validateProtocolYaml(
+      protocolWithPhase({
+        id: "review",
+        skills: ["r"],
+        review_artifact: { type: "spatial-3d", landmarks_available: "false" },
+      }),
+    );
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.match(res.errors[0]?.message ?? "", /expected boolean/);
+  });
 });
 
 describe("validateProtocolYaml — review-artifact-author profile requirement (design §3.D)", () => {

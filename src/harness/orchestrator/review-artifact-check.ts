@@ -88,6 +88,11 @@ export async function runReviewArtifactCheckAtPath(
     // canonical builder (F4) — so G5 can confirm connect-src 'none' before it
     // downgrades a network sink to a warning, and fail closed otherwise.
     contentSecurityPolicy: buildReviewSiteCsp(cdnAllowlist),
+    // AUTHORITATIVE landmarks_available from the PROTOCOL (default true when the
+    // phase omits it). G9 uses this instead of the site's manifest so an author
+    // cannot set it false to bypass the real-landmark check on a landmarks/
+    // measurement phase.
+    landmarksAvailable: phase.review_artifact?.landmarks_available ?? true,
   });
 
   await mkdir(dirname(outPath), { recursive: true });
