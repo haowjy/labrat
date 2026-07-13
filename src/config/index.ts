@@ -60,6 +60,12 @@ export type LabratConfig = {
      *  and never re-runs verified worker science (review-provenance §3.D). */
     readonly artifactAuthorAttempts: number;
   };
+  readonly timeouts: {
+    /** Wall-clock budget for one worker phase (all query() continuations
+     *  combined) — a generous backstop, not a progress bound: the worker loop
+     *  fails with `time-budget` only after this elapses without record_phase. */
+    readonly workerPhaseWallClockMs: number;
+  };
 };
 
 /** Single source of truth for the science-home default (also used by
@@ -99,6 +105,9 @@ type LabratConfigFile = {
     readonly backgroundGraceRetries?: number;
     readonly artifactAuthorAttempts?: number;
   };
+  readonly timeouts?: {
+    readonly workerPhaseWallClockMs?: number;
+  };
 };
 
 const KNOWN_TOP_LEVEL_KEYS = new Set([
@@ -110,9 +119,11 @@ const KNOWN_TOP_LEVEL_KEYS = new Set([
   "watchRoots",
   "dashboard",
   "retries",
+  "timeouts",
 ]);
 const KNOWN_DASHBOARD_KEYS = new Set(["port", "url", "user"]);
 const KNOWN_RETRIES_KEYS = new Set(["workerStall", "reviewAttempts", "phaseAttempts", "backgroundGraceRetries", "artifactAuthorAttempts"]);
+const KNOWN_TIMEOUTS_KEYS = new Set(["workerPhaseWallClockMs"]);
 
 /** Reject unknown keys so a typo (e.g. `defualtModel`) fails loudly instead
  * of being silently dropped, matching the strictness of value validation. */
@@ -275,6 +286,25 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
     };
   }
 
+  let timeouts: LabratConfigFile["timeouts"];
+  if (rec.value["timeouts"] !== undefined && rec.value["timeouts"] !== null) {
+    const toRec = expectRecord(rec.value["timeouts"], "$.timeouts");
+    if (!toRec.ok) return toRec;
+    const unknownTimeouts = checkUnknownKeys(toRec.value, "$.timeouts", KNOWN_TIMEOUTS_KEYS);
+    if (!unknownTimeouts.ok) return unknownTimeouts;
+    const workerPhaseWallClockMs = expectOptional(
+      toRec.value["workerPhaseWallClockMs"],
+      "$.timeouts.workerPhaseWallClockMs",
+      (v, p) => expectPositiveInt(v, p),
+    );
+    if (!workerPhaseWallClockMs.ok) return workerPhaseWallClockMs;
+    timeouts = {
+      ...(workerPhaseWallClockMs.value !== undefined
+        ? { workerPhaseWallClockMs: workerPhaseWallClockMs.value }
+        : {}),
+    };
+  }
+
   return {
     ok: true,
     value: {
@@ -290,6 +320,7 @@ function validateConfigFile(value: unknown): ValidationResult<LabratConfigFile> 
       ...(watchRoots !== undefined ? { watchRoots } : {}),
       ...(dashboard !== undefined ? { dashboard } : {}),
       ...(retries !== undefined ? { retries } : {}),
+      ...(timeouts !== undefined ? { timeouts } : {}),
     },
   };
 }
@@ -414,6 +445,7 @@ export function loadConfig(
       user: userInfo().username,
     },
     retries: { workerStall: 3, reviewAttempts: 2, phaseAttempts: 2, backgroundGraceRetries: 10, artifactAuthorAttempts: 2 },
+    timeouts: { workerPhaseWallClockMs: 90 * 60_000 },
   };
 
   // Overlay labrat.config.json (search cwd, then the default scienceHome —
@@ -481,6 +513,12 @@ export function loadConfig(
         parsePositiveInt(env["LABRAT_ARTIFACT_AUTHOR_ATTEMPTS"]) ??
         file.retries?.artifactAuthorAttempts ??
         defaults.retries.artifactAuthorAttempts,
+    },
+    timeouts: {
+      workerPhaseWallClockMs:
+        parsePositiveInt(env["LABRAT_WORKER_PHASE_WALL_CLOCK_MS"]) ??
+        file.timeouts?.workerPhaseWallClockMs ??
+        defaults.timeouts.workerPhaseWallClockMs,
     },
   };
 }

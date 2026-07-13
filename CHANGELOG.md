@@ -33,6 +33,7 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 - Dashboard config derives from the shared config seam; SSE dev-replay reads a real task on disk (`LABRAT_REPLAY_TASK`) instead of a hardcoded sample run.
 - Reviewer sessions only skip permissions when the resolved mode is `bypassPermissions`.
 - Review-chain view derives the before/after "hero" comparison from the reviewer's OWN recomputed numbers (its `recomputed`/`ratios`/`values` containers), never falling back to the worker's value: a corrected phase shows the reviewer's independent measurement, and an unverifiable one reads "pending" instead of silently echoing the worker.
+- Worker stall detection is now progress-based, not a turn-count ceiling: a phase whose declared outputs are all on disk auto-completes even if record_phase wasn't called; on-disk progress under phases/<phase>/ or active background work keeps a phase alive with no re-invocation cap; failure is bounded only by consecutive no-progress turns (workerStall), a wall-clock budget (default 90m, LABRAT_WORKER_PHASE_WALL_CLOCK_MS), and a 200-iteration safety cap.
 
 ### Removed
 - Machine-specific defaults: personal PYTHONPATH, the `jimmy@voluma.bio` default author (now OS username), duplicated `4600`/`~/.claude-science` literals, and the silent `microct-oa-mouse-knee` default protocol (now errors clearly when no protocol is given).
@@ -43,3 +44,4 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 - Config: tilde expansion for `microctSrc` from a file; reject zero/negative retry and port values; reject unknown config keys; single `loadConfig()` per enqueue.
 - Gate `feedback_file` is now validated for path containment (must be under `review/verification/<phase>/`) and symlink escape (realpath must stay inside the task dir) before a gate decision is accepted.
 - Watcher: snapshot `activeRun` in the graceful-shutdown loop to close a null-deref race (`supervisor.ts` TOCTOU) that could crash shutdown while a run was finishing.
+- Worker/gate/monitor/router sessions no longer lose their MCP finalize tools (record_phase, submit_gate_decision, etc.) after a long turn + session continuation — progressive tool disclosure is disabled per session (ENABLE_TOOL_SEARCH=false). This was surfacing as a false phase "stall."

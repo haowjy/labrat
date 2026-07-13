@@ -59,6 +59,7 @@ import {
   type LabratToolContext,
 } from "./signals.js";
 import { extractAssistantText } from "./sdk-messages.js";
+import { SESSION_ENV_HARDENING } from "./session-env.js";
 
 export { MONITOR_VERDICTS, type MonitorVerdict } from "../../schema/index.js";
 
@@ -419,7 +420,10 @@ export function buildMonitorQueryOptions(
   return {
     model: config.model,
     cwd: config.taskDir,
-    env: { ...process.env } as Record<string, string>,
+    env: {
+      ...process.env,
+      ...SESSION_ENV_HARDENING,
+    } as Record<string, string>,
     permissionMode: config.permissionMode,
     ...(config.permissionMode === "bypassPermissions"
       ? { allowDangerouslySkipPermissions: true }

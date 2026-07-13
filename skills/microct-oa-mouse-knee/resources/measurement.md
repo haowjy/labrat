@@ -23,6 +23,10 @@ distance/ratio method is in `understand-3d-medical-volume`.
 **Volumes (from labels, not landmarks)** — voxel count × (10.5 µm)³ off the
 per-structure masks:
 
+In Amira Material Statistics, use the **Volume** column (mm³) as the direct source;
+do not report **Count**. The voxel-count calculation above is the independent
+derivation of that volume.
+
 | Index | From mask | Unit |
 |-------|-----------|------|
 | `patella_volume` | `masks/patella.nii.gz` | mm³ |

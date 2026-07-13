@@ -49,6 +49,7 @@ import {
   type LabratToolContext,
 } from "../session/signals.js";
 import { extractAssistantText, extractSessionId } from "../session/sdk-messages.js";
+import { SESSION_ENV_HARDENING } from "../session/session-env.js";
 
 export const FEEDBACK_ROUTER_PROMPT_VERSION = "feedback-router-v1";
 export const FEEDBACK_ROUTER_TIMEOUT_MS = 120_000;
@@ -325,7 +326,10 @@ export function buildFeedbackRouterQueryOptions(
   return {
     model: ctx.model,
     cwd: ctx.taskDir,
-    env: { ...process.env } as Record<string, string>,
+    env: {
+      ...process.env,
+      ...SESSION_ENV_HARDENING,
+    } as Record<string, string>,
     permissionMode: ctx.permissionMode,
     ...(ctx.permissionMode === "bypassPermissions"
       ? { allowDangerouslySkipPermissions: true }

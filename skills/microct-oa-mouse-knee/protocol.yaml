@@ -18,6 +18,11 @@ phases:
       - intake/orientation_report.md
       - intake/stage_report.json
       - spacing.json
+    # Per-phase interactive review artifact (review-provenance §3.D). A fresh
+    # author session builds a document-style QC report from the intake outputs
+    # after the scientific gate passes; published to artifacts/review-sites/intake/.
+    review_artifact:
+      type: document
 
   - id: segmentation
     # seed-review is its own phase below, not a segmentation skill — it loads
@@ -96,6 +101,12 @@ phases:
       - measurements/qc_overlays.json
       - measurements/summary.md
       - measurements_final.json
+    # Per-phase interactive review artifact (review-provenance §3.D). A fresh
+    # author session builds a quantitative values-table site from the measurement
+    # results after the scientific gate passes; published to
+    # artifacts/review-sites/measurement/. Independent of the legacy final 3D site.
+    review_artifact:
+      type: quantitative
 
   - id: review-artifact
     # composes the review-artifact-builder skill (the review-UI method) — see
@@ -180,6 +191,25 @@ agents:
       - Glob
       - submit_monitor_verdict
     writable: []
+  # Per-phase review-artifact author (review-provenance §3.D). A fresh, confined
+  # session that builds the phase's interactive review site from verified disk
+  # outputs ONLY (no compute/Bash — it reads artifacts and writes the templated
+  # site). read_past_history / view_human_feedback are author-only MCP tools.
+  # Failure PAUSES with review-artifact-author-failed; verified science is never
+  # touched. Required whenever any phase declares a non-legacy review_artifact.
+  review-artifact-author:
+    model: sonnet
+    permissions: acceptEdits
+    tools:
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - read_past_history
+      - view_human_feedback
+    writable:
+      - artifacts/review-sites/.staging/
 
 requires:
   worker:
