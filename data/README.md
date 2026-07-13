@@ -1,5 +1,15 @@
 # Sample data
 
+## Initial protocol
+
+LabRat's initial protocol is based on Tang et al., [“Evaluating Osteoarthritis
+Severity in Mice Using μCT-Derived Geometric
+Indices”](https://pubmed.ncbi.nlm.nih.gov/41677733/) (*Biology*, 2026;15(3):262).
+The paper defines μCT-derived distal femoral and proximal tibial geometric
+indices for assessing post-traumatic and age-related osteoarthritis in mice.
+The indices were developed using severe osteoarthritis induced by medial
+meniscectomy; their use in mild osteoarthritis requires further study.
+
 ## OA7-4L
 
 Mouse knee micro-CT scan from the OA7 cohort (Tang et al., *Biology* 2026, 15,
