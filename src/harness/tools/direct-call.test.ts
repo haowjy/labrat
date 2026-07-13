@@ -13,6 +13,7 @@ import {
   handleRecordPhase,
   handleSubmitGateDecision,
   handleSubmitMonitorVerdict,
+  isPhaseRecordable,
 } from "./handlers.js";
 import { allowedLabratTools, createLabratToolServer } from "./server.js";
 
@@ -67,6 +68,39 @@ async function main(): Promise<void> {
     assert.equal(ctx.signals.phaseComplete, false);
     console.log("OK record_phase rejects unmarked subphases");
 
+    // isPhaseRecordable — parity with handleRecordPhase's rejection, and no
+    // signal mutation (the worker loop's completion-fallback probe).
+    let recordable = await isPhaseRecordable(ctx);
+    if (recordable.ok) {
+      throw new Error("expected not recordable with unmarked subphases");
+    }
+    assert.equal(recordable.reason, textOf(result));
+    assert.equal(ctx.signals.phaseComplete, false);
+    console.log("OK isPhaseRecordable rejects unmarked subphases (same reason)");
+
+    // isPhaseRecordable — missing phase dir
+    recordable = await isPhaseRecordable(
+      makeCtx(taskDir, { currentPhase: "nonexistent" }),
+    );
+    if (recordable.ok) {
+      throw new Error("expected not recordable with missing phase dir");
+    }
+    assert.match(recordable.reason, /phases\/nonexistent\/ does not exist/);
+    console.log("OK isPhaseRecordable rejects missing phase dir");
+
+    // isPhaseRecordable — missing declared artifact output
+    recordable = await isPhaseRecordable(
+      makeCtx(taskDir, { phaseOutputs: ["absent.nii.gz"], subphaseIds: [] }),
+    );
+    if (recordable.ok) {
+      throw new Error("expected not recordable with missing artifact");
+    }
+    assert.match(
+      recordable.reason,
+      /Missing required artifact outputs: artifacts\/absent\.nii\.gz/,
+    );
+    console.log("OK isPhaseRecordable rejects missing artifact outputs");
+
     // mark_subphase — invalid (pass without confidence)
     result = await handleMarkSubphase(ctx, {
       subphase: "threshold",
@@ -92,6 +126,12 @@ async function main(): Promise<void> {
     });
     assert.match(textOf(result), /Marked subphase watershed/);
     console.log("OK mark_subphase second mark");
+
+    // isPhaseRecordable — accepts once all checks pass, without setting signals
+    recordable = await isPhaseRecordable(ctx);
+    assert.equal(recordable.ok, true);
+    assert.equal(ctx.signals.phaseComplete, false);
+    console.log("OK isPhaseRecordable accepts a complete phase without mutating signals");
 
     // record_phase — success
     result = await handleRecordPhase(ctx, { phase: "segmentation" });
