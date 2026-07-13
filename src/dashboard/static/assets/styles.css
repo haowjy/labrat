@@ -531,6 +531,16 @@ a { color:var(--accent); }
 .watch-lastdrop-name { font-family:var(--mono); font-size:0.72rem; font-weight:600; }
 .watch-lastdrop-meta { font-family:var(--mono); font-size:0.66rem; color:var(--muted); }
 
+.watch-add { display:flex; flex-direction:column; gap:0.5rem; padding:0.85rem 1rem; border:1px dashed var(--accent-line); border-radius:8px; background:var(--surface); }
+.watch-add-title { font-family:var(--mono); font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; }
+.watch-add-row { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; }
+.watch-add-select { border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--mono); font-size:0.74rem; padding:0.45rem 0.55rem; min-height:38px; }
+.watch-add-select:focus { outline:none; border-color:var(--accent); }
+.watch-add-select:disabled { opacity:0.6; }
+.watch-add-empty { font-family:var(--mono); font-size:0.7rem; color:var(--muted); }
+.watch-add-offline { font-family:var(--mono); font-size:0.68rem; color:var(--warn); }
+.watch-add-offline code { font-size:inherit; }
+
 /* === COLLAPSIBLE REVIEW SECTIONS (ReviewLayer.js) — the chain card and
    evidence panel collapse behind native <details> so the artifact and verdict
    lead on mobile. Sections start closed; the reviewer taps to expand. === */

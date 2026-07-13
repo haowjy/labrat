@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { after, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createApp } from "../server.js";
 import { writeWatcherStatus } from "../../control/index.js";
 import type { WatcherStatusFile } from "../../schema/index.js";
@@ -14,6 +15,12 @@ import type { WatcherStatusFile } from "../../schema/index.js";
 // shaped tmp tree (tasks/ + control/ siblings) since the control files
 // resolve to <tasksDir>/../control/. Per contract R7 the GET is a pure
 // status-file read (+ derived health) — it never traverses watchRoot paths.
+// scienceHome points at the checked-in fixture registry: the POST validates
+// patched protocol ids against its runnable set ("runnable-skill" only).
+
+const FIXTURE_REGISTRY = fileURLToPath(
+  new URL("../../../fixtures/claude-science-registry/", import.meta.url),
+);
 
 const roots: string[] = [];
 const servers: http.Server[] = [];
@@ -27,7 +34,7 @@ async function boot(): Promise<{ base: string; root: string; tasksDir: string }>
   roots.push(root);
   const tasksDir = path.join(root, "tasks");
   await mkdir(tasksDir, { recursive: true });
-  const app = createApp({ tasksDir, scienceHome: "/nonexistent", user: "tester", port: 0, devReplay: false });
+  const app = createApp({ tasksDir, scienceHome: FIXTURE_REGISTRY, user: "tester", port: 0, devReplay: false });
   const server = await new Promise<http.Server>((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
@@ -113,13 +120,13 @@ describe("POST /api/watcher", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         desired: "running",
-        protocols: { "microct-oa-mouse-knee": { watchRoot: "/abs/dropbox" } },
+        protocols: { "runnable-skill": { watchRoot: "/abs/dropbox" } },
       }),
     });
     assert.equal(first.status, 200);
     assert.deepEqual(await first.json(), {
       desired: "running",
-      protocols: { "microct-oa-mouse-knee": { watchRoot: "/abs/dropbox" } },
+      protocols: { "runnable-skill": { watchRoot: "/abs/dropbox" } },
     });
 
     // Partial patch: stop the watcher without resending protocols.
@@ -132,7 +139,7 @@ describe("POST /api/watcher", () => {
     const merged = (await second.json()) as Record<string, any>;
     assert.equal(merged.desired, "stopped");
     assert.deepEqual(merged.protocols, {
-      "microct-oa-mouse-knee": { watchRoot: "/abs/dropbox" },
+      "runnable-skill": { watchRoot: "/abs/dropbox" },
     });
 
     // Atomically written to control/watcher.json (sibling of tasks/).
@@ -164,6 +171,42 @@ describe("POST /api/watcher", () => {
       });
       assert.equal(res.status, 400, `watchRoot=${JSON.stringify(watchRoot)}`);
     }
+  });
+
+  it("rejects a protocol id that is not a runnable registry protocol with 400", async () => {
+    const { base, root } = await boot();
+    // "no-such-protocol" isn't in the registry at all; "prose-skill" exists
+    // but has no protocol.yaml — both must fail the runnable allowlist.
+    for (const id of ["no-such-protocol", "prose-skill"]) {
+      const res = await fetch(`${base}/api/watcher`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ protocols: { [id]: { watchRoot: "/abs/dropbox" } } }),
+      });
+      assert.equal(res.status, 400, `id=${id}`);
+      const body = (await res.json()) as Record<string, any>;
+      assert.ok(
+        String(body.error).includes(
+          `protocol "${id}" is not a runnable protocol in the Claude Science registry`,
+        ),
+        body.error,
+      );
+      assert.ok(String(body.error).includes("runnable-skill"), body.error);
+    }
+    // Nothing was written — the guard sits in front of the merge.
+    await assert.rejects(readFile(join(root, "control", "watcher.json")));
+  });
+
+  it("accepts a known runnable protocol id", async () => {
+    const { base } = await boot();
+    const res = await fetch(`${base}/api/watcher`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocols: { "runnable-skill": { watchRoot: "/abs/new-dropbox" } } }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as Record<string, any>;
+    assert.deepEqual(body.protocols, { "runnable-skill": { watchRoot: "/abs/new-dropbox" } });
   });
 
   it("rejects an empty patch (neither desired nor protocols) with 400", async () => {

@@ -185,6 +185,130 @@ function ProtocolRow({ id, proto, onSaveRoot }) {
   `;
 }
 
+/**
+ * "Add a watch folder" form: bind a runnable protocol (picker fed from
+ * GET /api/claude-science/skills, minus protocols already bound in the
+ * heartbeat) to an absolute drop folder. POSTs {protocols:{[id]:{watchRoot}}}
+ * — the server rejects non-runnable ids, so the picker and the write path
+ * enforce the same allowlist. The new binding only shows up in the rows
+ * above after the daemon's next heartbeat; while the daemon is offline the
+ * form still saves (disk is the contract) but says so plainly — a file
+ * cannot start a process, so the binding stays inert until `labrat watch`
+ * runs.
+ */
+function AddWatchFolder({ boundIds, health, onAdd }) {
+  const [skills, setSkills] = useState(null); // null = loading/unavailable
+  const [picked, setPicked] = useState("");
+  const [root, setRoot] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [savedId, setSavedId] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    getJSON("/api/claude-science/skills")
+      .then((list) => {
+        if (alive) setSkills(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (alive) setSkills([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const options = (skills ?? [])
+    .filter((s) => s.runnable === true && !boundIds.includes(s.name))
+    .map((s) => s.name);
+
+  // A saved binding graduates to a ProtocolRow once the heartbeat carries
+  // it; drop the "saved" note at that point.
+  useEffect(() => {
+    if (savedId && boundIds.includes(savedId)) setSavedId(null);
+  }, [savedId, boundIds]);
+
+  const ready = picked !== "" && root.trim() !== "" && !busy;
+
+  async function add() {
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    setSavedId(null);
+    try {
+      await onAdd(picked, root.trim());
+      setSavedId(picked);
+      setPicked("");
+      setRoot("");
+    } catch (e) {
+      setError(e.message || "Could not add the watch folder.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (skills === null) return null; // still loading the protocol list
+
+  return html`
+    <div class="watch-add">
+      <div class="watch-add-title">Add a watch folder</div>
+      ${options.length === 0
+        ? html`<div class="watch-add-empty">
+            ${(skills ?? []).some((s) => s.runnable === true)
+              ? "All runnable protocols already have a watch folder."
+              : "No runnable protocols found in the Claude Science registry."}
+          </div>`
+        : html`
+            <div class="watch-add-row">
+              <select
+                class="watch-add-select"
+                value=${picked}
+                disabled=${busy}
+                onChange=${(e) => {
+                  setPicked(e.currentTarget.value);
+                  setError(null);
+                }}
+              >
+                <option value="">Choose a protocol…</option>
+                ${options.map((name) => html`<option value=${name} key=${name}>${name}</option>`)}
+              </select>
+              <input
+                class="watch-root-input"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="/absolute/path/to/dropbox"
+                value=${root}
+                disabled=${busy}
+                onInput=${(e) => {
+                  setRoot(e.currentTarget.value);
+                  setError(null);
+                }}
+                onKeyDown=${(e) => {
+                  if (e.key === "Enter") add();
+                }}
+              />
+              <button type="button" class="btn btn-primary" disabled=${!ready} onClick=${add}>
+                ${busy ? "Adding…" : "Add"}
+              </button>
+            </div>
+          `}
+      ${error ? html`<div class="watch-error">${error}</div>` : null}
+      ${!error && savedId
+        ? html`<div class="watch-saved">
+            Saved ${savedId}. It appears above after the watcher's next heartbeat.
+          </div>`
+        : null}
+      ${health === "offline"
+        ? html`<div class="watch-add-offline">
+            The watcher daemon is offline. Bindings added here are saved to disk but stay
+            inert until <code>labrat watch</code> is running — the dashboard can't start it.
+          </div>`
+        : null}
+    </div>
+  `;
+}
+
 /** Health -> [dot class, label, meta line]. Meta never repeats a stale
  * file's pid/since claims when the heartbeat says offline. */
 function healthPresentation(health, status, ingestionOn) {
@@ -362,6 +486,12 @@ export function WatchPanel() {
                     `,
                   )}
                 </div>`}
+
+            <${AddWatchFolder}
+              boundIds=${protocols.map(([id]) => id)}
+              health=${health}
+              onAdd=${saveRoot}
+            />
           `
         : null}
     </div>

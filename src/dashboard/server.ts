@@ -483,9 +483,10 @@ export function createApp(config: DashboardConfig): Express & { sseBroker: SseBr
 
   // Desired-state write: validate + merge into control/watcher.json. The
   // supervisor daemon (labrat watch) reads it on its next tick — this route
-  // never touches the harness process directly.
+  // never touches the harness process directly. scienceHome backs the
+  // runnable-protocol allowlist check on patched protocol ids.
   app.post("/api/watcher", async (req, res) => {
-    const result = await updateWatcherControl(tasksDir, req.body);
+    const result = await updateWatcherControl(tasksDir, config.scienceHome, req.body);
     if (!result.ok) {
       res.status(result.status).json({ error: result.error });
       return;

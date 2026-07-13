@@ -3,6 +3,7 @@ import {
   readWatcherStatus,
   writeWatcherControl,
 } from "../../control/index.js";
+import { listClaudeScienceSkills } from "../../harness/claude-science/registry.js";
 import {
   validateWatcherControlPatch,
   type WatcherControlFile,
@@ -59,13 +60,17 @@ export type UpdateWatcherControlResult =
 
 /**
  * `POST /api/watcher` write path: validate the raw body (unknown `desired`
- * and empty/relative watchRoots are rejected in the schema), merge onto the
- * existing `control/watcher.json`, write atomically, return the new desired
- * state. NOTE: writing `desired: "running"` enables ingestion in an
+ * and empty/relative watchRoots are rejected in the schema; protocol ids
+ * must name a RUNNABLE protocol in the Claude Science registry — the same
+ * allowlist `startManualRun` enforces on /api/enqueue, so a typo'd id fails
+ * loudly here instead of sitting inert in the control file forever), merge
+ * onto the existing `control/watcher.json`, write atomically, return the new
+ * desired state. NOTE: writing `desired: "running"` enables ingestion in an
  * already-running `labrat watch` daemon — a file cannot start a process.
  */
 export async function updateWatcherControl(
   tasksDir: string,
+  scienceHome: string,
   body: unknown,
 ): Promise<UpdateWatcherControlResult> {
   const patch = validateWatcherControlPatch(body);
@@ -75,6 +80,22 @@ export async function updateWatcherControl(
       status: 400,
       error: patch.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
     };
+  }
+
+  const patchedIds = Object.keys(patch.value.protocols ?? {});
+  if (patchedIds.length > 0) {
+    const skills = await listClaudeScienceSkills(scienceHome, { includeBuiltins: true });
+    const known = skills.filter((s) => s.runnable).map((s) => s.name);
+    const unknown = patchedIds.find((id) => !known.includes(id));
+    if (unknown !== undefined) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          `protocol "${unknown}" is not a runnable protocol in the Claude Science ` +
+          `registry${known.length > 0 ? ` (known: ${known.join(", ")})` : ""}`,
+      };
+    }
   }
 
   const existing = await readWatcherControl(tasksDir);
