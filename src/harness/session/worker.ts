@@ -28,6 +28,18 @@ import {
   extractSessionId,
 } from "./sdk-messages.js";
 import { createSessionLogger, type SessionLogger } from "./session-log.js";
+import { SESSION_ENV_HARDENING } from "./session-env.js";
+import { isPhaseRecordable } from "../tools/handlers.js";
+import {
+  classifyTurnOutcome,
+  snapshotPhaseDir,
+  snapshotsEqual,
+  WORKER_ITERATION_CAP,
+  type StallExhaustedReason,
+  type TurnLimits,
+} from "./worker-stall.js";
+
+export { type StallExhaustedReason } from "./worker-stall.js";
 
 export type WorkerSessionConfig = {
   readonly taskId: string;
@@ -45,18 +57,20 @@ export type WorkerSessionConfig = {
   readonly runSettings: LabratConfig;
 };
 
-export type StallExhaustedReason =
-  | "stall"              // Genuine stalls (no background work, no record_phase)
-  | "background-grace";  // Background work ran too long without record_phase
-
 export type WorkerSessionResult = {
   readonly sessionId: string;
   readonly phaseComplete: boolean;
   readonly blockedReason: string | null;
   readonly stallExhausted: boolean;
   /** Set when stallExhausted is true — distinguishes genuine stalls from
-   *  background-grace exhaustion for accurate error reporting. */
+   *  background-grace / time-budget / iteration-cap exhaustion for accurate
+   *  error reporting. */
   readonly stallExhaustedReason: StallExhaustedReason | null;
+  /** How completion was detected when phaseComplete is true: the explicit
+   *  record_phase tool call, or the harness's completion fallback (all
+   *  declared outputs present on disk — record_phase's acceptance check
+   *  passes — but the tool call never landed, e.g. dropped MCP tool). */
+  readonly completedVia: "record_phase" | "outputs-present" | null;
 };
 
 function buildSdkAgents(
@@ -101,6 +115,8 @@ export function buildSessionEnv(runtime: RuntimeHandle): Record<string, string> 
     env[key] = value;
   }
   env["PATH"] = mergedPath;
+  // Rationale for ENABLE_TOOL_SEARCH=false lives on SESSION_ENV_HARDENING.
+  Object.assign(env, SESSION_ENV_HARDENING);
   return env;
 }
 
@@ -252,24 +268,31 @@ export async function runWorkerPhase(
     secrets: [],
   });
 
+  const limits: TurnLimits = {
+    workerStall: config.runSettings.retries.workerStall,
+    backgroundGraceRetries: config.runSettings.retries.backgroundGraceRetries,
+    wallClockMs: config.runSettings.timeouts.workerPhaseWallClockMs,
+    iterationCap: WORKER_ITERATION_CAP,
+  };
+
   let sessionId = "";
-  let stallCount = 0;
+  let noProgressCount = 0;
   let bgGraceCount = 0;
-  let exhaustionReason: StallExhaustedReason = "stall";
-  const maxStallRetries = config.runSettings.retries.workerStall;
-  const maxBgGrace = config.runSettings.retries.backgroundGraceRetries;
+  let iteration = 0;
+  const startedAt = Date.now();
+  // Baseline BEFORE the first query so turn-1 progress (usually the phase
+  // record itself) registers. Missing dir → empty snapshot.
+  let priorSnapshot = await snapshotPhaseDir(config.taskDir, config.phaseId);
 
-  // Total turn budget prevents infinite loops regardless of stall vs bg-grace.
-  const maxTotalTurns = maxStallRetries + maxBgGrace + 1;
-  let totalTurns = 0;
+  // Progress/quiescence loop (see worker-stall.ts): no re-invocation ceiling —
+  // a worker producing on-disk progress keeps running; only consecutive
+  // no-progress idle turns, expired background grace, or a backstop
+  // (wall-clock / iteration cap) end the phase without record_phase.
+  while (true) {
+    iteration += 1;
 
-  while (totalTurns < maxTotalTurns) {
-    totalTurns += 1;
-
-    // Determine prompt mode based on whether this is a fresh start, a
-    // background-work continuation, or a genuine stall reminder.
     const mode: PromptMode =
-      stallCount === 0 && bgGraceCount === 0
+      iteration === 1
         ? "initial"
         : toolCtx.signals.activeBackgroundTasks.length > 0
           ? "background-continue"
@@ -281,7 +304,6 @@ export async function runWorkerPhase(
       config.inputRel,
       mode,
     );
-    const isContinuation = stallCount > 0 || bgGraceCount > 0;
 
     const sid = await runOneQuery(
       config,
@@ -289,64 +311,112 @@ export async function runWorkerPhase(
       systemPromptParts,
       toolCtx,
       userPrompt,
-      isContinuation,
+      iteration > 1,
       sessionLog,
-      totalTurns,
+      iteration,
     );
 
     if (sid) {
       sessionId = sid;
     }
 
-    if (toolCtx.signals.blockedReason) {
-      return {
-        sessionId,
-        phaseComplete: false,
-        blockedReason: toolCtx.signals.blockedReason,
-        stallExhausted: false,
-        stallExhaustedReason: null,
-      };
+    // Gather the turn's observable facts, then let the pure classifier decide.
+    const blocked = toolCtx.signals.blockedReason !== null;
+    const phaseComplete = toolCtx.signals.phaseComplete;
+    const hasActiveBackgroundTasks =
+      toolCtx.signals.activeBackgroundTasks.length > 0;
+
+    // Completion fallback probe: would record_phase's acceptance check pass?
+    let recordable = false;
+    if (!blocked && !phaseComplete) {
+      try {
+        recordable = (await isPhaseRecordable(toolCtx)).ok;
+      } catch {
+        // e.g. malformed subphases.json — not recordable, fall through to
+        // the stall/grace decision (record_phase itself would also error).
+      }
     }
 
-    if (toolCtx.signals.phaseComplete) {
-      return {
-        sessionId,
-        phaseComplete: true,
-        blockedReason: null,
-        stallExhausted: false,
-        stallExhaustedReason: null,
-      };
+    // Progress snapshot only matters on genuinely idle, unfinished turns.
+    let progressed = false;
+    if (!blocked && !phaseComplete && !recordable && !hasActiveBackgroundTasks) {
+      const snapshot = await snapshotPhaseDir(config.taskDir, config.phaseId);
+      progressed = !snapshotsEqual(priorSnapshot, snapshot);
+      priorSnapshot = snapshot;
     }
 
-    // Decide: is this a genuine stall, or is the worker waiting on
-    // background work it started (e.g. a long Python script)?
-    if (toolCtx.signals.activeBackgroundTasks.length > 0) {
-      bgGraceCount += 1;
-      if (bgGraceCount > maxBgGrace) {
-        // Background work is still running but we've waited too long.
-        exhaustionReason = "background-grace";
-        break;
-      }
-      await notifyEvent(config.taskDir, {
-        type: "log",
-        taskId: config.taskId,
-        line: `[harness] background work active (${toolCtx.signals.activeBackgroundTasks.length} task(s)), grace ${bgGraceCount}/${maxBgGrace} — not counting as stall`,
-        ephemeral: true,
-      });
-    } else {
-      stallCount += 1;
-      if (stallCount > maxStallRetries) {
-        exhaustionReason = "stall";
-        break;
-      }
+    const decision = classifyTurnOutcome({
+      blocked,
+      phaseComplete,
+      recordable,
+      hasActiveBackgroundTasks,
+      progressed,
+      noProgressCount,
+      bgGraceCount,
+      elapsedMs: Date.now() - startedAt,
+      iteration,
+      limits,
+    });
+
+    switch (decision.action) {
+      case "return-blocked":
+        return {
+          sessionId,
+          phaseComplete: false,
+          blockedReason: toolCtx.signals.blockedReason,
+          stallExhausted: false,
+          stallExhaustedReason: null,
+          completedVia: null,
+        };
+
+      case "return-complete":
+        if (decision.completedVia === "outputs-present") {
+          // The load-bearing fix: the work is done (record_phase's validation
+          // passes) but the tool call never landed — complete instead of
+          // mis-reporting a finished phase as a stall.
+          toolCtx.signals.phaseComplete = true;
+          await notifyEvent(config.taskDir, {
+            type: "log",
+            taskId: config.taskId,
+            line: `[harness] phase ${config.phaseId} auto-completed: all declared outputs present on disk (no explicit record_phase — likely a finalize-tool hiccup)`,
+            ephemeral: true,
+          });
+        }
+        return {
+          sessionId,
+          phaseComplete: true,
+          blockedReason: null,
+          stallExhausted: false,
+          stallExhaustedReason: null,
+          completedVia: decision.completedVia,
+        };
+
+      case "grace-continue":
+        bgGraceCount = decision.bgGraceCount;
+        // Fresh stall budget after a grace period (review finding 4): waiting
+        // on observable background work must not erode the no-progress clock.
+        noProgressCount = decision.noProgressCount;
+        await notifyEvent(config.taskDir, {
+          type: "log",
+          taskId: config.taskId,
+          line: `[harness] background work active (${toolCtx.signals.activeBackgroundTasks.length} task(s)), grace ${bgGraceCount}/${limits.backgroundGraceRetries} — not counting as stall`,
+          ephemeral: true,
+        });
+        continue;
+
+      case "reminder-continue":
+        noProgressCount = decision.noProgressCount;
+        continue;
+
+      case "fail":
+        return {
+          sessionId,
+          phaseComplete: false,
+          blockedReason: null,
+          stallExhausted: true,
+          stallExhaustedReason: decision.reason,
+          completedVia: null,
+        };
     }
   }
-
-  return {
-    sessionId,
-    phaseComplete: false,
-    blockedReason: null,
-    stallExhausted: true,
-    stallExhaustedReason: exhaustionReason,
-  };
 }
