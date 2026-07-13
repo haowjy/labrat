@@ -293,3 +293,74 @@ describe("GET /api/tasks/:id/review-sites/:phase/*path", () => {
     assert.match(await res.text(), /legacy single site/);
   });
 });
+
+/*
+ * Manual "Submit a sample" (POST /api/enqueue): route-level VALIDATION only.
+ * boot()'s scienceHome is /nonexistent, so no protocol is ever "known" here
+ * and the detached-spawn path can never fire from these tests — the launch
+ * itself (with injected deps) is covered in dashboard/enqueue/index.test.ts.
+ */
+describe("POST /api/enqueue", () => {
+  async function post(base: string, body: unknown): Promise<Response> {
+    return fetch(`${base}/api/enqueue`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("rejects an unknown protocol with a 400 and a plain error message", async () => {
+    const { base } = await boot();
+    const res = await post(base, { input: "data/sample.zip", protocol: "not-a-protocol" });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as Record<string, any>;
+    assert.match(body.error, /not-a-protocol/);
+  });
+
+  it("rejects a missing input path with 400", async () => {
+    const { base } = await boot();
+    const res = await post(base, { protocol: "toy-stats" });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as Record<string, any>;
+    assert.match(body.error, /input/);
+  });
+
+  it("rejects a non-string protocol with 400", async () => {
+    const { base } = await boot();
+    const res = await post(base, { input: "data/sample.zip", protocol: 7 });
+    assert.equal(res.status, 400);
+  });
+});
+
+/*
+ * "Re-run this phase" (POST /api/tasks/:id/rerun): route-level REJECTION only.
+ * The fixture task is `running` with a `pass` verdict, so every path here
+ * stops in pre-flight validation and the detached-spawn path can never fire —
+ * the launch itself (with injected deps) is covered in
+ * dashboard/rerun/index.test.ts.
+ */
+describe("POST /api/tasks/:id/rerun", () => {
+  async function post(base: string, id: string): Promise<Response> {
+    return fetch(`${base}/api/tasks/${encodeURIComponent(id)}/rerun`, { method: "POST" });
+  }
+
+  it("rejects an invalid task id with 400", async () => {
+    const { base } = await boot();
+    const res = await post(base, "../../etc");
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects an unknown task id with 404", async () => {
+    const { base } = await boot();
+    const res = await post(base, "task-2026-07-09-999");
+    assert.equal(res.status, 404);
+  });
+
+  it("rejects the running fixture task with a plain 400 (double-run guard)", async () => {
+    const { base } = await boot();
+    const res = await post(base, TASK_ID);
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as Record<string, any>;
+    assert.match(body.error, /running/);
+  });
+});

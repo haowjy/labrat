@@ -18,6 +18,8 @@ import { createSseBroker, type SseBroker } from "./sse/index.js";
 import { startDevReplay } from "./sse/replay.js";
 import { finishReview } from "./review/index.js";
 import { getWatcherStatus, updateWatcherControl } from "./watcher/index.js";
+import { startManualRun } from "./enqueue/index.js";
+import { startRerun } from "./rerun/index.js";
 import { appendSuggestion } from "./suggestions/index.js";
 import { STATIC_ROOT } from "./static/index.js";
 
@@ -436,6 +438,39 @@ export function createApp(config: DashboardConfig): Express & { sseBroker: SseBr
       return;
     }
     res.status(201).json(result.value);
+  });
+
+  // Manual "Submit a sample" (SubmitPanel.js): validate, then start a run by
+  // spawning the existing CLI enqueue as a DETACHED child — the dashboard
+  // process never runs the harness in-line, never awaits the run, and a
+  // failing run cannot crash this server. The task id is allocated inside
+  // the child, so the route answers 202 "started"; the new task surfaces
+  // through the normal task-list + SSE path.
+  app.post("/api/enqueue", async (req, res) => {
+    const result = await startManualRun(
+      { tasksDir, scienceHome: config.scienceHome },
+      req.body,
+    );
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.status(202).json(result.value);
+  });
+
+  // "Re-run this phase" (VerdictPanel.js): after "Send back for revision"
+  // writes the changes_requested mark, this launches the existing CLI rerun
+  // as a DETACHED child — same posture as /api/enqueue (never awaited,
+  // crash-isolated, logs under control/). Pre-flight validation (known task,
+  // not running, a pending mark) maps to plain 400/404s; on success the phase
+  // restart surfaces through the normal task-tree + SSE path.
+  app.post("/api/tasks/:id/rerun", async (req, res) => {
+    const result = await startRerun({ tasksDir }, req.params.id);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.status(202).json(result.value);
   });
 
   // Watcher control panel (watcher-control-panel contract). Status merges
