@@ -17,12 +17,17 @@ phases:
       - intake/volume_metadata.json
       - intake/orientation_report.md
       - intake/stage_report.json
+      - intake/volume.json               # downsampled grayscale volume for the pre-segmentation 3D render (injected)
       - spacing.json
     # Per-phase interactive review artifact (review-provenance §3.D). A fresh
-    # author session builds a document-style QC report from the intake outputs
-    # after the scientific gate passes; published to artifacts/review-sites/intake/.
+    # author session builds a volume-only 3D render (no mesh — segmentation has
+    # not run) from intake/volume.json after the scientific gate passes;
+    # published to artifacts/review-sites/intake/. `landmarks_available: false`
+    # is PROTOCOL policy (harness-enforced into G9) — intake has no landmark
+    # source yet, so the linter skips its non-empty-landmarks check for it.
     review_artifact:
-      type: document
+      type: spatial-3d
+      landmarks_available: false
 
   - id: segmentation
     # seed-review is its own phase below, not a segmentation skill — it loads
@@ -46,8 +51,17 @@ phases:
       - segmentation/seeds.json
       - segmentation/metadata.json
       - segmentation/stage_report.json
+      - segmentation/geometry.json         # decimated per-structure meshes from labels.nii.gz — emitted ONCE, referenced by every downstream phase's 3D review site (injected)
       - masks/
       - structure_assignments.json
+    # Per-phase interactive review artifact (review-provenance §3.D). A fresh
+    # author session references segmentation/geometry.json (the shared mesh,
+    # server-injected + hash-verified) — no recompute. Mesh-only, no landmark
+    # overlay yet, so `landmarks_available: false` (PROTOCOL policy, harness-
+    # enforced into G9 — not author-settable).
+    review_artifact:
+      type: spatial-3d
+      landmarks_available: false
     subphases:
       - id: threshold
       - id: watershed
@@ -71,6 +85,13 @@ phases:
       - segmentation/seeds.json
       - structure_assignments.json
       - segmentation/structure_assignments.json
+    # Per-phase interactive review artifact (review-provenance §3.D). References
+    # the shared segmentation/geometry.json mesh (server-injected + hash-verified)
+    # — no recompute. Mesh-only, no landmark overlay, so `landmarks_available:
+    # false` (PROTOCOL policy, harness-enforced into G9 — not author-settable).
+    review_artifact:
+      type: spatial-3d
+      landmarks_available: false
 
   - id: landmarks
     skills:
@@ -85,6 +106,13 @@ phases:
       - landmarks/positions.json
       - landmarks/orientation_frame.json
       - landmarks.json
+    # Per-phase interactive review artifact (review-provenance §3.D). References
+    # the shared segmentation/geometry.json mesh (server-injected + hash-verified)
+    # PLUS this phase's own landmarks/positions.json overlay — no mesh recompute.
+    # This phase HAS real landmarks, so `landmarks_available` stays true (default):
+    # the author cites the real placed landmarks; G9 enforces non-empty landmarks.
+    review_artifact:
+      type: spatial-3d
 
   - id: measurement
     skills:
@@ -102,11 +130,14 @@ phases:
       - measurements/summary.md
       - measurements_final.json
     # Per-phase interactive review artifact (review-provenance §3.D). A fresh
-    # author session builds a quantitative values-table site from the measurement
-    # results after the scientific gate passes; published to
-    # artifacts/review-sites/measurement/. Independent of the legacy final 3D site.
+    # author session references the shared segmentation/geometry.json mesh
+    # (server-injected + hash-verified) PLUS this phase's own overlays
+    # (landmarks/positions.json + measurements/results.json → measurement-line
+    # overlays) — no mesh recompute. Published to artifacts/review-sites/measurement/.
+    # This phase HAS real landmarks, so `landmarks_available` stays true (default);
+    # G9 enforces non-empty landmarks. Independent of the legacy final 3D site.
     review_artifact:
-      type: quantitative
+      type: spatial-3d
 
   - id: review-artifact
     # composes the review-artifact-builder skill (the review-UI method) — see

@@ -5,6 +5,68 @@ resource covers the technical patterns for three.js scenes, viewport
 management, mobile-first layout, measurement-line overlays, the guided
 landmark tour, and the evidence-led data contract.
 
+## Who owns the geometry — reference, do not recompute
+
+A protocol can give **several phases** a `spatial-3d` review site, but the heavy
+geometry is produced **once** by whichever phase's worker first has the voxels
+for it, and every later phase's author **references** it. The author never
+recomputes science — it writes a `"__REVIEW_INJECT:<NAME>__"` sentinel, a
+`data_sources` entry pointing at the on-disk artifact, and the correct
+`produced_from` sha256; the dashboard splices the verified bytes at serve time
+(hash-checked on every request). No Bash-driven mesh extraction in the author.
+
+- **The mesh** (`REVIEW_GEOMETRY`) is emitted once by the phase that first holds
+  the labeled volume — in `microct-oa-mouse-knee` that is **segmentation**, which
+  writes `segmentation/geometry.json`. Downstream authors (seed-review, landmarks,
+  measurement) reference that same path; they add only their **own overlay**
+  (landmarks/measurement lines) from their phase's outputs.
+- **The volume** (`REVIEW_VOLUME`) for a mesh-less **volume-only render** (a phase
+  that has grayscale but no segmentation yet — e.g. **intake**) is emitted once by
+  that phase (`intake/volume.json`) and referenced by that phase's author.
+- **Owner path ≠ shared path.** The producing phase writes to its **own**
+  namespaced output (`segmentation/geometry.json`, `intake/volume.json`), NOT the
+  final `review-artifact` phase's `review/geometry.json` / `review/volume.json`.
+  Injection re-hashes the artifact on every serve, so if two phases wrote the same
+  path the last writer would break every earlier phase's already-published site.
+
+### The reference pattern a downstream author writes
+
+Reference the shared artifact by its **artifacts-relative path** (no `artifacts/`
+prefix — the server resolves under `<taskDir>/artifacts/`), and add each phase's
+own overlay source under its own `produced_from` key:
+
+```js
+window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";  // shared mesh
+window.REVIEW_MANIFEST = {
+  // ...
+  data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],
+  data_sources: {
+    // shared mesh, produced by segmentation, referenced (not recomputed) here:
+    REVIEW_GEOMETRY: { artifact: "segmentation/geometry.json", transform: "identity" }
+  },
+  produced_from: {
+    geometry: "segmentation/geometry.json@<sha256>",   // the shared mesh's real hash
+    landmarks: "landmarks/positions.json@<sha256>",     // this phase's OWN overlay
+    measurement: "measurements/results.json@<sha256>"   // (measurement adds its lines)
+  }
+};
+```
+
+`REVIEW_EVIDENCE` (landmarks, measurement lines, rules) is still built by the
+author as a static literal from the phase's own overlay outputs — that is the
+per-phase overlay. Only the big binary mesh/volume is injected.
+
+### `landmarks_available` — declare it honestly
+
+`REVIEW_MANIFEST.landmarks_available` (boolean, default `true`) tells the G9 gate
+whether this phase legitimately has a landmark source. Set it **`false` only** for
+a phase with **no landmark source yet** — intake, segmentation, seed-review — so
+the mesh-only (or volume-only) scene passes without a non-empty landmark set.
+Leave it `true` (the default) for **landmarks and measurement**, and cite the
+**real** placed landmarks from `landmarks/positions.json`; G9 still hard-fails an
+empty-but-claimed landmark set on those phases. **Never** set it `false` and then
+fabricate landmarks, and never claim landmarks a phase does not have.
+
 ## Three.js in the review artifact
 
 Three.js passed strict CSP validation (R6 probe: real task geometry,
@@ -184,6 +246,13 @@ over the bone (p96). Use **DOM/CSS2D labels** instead:
   clips off-canvas, and offset it away from the marker so the leader reads.
 - Measurement mm values are small DOM badges placed OUTSIDE the bone
   silhouette, shown only for the selected landmark's line(s).
+- **"Labels" toggle in scene controls.** A single button (`#btn-labels`)
+  hides ALL DOM overlays — labels, measurement badges, legends — so the
+  reviewer sees the raw geometry without visual clutter. On mobile this is
+  essential: the overlays compete for limited screen space. The template
+  wires `body.hide-labels` to `display: none` on `.line-labels`,
+  `.line-label`, `.orient-legend`, and `.conf-legend`. Preserve this
+  toggle when authoring; do not remove it.
 
 ## Raycasting
 
@@ -393,7 +462,9 @@ hashes the measurement source files it was built from.
 
 ```js
 window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";
-// artifact review/geometry.json (transform: identity), shape:
+// artifact <owner-phase>/geometry.json (transform: identity) — e.g.
+// segmentation/geometry.json, produced ONCE by the phase that owns the mesh
+// and referenced by every downstream phase. Shape:
 // {
 //   "meshes": {
 //     "<name>": { "vertices": [...], "faces": [...] }
@@ -403,6 +474,15 @@ window.REVIEW_GEOMETRY = "__REVIEW_INJECT:REVIEW_GEOMETRY__";
 
 Injected via `data_sources`. Meshes decimated to ~10K vertices per
 structure. Landmarks are NOT nested here — they live in `REVIEW_EVIDENCE`.
+
+**Mesh-without-landmarks is valid.** A phase that owns/references the mesh but has
+no landmark source yet (segmentation, seed-review) ships `REVIEW_GEOMETRY` with an
+empty `REVIEW_EVIDENCE.landmarks` and `landmarks_available: false` — a bare labeled
+mesh, no overlay. G9 tolerates this when `landmarks_available` is false.
+
+**Volume-only, no mesh, is valid.** A phase with grayscale but no segmentation
+(intake) ships `REVIEW_VOLUME` and NO `REVIEW_GEOMETRY` (`landmarks_available:
+false`); the template renders the grayscale volume without any `meshes`.
 
 ### `REVIEW_VOLUME` — downsampled slice data (injected, OPTIONAL)
 
@@ -430,6 +510,13 @@ window.REVIEW_VOLUME = "__REVIEW_INJECT:REVIEW_VOLUME__";
 Declare via `data_sources.REVIEW_VOLUME` + a `produced_from` hash.
 Landmarks are NOT in this global — they live in `REVIEW_EVIDENCE.landmarks`
 with their `voxel` coordinates in this volume's downsampled frame.
+
+**Volume-only mode (intake).** For a pre-segmentation phase there are no labels
+and no mesh: the artifact carries just `shape`, `spacing_mm`, `axes`, and
+`grayscale_b64` (no `labels_rle` / `label_colors` / `label_names`), the manifest
+ships `REVIEW_VOLUME` **without** `REVIEW_GEOMETRY`, and the template renders the
+grayscale volume alone. The owner phase writes its own namespaced path
+(`intake/volume.json`), never the `review-artifact` phase's `review/volume.json`.
 
 **Size budget constraint.** three.js (~785KB) + mesh geometry + this
 volume must stay under 5MB. Grayscale uint8 at ~112³ ≈ 1.4MB (base64

@@ -117,6 +117,15 @@ export type CheckReviewSiteOptions = {
    * supplies it; the standalone CLI/fixture omits it (network sinks hard-fail).
    */
   readonly contentSecurityPolicy?: string;
+  /**
+   * The PROTOCOL's authoritative `landmarks_available` for this phase (G9).
+   * When the harness supplies it, G9 uses it INSTEAD of the site's manifest
+   * value — so a per-phase author cannot set `landmarks_available:false` in
+   * their manifest to bypass the real-landmark requirement on a landmarks/
+   * measurement phase. Omitted (standalone CLI/fixture) ⇒ G9 falls back to the
+   * manifest's own `landmarks_available`.
+   */
+  readonly landmarksAvailable?: boolean;
 };
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -359,6 +368,13 @@ type ManifestInfo = {
   readonly reviewLayout: unknown;
   readonly requiredViews: readonly string[];
   readonly linkedViews: unknown;
+  /**
+   * G9: `false` ⇒ this phase legitimately has NO landmark source (e.g. intake
+   * volume-only, segmentation before landmarking), so G9 skips ONLY the
+   * non-empty `REVIEW_EVIDENCE.landmarks` requirement. Absent/`true` ⇒ real
+   * landmarks are hard-required (landmarks/measurement phases).
+   */
+  readonly landmarksAvailable: unknown;
 };
 
 /**
@@ -487,6 +503,7 @@ function checkG3(jsSources: readonly JsSource[]): {
       ? mf["required_views"].filter((x): x is string => typeof x === "string")
       : [],
     linkedViews: mf["linked_views"],
+    landmarksAvailable: mf["landmarks_available"],
   };
   return { finding: finding("G3", problems), manifest, globalValues };
 }
@@ -686,53 +703,62 @@ async function checkG8(
   }
 
   const pf = manifest.producedFrom;
-  const measurement =
-    pf !== null && typeof pf === "object" && typeof (pf as Record<string, unknown>)["measurement"] === "string"
-      ? ((pf as Record<string, unknown>)["measurement"] as string)
-      : "";
-  const at = measurement.lastIndexOf("@");
-  const declaredPath = at === -1 ? "" : measurement.slice(0, at);
-  const declaredHash = at === -1 ? "" : measurement.slice(at + 1);
-  if (at === -1 || !HEX64.test(declaredHash)) {
-    problems.push(`manifest produced_from.measurement is not "path@<sha256>" (got "${measurement}")`);
-  }
-
-  // Locate the real on-disk measurement: an explicit resultsPath (CLI) or the
-  // declared path resolved under the harness-supplied measurementsRoot.
-  const measurementFile =
-    opts.resultsPath ??
-    (opts.measurementsRoot && declaredPath
-      ? resolveMeasurement(opts.measurementsRoot, declaredPath)
-      : null);
+  const pfObj = pf !== null && typeof pf === "object" ? (pf as Record<string, unknown>) : null;
 
   let fidelity: "verified" | "unverified" = "unverified";
-  if (measurementFile && (await existsAt(measurementFile))) {
-    fidelity = "verified";
-    const bytes = await readFile(measurementFile);
-    const actualHash = createHash("sha256").update(bytes).digest("hex");
-    if (declaredHash && declaredHash !== actualHash) {
+
+  // The `measurement` source is PRIMARY only when the phase HAS one: the
+  // measurement phase (and legacy single-site) hashes measurements/results.json
+  // and cross-checks its sample_id. Pre-measurement spatial phases
+  // (intake/segmentation/seed-review/landmarks) carry `produced_from.geometry`
+  // or `.volume` and NO `measurement` key — for those, this primary block is
+  // skipped and the multi-source loop below hash-verifies whatever entries DO
+  // exist. When `measurement` IS declared, the check is unchanged.
+  if (pfObj !== null && "measurement" in pfObj) {
+    const measurement = typeof pfObj["measurement"] === "string" ? (pfObj["measurement"] as string) : "";
+    const at = measurement.lastIndexOf("@");
+    const declaredPath = at === -1 ? "" : measurement.slice(0, at);
+    const declaredHash = at === -1 ? "" : measurement.slice(at + 1);
+    if (at === -1 || !HEX64.test(declaredHash)) {
+      problems.push(`manifest produced_from.measurement is not "path@<sha256>" (got "${measurement}")`);
+    }
+
+    // Locate the real on-disk measurement: an explicit resultsPath (CLI) or the
+    // declared path resolved under the harness-supplied measurementsRoot.
+    const measurementFile =
+      opts.resultsPath ??
+      (opts.measurementsRoot && declaredPath
+        ? resolveMeasurement(opts.measurementsRoot, declaredPath)
+        : null);
+
+    if (measurementFile && (await existsAt(measurementFile))) {
+      fidelity = "verified";
+      const bytes = await readFile(measurementFile);
+      const actualHash = createHash("sha256").update(bytes).digest("hex");
+      if (declaredHash && declaredHash !== actualHash) {
+        problems.push(
+          `manifest produced_from hash ${declaredHash.slice(0, 12)}… ≠ measurement ${actualHash.slice(0, 12)}… (stale/mismatched site)`,
+        );
+      }
+      // If the measurement itself names a sample_id, it must match too.
+      try {
+        const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+        if (parsed !== null && typeof parsed === "object") {
+          const runSampleId = (parsed as Record<string, unknown>)["sample_id"];
+          if (typeof runSampleId === "string" && sampleId && runSampleId !== sampleId) {
+            problems.push(`manifest sample_id "${sampleId}" ≠ measurement sample_id "${runSampleId}"`);
+          }
+        }
+      } catch {
+        /* non-JSON measurement — hash check still applies. */
+      }
+    } else if (opts.requireFidelity) {
+      // The harness gate requires an authoritative check; a missing measurement
+      // must FAIL, not silently degrade to a structural-only pass (H1).
       problems.push(
-        `manifest produced_from hash ${declaredHash.slice(0, 12)}… ≠ measurement ${actualHash.slice(0, 12)}… (stale/mismatched site)`,
+        `fidelity required but the measurement is unavailable (${measurementFile ?? "no path supplied"})`,
       );
     }
-    // If the measurement itself names a sample_id, it must match too.
-    try {
-      const parsed: unknown = JSON.parse(bytes.toString("utf8"));
-      if (parsed !== null && typeof parsed === "object") {
-        const runSampleId = (parsed as Record<string, unknown>)["sample_id"];
-        if (typeof runSampleId === "string" && sampleId && runSampleId !== sampleId) {
-          problems.push(`manifest sample_id "${sampleId}" ≠ measurement sample_id "${runSampleId}"`);
-        }
-      }
-    } catch {
-      /* non-JSON measurement — hash check still applies. */
-    }
-  } else if (opts.requireFidelity) {
-    // The harness gate requires an authoritative check; a missing measurement
-    // must FAIL, not silently degrade to a structural-only pass (H1).
-    problems.push(
-      `fidelity required but the measurement is unavailable (${measurementFile ?? "no path supplied"})`,
-    );
   }
 
   // Multi-source provenance (review-data-injection.md): a template may inject
@@ -757,6 +783,10 @@ async function checkG8(
       }
       const kFile = opts.measurementsRoot ? resolveMeasurement(opts.measurementsRoot, kPath) : null;
       if (kFile && (await existsAt(kFile))) {
+        // A hash-verified additional source (geometry/volume) is authoritative
+        // provenance too — for a measurement-less phase it's the only source, so
+        // it establishes fidelity.
+        fidelity = "verified";
         const kActual = createHash("sha256").update(await readFile(kFile)).digest("hex");
         if (kHash !== kActual) {
           problems.push(
@@ -808,6 +838,7 @@ function checkG9(
   manifest: ManifestInfo | null,
   htmls: readonly HtmlFile[],
   globalValues: ReadonlyMap<string, unknown>,
+  protocolLandmarksAvailable: boolean | undefined,
 ): Finding {
   // N/A auto-pass. A null manifest is G3's failure to report, and without a
   // readable manifest no `review_layout: "spatial-multipane"` was declared.
@@ -858,11 +889,27 @@ function checkG9(
     }
   }
 
-  // 3. Landmark markers render from REVIEW_EVIDENCE.landmarks (always required).
+  // 3. Landmark markers render from REVIEW_EVIDENCE.landmarks.
+  //
+  // `landmarks_available: false` skips ONLY the non-empty-landmarks requirement,
+  // for phases that legitimately have no landmark source (intake volume-only,
+  // segmentation/seed-review before landmarking). Every other G9 check still
+  // runs. Absent/`true` ⇒ real, non-empty landmarks are hard-required
+  // (landmarks/measurement).
+  //
+  // AUTHORITY: the harness passes the PROTOCOL's landmarks_available and G9 uses
+  // THAT — so a per-phase author cannot set landmarks_available:false in their
+  // own manifest to skip the real-landmark check on a phase the protocol says
+  // has landmarks. The manifest value is consulted ONLY on the standalone
+  // CLI/fixture path where no protocol value is supplied.
   const EVIDENCE_GLOBAL = "REVIEW_EVIDENCE";
+  const landmarksAvailable =
+    protocolLandmarksAvailable !== undefined
+      ? protocolLandmarksAvailable
+      : manifest.landmarksAvailable !== false;
   if (!manifest.dataGlobals.includes(EVIDENCE_GLOBAL)) {
     problems.push(`no ${EVIDENCE_GLOBAL} global in data_globals (landmark/evidence data)`);
-  } else {
+  } else if (landmarksAvailable) {
     const evidence = globalValues.get(EVIDENCE_GLOBAL);
     const landmarks =
       evidence !== null && typeof evidence === "object"
@@ -1000,7 +1047,7 @@ export async function checkReviewSite(opts: CheckReviewSiteOptions): Promise<Rev
   const g6 = checkG6(htmls, opts.cdnAllowlist);
   const g7 = checkG7(manifest);
   const { finding: g8, fidelity } = await checkG8(manifest, opts);
-  const g9 = checkG9(manifest, htmls, globalValues);
+  const g9 = checkG9(manifest, htmls, globalValues, opts.landmarksAvailable);
 
   const findings = [g1, g2, g3, g4, g5, g6, g7, g8, g9];
   return { ok: findings.every((f) => f.ok), siteDir, fidelity, findings };

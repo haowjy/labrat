@@ -96,9 +96,15 @@ required_views: ["scene3d"],          // 3D is the hero; slices optional
 linked_views: true,                   // only when slices are shipped
 ```
 
-**Export the geometry.** Produce `review/geometry.json` (femur, tibia as
-separate meshes) for the 3D scene. Inline the r185+ three.js UMD build +
-OrbitControls (CSP-sandboxed — no CDN).
+**Export the geometry.** Produce `review/geometry.json` — one decimated mesh per
+structure (femur, tibia, …) at **~10K vertices each** (marching cubes on each
+label of `labels.nii.gz`, in mm, quadric-decimated), shape
+`{"meshes":{"<name>":{"vertices":[...],"faces":[...]}}}`, within the 5 MB site
+budget. Inline the r185+ three.js UMD build + OrbitControls (CSP-sandboxed — no
+CDN). This is the same mesh shape the **segmentation** phase emits once to
+`segmentation/geometry.json` for the earlier phases' 3D sites; this phase writes
+its **own** `review/geometry.json` (a distinct path, so its recompute never
+disturbs those earlier hash-verified sites).
 
 **Slices are optional drill-down.** The downsampled-volume export is the
 hardest step; ship the 3D scene alone first. When you add slices, produce

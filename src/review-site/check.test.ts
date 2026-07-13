@@ -978,6 +978,81 @@ describe("check_review_site — G9 3D-first spatial review", () => {
     assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
   });
 
+  it("landmarks_available:false skips ONLY the non-empty-landmarks check (intake volume-only / pre-landmark)", async () => {
+    // A phase that legitimately has no landmark source declares
+    // landmarks_available:false. Empty REVIEW_EVIDENCE.landmarks then passes G9;
+    // every other G9 check (scene3d, three.js primitives, REVIEW_EVIDENCE
+    // global) still runs.
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace(
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],\n  landmarks_available: false',
+          )
+          .replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("empty landmarks with landmarks_available absent (default true) still fails G9", async () => {
+    // Absent landmarks_available ⇒ real landmarks hard-required
+    // (landmarks/measurement phases). An empty array must fail.
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /REVIEW_EVIDENCE\.landmarks is missing or empty/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("empty landmarks with landmarks_available:true still fails G9 (explicit true is not an escape hatch)", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace(
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],\n  landmarks_available: true',
+          )
+          .replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /REVIEW_EVIDENCE\.landmarks is missing or empty/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("landmarks present passes G9 regardless of landmarks_available:false (present data always renders)", async () => {
+    // The clean fixture ships real landmarks; declaring landmarks_available:false
+    // must not break the happy path — present markers still render.
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s.replace(
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+          'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],\n  landmarks_available: false',
+        ),
+      );
+      const report = await checkReviewSite({ siteDir: dir, cdnAllowlist: [], contentSecurityPolicy: CSP });
+      assert.deepEqual(gate(report, "G9"), { gate: "G9", ok: true, detail: "" });
+    } finally {
+      await cleanup();
+    }
+  });
+
   it("a DECLARED slice view must still be complete: missing slider fails G9", async () => {
     const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
     try {
@@ -997,6 +1072,118 @@ describe("check_review_site — G9 3D-first spatial review", () => {
         gate(report, "G9").detail,
         /slice view "slice-axial" has no <input type="range" data-review-slice-slider="axial">/,
       );
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe("check_review_site — non-measurement spatial-3d phases (all-phases-3D)", () => {
+  const CSP = buildReviewSiteCsp();
+
+  // Write a produced_from artifact under the site dir (which the tests pass as
+  // measurementsRoot) and return its sha256 so the manifest can hash-name it.
+  async function writeProducedFrom(dir: string, rel: string, bytes: string): Promise<string> {
+    const abs = join(dir, rel);
+    await mkdir(join(abs, ".."), { recursive: true });
+    await writeFile(abs, bytes);
+    return createHash("sha256").update(bytes).digest("hex");
+  }
+
+  it("mesh-without-landmarks: produced_from.geometry (no measurement), empty landmarks → G1–G9 pass under requireFidelity", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Segmentation/seed-review shape: a mesh site whose provenance is
+      // review/geometry.json (NOT measurements/results.json), no landmarks yet.
+      const hash = await writeProducedFrom(dir, "review/geometry.json", JSON.stringify({ meshes: {} }));
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace(
+            /produced_from: \{[\s\S]*?\},/,
+            `produced_from: {\n    geometry: "review/geometry.json@${hash}"\n  },`,
+          )
+          .replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        measurementsRoot: dir,
+        expectedSampleId: "oa-knee-0007",
+        requireFidelity: true,
+        contentSecurityPolicy: CSP,
+        landmarksAvailable: false, // protocol policy: segmentation has no landmarks
+      });
+      for (const f of report.findings) {
+        assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
+      }
+      assert.equal(report.ok, true);
+      assert.equal(report.fidelity, "verified", "geometry hash-verified establishes fidelity");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("volume-only: produced_from.volume + REVIEW_VOLUME (no geometry), empty landmarks → G1–G9 pass under requireFidelity", async () => {
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      // Intake shape: a grayscale-volume site, no mesh global, provenance is
+      // review/volume.json, no landmarks.
+      const hash = await writeProducedFrom(dir, "review/volume.json", JSON.stringify({ shape: [4, 4, 4] }));
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace(
+            /produced_from: \{[\s\S]*?\},/,
+            `produced_from: {\n    volume: "review/volume.json@${hash}"\n  },`,
+          )
+          .replace('data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_VOLUME"]')
+          .replace(
+            /window\.REVIEW_GEOMETRY = \{.*\};/,
+            'window.REVIEW_VOLUME = {"shape":[4,4,4],"spacing_mm":[1,1,1],"grayscale_b64":"AAAAAAAA"};',
+          )
+          .replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        measurementsRoot: dir,
+        expectedSampleId: "oa-knee-0007",
+        requireFidelity: true,
+        contentSecurityPolicy: CSP,
+        landmarksAvailable: false, // protocol policy: intake has no landmarks
+      });
+      for (const f of report.findings) {
+        assert.equal(f.ok, true, `${f.gate} should pass: ${f.detail}`);
+      }
+      assert.equal(report.ok, true);
+      assert.equal(report.fidelity, "verified", "volume hash-verified establishes fidelity");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("authoritative landmarks_available: protocol true overrides an author manifest that sets false (no bypass)", async () => {
+    // A landmarks/measurement phase where the AUTHOR sets landmarks_available:false
+    // in the manifest AND ships empty landmarks. The harness passes the PROTOCOL
+    // value (true) — G9 must still hard-fail; the author cannot bypass.
+    const { dir, cleanup } = await scratchFixture(SPATIAL_FIXTURE);
+    try {
+      await edit(dir, "index.html", (s) =>
+        s
+          .replace(
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"]',
+            'data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],\n  landmarks_available: false',
+          )
+          .replace(/landmarks: \[[\s\S]*?\],\n  structural:/, "landmarks: [],\n  structural:"),
+      );
+      const report = await checkReviewSite({
+        siteDir: dir,
+        cdnAllowlist: [],
+        contentSecurityPolicy: CSP,
+        landmarksAvailable: true, // protocol: this phase HAS landmarks
+      });
+      assert.equal(gate(report, "G9").ok, false);
+      assert.match(gate(report, "G9").detail, /REVIEW_EVIDENCE\.landmarks is missing or empty/);
     } finally {
       await cleanup();
     }
