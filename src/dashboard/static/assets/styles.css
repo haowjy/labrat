@@ -449,10 +449,14 @@ a { color:var(--accent); }
   .verdict-panel { border-top:3px solid var(--accent); }
 }
 
-/* Claude Science skill browser (import bridge, SkillsView.js). Read-only list:
-   name + source + runnable/vendored/builtin badges + the CLI import command. */
-.skills-view { display:flex; flex-direction:column; gap:1rem; padding:1.25rem; }
+/* Claude Science skill browser (SkillsView.js). Read-only, two tiers:
+   Protocols (runnable, each with a collapsible "Depends on" accordion listing
+   its parentSkills) and Other skills. Row = name + source + description. */
+.skills-view { display:flex; flex-direction:column; gap:1.5rem; padding:1.25rem; }
 .skills-head h2 { font-family:var(--mono); font-size:1rem; margin:0 0 0.35rem; }
+.skills-head .note { margin:0; font-size:0.75rem; color:var(--muted); max-width:64ch; }
+.skills-section { display:flex; flex-direction:column; gap:0.6rem; }
+.skills-section-head { font-family:var(--mono); font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted2); margin:0; padding-bottom:0.35rem; border-bottom:1px solid var(--accent-line); }
 .skill-list { display:flex; flex-direction:column; gap:0.6rem; }
 .skill-row { display:flex; flex-direction:column; gap:0.4rem; padding:0.85rem 1rem; border:1px solid var(--accent-line); border-radius:8px; background:var(--surface); }
 .skill-row-head { display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; }
@@ -460,8 +464,18 @@ a { color:var(--accent); }
 .skill-source { font-family:var(--mono); font-size:0.65rem; color:var(--muted2); overflow:hidden; text-overflow:ellipsis; }
 .skill-badges { display:flex; gap:0.35rem; margin-left:auto; flex-wrap:wrap; }
 .skill-desc { font-size:0.75rem; color:var(--muted); line-height:1.4; }
-.skill-import { font-size:0.7rem; }
-.skill-cmd { font-family:var(--mono); font-size:0.68rem; background:var(--accent-soft); color:var(--accent); padding:0.2em 0.5em; border-radius:4px; user-select:all; }
+
+/* "Depends on (N)" accordion nested in a protocol row (native details/summary,
+   collapsed by default). */
+.skill-depends { margin-top:0.15rem; }
+.skill-depends > summary { font-family:var(--mono); font-size:0.68rem; color:var(--accent); cursor:pointer; list-style:none; padding:0.2em 0; user-select:none; }
+.skill-depends > summary::-webkit-details-marker { display:none; }
+.skill-depends > summary::before { content:"▸"; display:inline-block; margin-right:0.4em; transition:transform 0.15s ease; }
+.skill-depends[open] > summary::before { transform:rotate(90deg); }
+.skill-dep-list { list-style:none; margin:0.35rem 0 0; padding:0 0 0 0.9rem; display:flex; flex-direction:column; gap:0.35rem; border-left:1px solid var(--accent-line); }
+.skill-dep { display:flex; flex-direction:column; gap:0.1rem; }
+.skill-dep-name { font-family:var(--mono); font-size:0.72rem; font-weight:600; }
+.skill-dep-desc { font-size:0.7rem; color:var(--muted); line-height:1.35; }
 
 /* === WATCH PANEL (folder-watch control panel, WatchPanel.js) ===
    Heartbeat card (daemon-health dot + the enable/disable-ingestion toggle)

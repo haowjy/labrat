@@ -19,20 +19,41 @@ import { getJSON, postJSON } from "../lib/api.js";
  * server-side launch log instead of spinning forever.
  */
 
-const PROTOCOLS = ["microct-oa-mouse-knee", "toy-stats"];
 const DEFAULT_INPUT = "data/OA7-4L.zip";
+const PREFERRED_PROTOCOL = "microct-oa-mouse-knee";
 const POLL_MS = 2000;
 const POLL_TIMEOUT_MS = 120000;
 
 export function SubmitPanel({ onOpenSample }) {
   const [input, setInput] = useState(DEFAULT_INPUT);
-  const [protocol, setProtocol] = useState(PROTOCOLS[0]);
+  const [protocols, setProtocols] = useState(null); // null = loading, [] = none available
+  const [protocol, setProtocol] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [started, setStarted] = useState(null); // 202 body from POST /api/enqueue
   const [newTaskId, setNewTaskId] = useState(null);
   const [timedOut, setTimedOut] = useState(false);
   const pollRef = useRef(null);
+
+  // Populate the picker from the same registry listing the Skills view reads:
+  // runnable skills are the executable protocols. Default to the microCT
+  // protocol when present, else the first available.
+  useEffect(() => {
+    let cancelled = false;
+    getJSON("/api/claude-science/skills")
+      .then((skills) => {
+        if (cancelled) return;
+        const names = skills.filter((s) => s.runnable === true).map((s) => s.name);
+        setProtocols(names);
+        setProtocol(names.includes(PREFERRED_PROTOCOL) ? PREFERRED_PROTOCOL : names[0] ?? "");
+      })
+      .catch(() => {
+        if (!cancelled) setProtocols([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Never leak the poll past unmount (navigating away cancels the watch;
   // the run itself is server-side and unaffected).
@@ -118,17 +139,25 @@ export function SubmitPanel({ onOpenSample }) {
           <select
             id="submit-protocol"
             class="watch-root-input"
-            disabled=${busy}
+            disabled=${busy || protocols === null || protocols.length === 0}
             onChange=${(e) => setProtocol(e.currentTarget.value)}
           >
-            ${PROTOCOLS.map(
-              (p) => html`<option key=${p} value=${p} selected=${p === protocol}>${p}</option>`,
-            )}
+            ${protocols === null
+              ? html`<option value="">Loading protocols…</option>`
+              : protocols.length === 0
+                ? html`<option value="">No runnable protocols</option>`
+                : protocols.map(
+                    (p) =>
+                      html`<option key=${p} value=${p} selected=${p === protocol}>${p}</option>`,
+                  )}
           </select>
           <button
             type="button"
             class="btn btn-primary"
-            disabled=${busy || input.trim() === ""}
+            disabled=${busy ||
+            input.trim() === "" ||
+            protocols === null ||
+            protocols.length === 0}
             onClick=${start}
           >
             ${busy ? "Starting…" : "Start"}

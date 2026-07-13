@@ -72,6 +72,36 @@ describe("listClaudeScienceSkills", () => {
     assert.equal(prose.description, "First prose line of the body.");
   });
 
+  it("parses kind + parent_skills from a protocol.yaml", async () => {
+    const skills = await listClaudeScienceSkills(FIXTURE_REGISTRY);
+    const runnable = skills.find((s) => s.name === "runnable-skill")!;
+    assert.equal(runnable.kind, "protocol");
+    assert.deepEqual(runnable.parentSkills, ["prose-skill"]);
+  });
+
+  it("yields kind=undefined, parentSkills=[] for a non-protocol skill", async () => {
+    const skills = await listClaudeScienceSkills(FIXTURE_REGISTRY);
+    const prose = skills.find((s) => s.name === "prose-skill")!;
+    assert.equal(prose.kind, undefined);
+    assert.deepEqual(prose.parentSkills, []);
+  });
+
+  it("degrades gracefully when a protocol.yaml is malformed (no throw)", async () => {
+    await withTmp(async (home) => {
+      const skillDir = join(home, "orgs", "org-x", "skills", "broken");
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, "SKILL.md"), "# Broken\n\nA skill with a bad protocol.");
+      // Unparseable YAML (unclosed flow mapping) — must not crash the listing.
+      await writeFile(join(skillDir, "protocol.yaml"), "kind: protocol\nparent_skills: [a, b");
+
+      const skills = await listClaudeScienceSkills(home);
+      const broken = skills.find((s) => s.name === "broken")!;
+      assert.equal(broken.runnable, true);
+      assert.equal(broken.kind, undefined);
+      assert.deepEqual(broken.parentSkills, []);
+    });
+  });
+
   it("includes runtime built-ins when asked, tagged builtin", async () => {
     const skills = await listClaudeScienceSkills(FIXTURE_REGISTRY, {
       includeBuiltins: true,

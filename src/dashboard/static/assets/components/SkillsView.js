@@ -2,43 +2,61 @@ import { html, useEffect, useState } from "../vendor/preact-htm.js";
 import { getJSON } from "../lib/api.js";
 
 /**
- * Claude Science skill browser (LabRat ↔ Claude Science import bridge). Reads
- * GET /api/claude-science/skills and lists every registry skill with its
- * source, a "runnable" badge (has a protocol.yaml LabRat can execute), and a
- * "vendored" badge (already copied into the repo's skills/ dir).
+ * Claude Science skill browser. Reads GET /api/claude-science/skills and
+ * organizes the registry into two tiers:
  *
- * Import is READ-ONLY here by design: bringing a skill in writes into the
- * repo's source tree (skills/<name>/), which is a developer/CLI action, not a
- * dashboard mutation — the dashboard is Process B and only reads disk under the
- * task tree. So the Import affordance surfaces the exact CLI command to run
- * (`labrat import-skill <name>`) rather than POSTing. Once imported, a page
- * refresh re-reads the listing and the row flips to "vendored".
+ *   1. Protocols — every runnable skill (carries a protocol.yaml LabRat can
+ *      execute). Each protocol nests a collapsible "Depends on" accordion
+ *      listing its `parentSkills` (registry skills it builds on).
+ *   2. Other skills — registry skills that are neither runnable nor named in
+ *      any protocol's parentSkills (dependency skills surface under their
+ *      protocol, not here).
+ *
+ * Read-only: browsing only. Importing a skill writes into the repo's source
+ * tree (skills/), a dev-only vendoring action that has no place in this
+ * researcher-facing view.
  */
-function badges(skill) {
-  const items = [];
-  if (skill.runnable) items.push(html`<span class="pill pill-pass">runnable</span>`);
-  if (skill.vendored) items.push(html`<span class="pill pill-running">vendored</span>`);
-  if (skill.builtin) items.push(html`<span class="pill pill-skip">builtin</span>`);
-  return items;
+
+function DependsOn({ parentSkills, byName }) {
+  if (parentSkills.length === 0) return null;
+  return html`
+    <details class="skill-depends">
+      <summary>Depends on (${parentSkills.length})</summary>
+      <ul class="skill-dep-list">
+        ${parentSkills.map((name) => {
+          const dep = byName.get(name);
+          return html`
+            <li class="skill-dep" key=${name}>
+              <span class="skill-dep-name">${name}</span>
+              ${dep && dep.description
+                ? html`<span class="skill-dep-desc">${dep.description}</span>`
+                : null}
+            </li>
+          `;
+        })}
+      </ul>
+    </details>
+  `;
 }
 
-function SkillRow({ skill }) {
-  const cmd = `labrat import-skill ${skill.name}`;
+function SkillCard({ skill, byName }) {
   return html`
     <div class="skill-row">
       <div class="skill-row-head">
         <span class="skill-name">${skill.name}</span>
         <span class="skill-source">${skill.source}</span>
-        <span class="skill-badges">${badges(skill)}</span>
+        ${skill.vendored
+          ? html`<span class="skill-badges"
+              ><span class="pill pill-running">vendored</span></span
+            >`
+          : null}
       </div>
       ${skill.description
         ? html`<div class="skill-desc">${skill.description}</div>`
         : null}
-      <div class="skill-import">
-        ${skill.vendored
-          ? html`<span class="note">Imported into skills/</span>`
-          : html`<code class="skill-cmd" title="Run this in the repo to import">${cmd}</code>`}
-      </div>
+      ${byName
+        ? html`<${DependsOn} parentSkills=${skill.parentSkills} byName=${byName} />`
+        : null}
     </div>
   `;
 }
@@ -65,19 +83,50 @@ export function SkillsView() {
   if (skills === null) return html`<div class="empty">Loading skills…</div>`;
   if (skills.length === 0) return html`<div class="empty">No Claude Science skills found.</div>`;
 
+  const byName = new Map(skills.map((s) => [s.name, s]));
+  const protocols = skills.filter((s) => s.runnable === true);
+  const dependencyNames = new Set(protocols.flatMap((p) => p.parentSkills));
+  const others = skills.filter(
+    (s) => s.runnable !== true && !dependencyNames.has(s.name),
+  );
+
   return html`
     <div class="skills-view">
       <div class="skills-head">
         <h2>Claude Science skills</h2>
         <p class="note">
-          Browse the registry. Runnable skills carry a protocol.yaml LabRat can
-          execute; vendored skills are already in the repo's skills/ dir. Import
-          a skill with the shown CLI command.
+          Browse the Claude Science registry. Protocols are the runnable
+          pipelines LabRat executes; expand a protocol to see the skills it
+          depends on. Everything else lives under "Other skills" below.
         </p>
       </div>
-      <div class="skill-list">
-        ${skills.map((s) => html`<${SkillRow} key=${`${s.source}/${s.name}`} skill=${s} />`)}
+
+      <div class="skills-section">
+        <h3 class="skills-section-head">Protocols</h3>
+        ${protocols.length === 0
+          ? html`<div class="empty">No runnable protocols found.</div>`
+          : html`<div class="skill-list">
+              ${protocols.map(
+                (s) =>
+                  html`<${SkillCard}
+                    key=${`${s.source}/${s.name}`}
+                    skill=${s}
+                    byName=${byName}
+                  />`,
+              )}
+            </div>`}
       </div>
+
+      ${others.length > 0
+        ? html`<div class="skills-section">
+            <h3 class="skills-section-head">Other skills</h3>
+            <div class="skill-list">
+              ${others.map(
+                (s) => html`<${SkillCard} key=${`${s.source}/${s.name}`} skill=${s} />`,
+              )}
+            </div>
+          </div>`
+        : null}
     </div>
   `;
 }

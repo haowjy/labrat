@@ -1,1 +1,5 @@
+kind: protocol
+name: runnable-skill
+parent_skills:
+  - prose-skill
 phases: []

@@ -34,6 +34,13 @@ export type ClaudeScienceSkill = {
   readonly builtin: boolean;
   /** Has a protocol.yaml — LabRat can execute it as a protocol. */
   readonly runnable: boolean;
+  /** protocol.yaml top-level `kind` (e.g. "protocol"); undefined for
+   * non-runnable skills or an unparseable/absent protocol.yaml. */
+  readonly kind?: string;
+  /** protocol.yaml top-level `parent_skills` — registry-level skill names this
+   * protocol depends on. [] for non-protocols or an unparseable protocol.yaml.
+   * NOTE: phase-level `skills:` entries are relative package paths, NOT these. */
+  readonly parentSkills: string[];
   /** SKILL.md frontmatter description (first sentence) or first prose line. */
   readonly description: string;
   /** Absolute path to the skill dir (import source). */
@@ -122,11 +129,39 @@ async function readSkill(
   const skillMd = join(dir, "SKILL.md");
   if (!(await isFile(skillMd))) return null;
   const raw = await readFile(skillMd, "utf8").catch(() => "");
+
+  // A protocol skill carries a protocol.yaml (== runnable). Parse it for the
+  // top-level `kind` and `parent_skills` (the registry-level skills it depends
+  // on) — a malformed yaml must degrade to (undefined, []) rather than crash
+  // the whole listing.
+  const protocolPath = join(dir, "protocol.yaml");
+  const runnable = await isFile(protocolPath);
+  let kind: string | undefined;
+  let parentSkills: string[] = [];
+  if (runnable) {
+    try {
+      const parsed = parseYaml(await readFile(protocolPath, "utf8")) as unknown;
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        if (typeof record["kind"] === "string") kind = record["kind"];
+        const parents = record["parent_skills"];
+        if (Array.isArray(parents)) {
+          parentSkills = parents.filter((p): p is string => typeof p === "string");
+        }
+      }
+    } catch {
+      kind = undefined;
+      parentSkills = [];
+    }
+  }
+
   return {
     name,
     source,
     builtin,
-    runnable: await isFile(join(dir, "protocol.yaml")),
+    runnable,
+    ...(kind !== undefined ? { kind } : {}),
+    parentSkills,
     description: skillDescription(raw),
     dir,
   };

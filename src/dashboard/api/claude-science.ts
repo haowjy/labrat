@@ -18,6 +18,10 @@ export type ClaudeScienceSkillView = {
   readonly source: string;
   readonly builtin: boolean;
   readonly runnable: boolean;
+  /** protocol.yaml top-level `kind`; undefined for non-protocol skills. */
+  readonly kind?: string;
+  /** Registry-level skill names this protocol depends on ([] for non-protocols). */
+  readonly parentSkills: string[];
   readonly description: string;
   /** Already copied into the repo's skills/ dir. */
   readonly vendored: boolean;
@@ -35,6 +39,8 @@ export async function listClaudeScienceSkillsView(
     source: s.source,
     builtin: s.builtin,
     runnable: s.runnable,
+    ...(s.kind !== undefined ? { kind: s.kind } : {}),
+    parentSkills: s.parentSkills,
     description: s.description,
     vendored: vendored.has(s.name),
   }));
