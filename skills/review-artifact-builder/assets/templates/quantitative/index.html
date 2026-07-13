@@ -93,9 +93,24 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
 .interp { margin-top: 1.2rem; padding: 0.8rem 0.9rem; background: var(--interp-bg); border: 1px solid var(--interp-border); border-radius: var(--radius); font-size: 0.86rem; }
 .interp h2 { margin: 0 0 0.3rem; font-size: 0.9rem; }
 .interp .meta { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-bottom: 0.35rem; }
+
+/* Clean-view toggle: strip secondary metadata to show just decisive numbers */
+.clean-toggle { position: fixed; top: 0.5rem; right: 0.5rem; z-index: 20; padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--ink); font-family: var(--sans); font-size: 0.72rem; cursor: pointer; min-height: 36px; }
+.clean-toggle:hover { border-color: var(--accent); }
+body.clean .topbar-sub,
+body.clean .metric-id,
+body.clean .metric-source,
+body.clean .metric-cut,
+body.clean .bar-cutoff,
+body.clean .interp .meta,
+body.clean .section-h,
+body.clean table.values th { display: none; }
+body.clean table.values { margin-top: 0.5rem; }
+body.clean .metric { padding: 0.6rem 0.7rem; }
 </style>
 </head>
 <body>
+<button type="button" class="clean-toggle" id="clean-toggle">Hide labels</button>
 <div class="shell">
   <header class="topbar">
     <h1 id="sample-title">Review</h1>
@@ -292,6 +307,15 @@ window.REVIEW_EVIDENCE = {
   if (interp.confidence) meta.push("confidence: " + interp.confidence);
   document.getElementById("interp-meta").textContent = meta.join(" · ");
   document.getElementById("interp-basis").textContent = interp.basis || "";
+
+  // Clean-view toggle: strip secondary metadata so the decisive numbers lead.
+  var toggleBtn = document.getElementById("clean-toggle");
+  toggleBtn.addEventListener("click", function () {
+    document.body.classList.toggle("clean");
+    toggleBtn.textContent = document.body.classList.contains("clean")
+      ? "Show labels"
+      : "Hide labels";
+  });
 })();
 </script>
 </body>

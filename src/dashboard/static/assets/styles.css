@@ -221,7 +221,10 @@ a { color:var(--accent); }
 .review-embed-head { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem 1rem; flex-wrap:wrap; }
 .review-embed-head-right { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
 .quarantine-note { font-size:0.7rem; color:var(--muted); }
-.review-stage { position:relative; height:min(58vh, 520px); min-height:320px; }
+/* The artifact fills the viewport below the topbar/tabs — the reviewer sees
+   the evidence first and scrolls to reach the verdict controls ("scroll to
+   review" pattern from the design mockups). */
+.review-stage { position:relative; height:calc(100dvh - 200px); min-height:320px; }
 .review-frame { position:absolute; inset:0; width:100%; height:100%; border:1px solid var(--accent-line); border-radius:6px; background:var(--paper); display:block; }
 .review-stage-empty { display:flex; align-items:center; justify-content:center; height:auto; min-height:160px; border:1px dashed var(--muted3); border-radius:6px; background:var(--surface); }
 .review-stage-empty .empty { padding:0; }
@@ -401,7 +404,7 @@ a { color:var(--accent); }
   .chain-prov-path { word-break:break-all; }
   .signoff-actions { flex-direction:column; }
   .signoff-actions .btn { justify-content:center; }
-  .review-stage { min-height:200px; height:min(45vh, 400px); }
+  .review-stage { min-height:250px; height:calc(100dvh - 160px); }
   .live-strip { padding-left:0.75rem; padding-right:0.75rem; }
   .log-strip { padding-left:0.75rem; padding-right:0.75rem; }
 }
@@ -438,6 +441,12 @@ a { color:var(--accent); }
 
   /* "Fail permanently" link: bigger tap target */
   .verdict-fail-link { min-height:44px; display:inline-flex; align-items:center; }
+
+  /* --- Better visual sectioning on mobile --- */
+  .review-layer { gap:1.5rem; }
+  .review-chain-card { border-width:2px; }
+  .evidence-panel { border-color:var(--accent); }
+  .verdict-panel { border-top:3px solid var(--accent); }
 }
 
 /* Claude Science skill browser (import bridge, SkillsView.js). Read-only list:
@@ -507,3 +516,17 @@ a { color:var(--accent); }
 .watch-lastdrop-label { font-family:var(--mono); font-size:0.6rem; color:var(--muted2); text-transform:uppercase; letter-spacing:0.05em; }
 .watch-lastdrop-name { font-family:var(--mono); font-size:0.72rem; font-weight:600; }
 .watch-lastdrop-meta { font-family:var(--mono); font-size:0.66rem; color:var(--muted); }
+
+/* === COLLAPSIBLE REVIEW SECTIONS (ReviewLayer.js) — the chain card and
+   evidence panel collapse behind native <details> so the artifact and verdict
+   lead on mobile. Sections start closed; the reviewer taps to expand. === */
+.review-section { border:1px solid var(--accent-line); border-radius:8px; background:var(--surface); }
+.review-section-summary { display:flex; align-items:center; gap:0.5rem; padding:0.65rem 0.85rem; font-family:var(--mono); font-size:0.72rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; cursor:pointer; list-style:none; user-select:none; min-height:44px; }
+.review-section-summary::-webkit-details-marker { display:none; }
+.review-section-summary::before { content:"\25B8"; display:inline-block; transition:transform 0.12s ease; margin-right:0.25rem; }
+.review-section[open] > .review-section-summary::before { transform:rotate(90deg); }
+.review-section-summary:hover { color:var(--ink); }
+/* When the section is open, remove the duplicate border/background from the inner card —
+   the <details> wrapper IS the card now. */
+.review-section[open] > .review-chain-card,
+.review-section[open] > .evidence-panel { border:none; border-radius:0; background:transparent; }
