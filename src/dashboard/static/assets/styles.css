@@ -222,7 +222,7 @@ a { color:var(--accent); }
 .review-embed-head-right { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; }
 .quarantine-note { font-size:0.7rem; color:var(--muted); }
 .review-stage { position:relative; height:min(58vh, 520px); min-height:320px; }
-.review-frame { position:absolute; inset:0; width:100%; height:100%; border:1px solid var(--accent-line); border-radius:6px; background:#fff; display:block; }
+.review-frame { position:absolute; inset:0; width:100%; height:100%; border:1px solid var(--accent-line); border-radius:6px; background:var(--paper); display:block; }
 .review-stage-empty { display:flex; align-items:center; justify-content:center; height:auto; min-height:160px; border:1px dashed var(--muted3); border-radius:6px; background:var(--surface); }
 .review-stage-empty .empty { padding:0; }
 .review-embed-fullscreen { position:fixed; inset:0; z-index:60; margin:0; padding:0; background:var(--paper); }
@@ -395,6 +395,49 @@ a { color:var(--accent); }
   .verdict-choice-row .btn { flex:1; min-height:44px; justify-content:center; }
   .verdict-step-actions .btn { min-height:44px; }
   #verdict-note { font-size:16px; }
+
+  /* --- overflow / spacing fixes that apply to the full mobile range --- */
+  .watch-root-input { min-width:0; }
+  .chain-prov-path { word-break:break-all; }
+  .signoff-actions { flex-direction:column; }
+  .signoff-actions .btn { justify-content:center; }
+  .review-stage { min-height:200px; height:min(45vh, 400px); }
+  .live-strip { padding-left:0.75rem; padding-right:0.75rem; }
+  .log-strip { padding-left:0.75rem; padding-right:0.75rem; }
+}
+
+/* Phone-specific refinements (<480px / portrait phones). The 700px block
+   handles the drawer, touch targets, and chain stacking; this tightens
+   spacing and reflows the remaining multi-column grids that still overflow
+   on a ~375px viewport. */
+@media (max-width:480px) {
+  .main { overflow-x:hidden; }
+
+  /* Measure-row 4-column grid → 2 columns: key|value, then cutoff|pill */
+  .measure-row { grid-template-columns:1fr auto; gap:0.25rem 0.5rem; }
+
+  /* Tighter padding on card surfaces */
+  .content, .content-review, .content-dashboard { padding:0.65rem; }
+  .evidence-panel { padding:0.7rem 0.75rem; }
+  .review-chain-card { padding:0.75rem 0.85rem; }
+  .verdict-panel { padding:0.7rem 0.75rem; }
+  .suggestion-box { padding:0.75rem; }
+  .chain-col { padding:0.55rem 0.65rem; }
+  .gate-note { padding:0.45rem 0.6rem; }
+  .topbar { padding:0.5rem 0.65rem; }
+
+  /* Scale down the chain hero value for phone */
+  .chain-value { font-size:1.2rem; }
+
+  /* Force single-column sample board */
+  .sample-board { grid-template-columns:1fr; }
+
+  /* Verdict step actions: full-width button on phone */
+  .verdict-step-actions { flex-direction:column; }
+  .verdict-step-actions .btn { width:100%; justify-content:center; }
+
+  /* "Fail permanently" link: bigger tap target */
+  .verdict-fail-link { min-height:44px; display:inline-flex; align-items:center; }
 }
 
 /* Claude Science skill browser (import bridge, SkillsView.js). Read-only list:
