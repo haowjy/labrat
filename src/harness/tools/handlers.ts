@@ -101,6 +101,53 @@ function nextAttempt(log: SubphasesJson, subphase: string): number {
   return max + 1;
 }
 
+export type PhaseRecordableResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * record_phase's acceptance check, factored out so the worker loop can ask
+ * "would record_phase succeed right now?" without mutating ctx.signals:
+ * (1) phases/<phase>/ exists and is a directory, (2) all declared artifact
+ * outputs are present on disk, (3) all declared subphases are closeable.
+ * Single source of truth — handleRecordPhase delegates here.
+ */
+export async function isPhaseRecordable(
+  ctx: LabratToolContext,
+): Promise<PhaseRecordableResult> {
+  const phase = ctx.currentPhase;
+  const phaseDir = path.join(ctx.taskDir, "phases", phase);
+  if (!(await existsAt(phaseDir))) {
+    return {
+      ok: false,
+      reason: `Cannot record phase: phases/${phase}/ does not exist. Write your phase record first.`,
+    };
+  }
+
+  const phaseDirStat = await stat(phaseDir);
+  if (!phaseDirStat.isDirectory()) {
+    return { ok: false, reason: `phases/${phase}/ is not a directory.` };
+  }
+
+  const artifactError = await validateArtifactOutputs(ctx);
+  if (artifactError) {
+    return { ok: false, reason: artifactError };
+  }
+
+  if (ctx.subphaseIds.length > 0) {
+    const log = await readSubphasesLog(ctx.taskDir, phase);
+    const closeable = allSubphasesCloseable(ctx.subphaseIds, log);
+    if (!closeable.ok) {
+      return {
+        ok: false,
+        reason: `Cannot record phase: ${closeable.reason}. Mark all subphases pass or human-review before recording.`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 export async function handleRecordPhase(
   ctx: LabratToolContext,
   input: unknown,
@@ -121,33 +168,9 @@ export async function handleRecordPhase(
     );
   }
 
-  const phaseDir = path.join(ctx.taskDir, "phases", phase);
-  if (!(await existsAt(phaseDir))) {
-    return textResult(
-      `Cannot record phase: phases/${phase}/ does not exist. Write your phase record first.`,
-      true,
-    );
-  }
-
-  const phaseDirStat = await stat(phaseDir);
-  if (!phaseDirStat.isDirectory()) {
-    return textResult(`phases/${phase}/ is not a directory.`, true);
-  }
-
-  const artifactError = await validateArtifactOutputs(ctx);
-  if (artifactError) {
-    return textResult(artifactError, true);
-  }
-
-  if (ctx.subphaseIds.length > 0) {
-    const log = await readSubphasesLog(ctx.taskDir, phase);
-    const closeable = allSubphasesCloseable(ctx.subphaseIds, log);
-    if (!closeable.ok) {
-      return textResult(
-        `Cannot record phase: ${closeable.reason}. Mark all subphases pass or human-review before recording.`,
-        true,
-      );
-    }
+  const recordable = await isPhaseRecordable(ctx);
+  if (!recordable.ok) {
+    return textResult(recordable.reason, true);
   }
 
   ctx.signals.phaseComplete = true;

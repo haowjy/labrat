@@ -34,6 +34,35 @@ describe("loadConfig", () => {
         backgroundGraceRetries: 10,
         artifactAuthorAttempts: 2,
       });
+      assert.deepEqual(config.timeouts, {
+        workerPhaseWallClockMs: 90 * 60_000,
+      });
+    });
+  });
+
+  it("timeouts overlay: file then env, rejecting unknown keys", async () => {
+    await withTmpDir(async (dir) => {
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ timeouts: { workerPhaseWallClockMs: 30 * 60_000 } }),
+      );
+      const fromFile = loadConfig({}, dir);
+      assert.equal(fromFile.timeouts.workerPhaseWallClockMs, 30 * 60_000);
+
+      const fromEnv = loadConfig(
+        { LABRAT_WORKER_PHASE_WALL_CLOCK_MS: "60000" },
+        dir,
+      );
+      assert.equal(fromEnv.timeouts.workerPhaseWallClockMs, 60_000);
+
+      await writeFile(
+        join(dir, "labrat.config.json"),
+        JSON.stringify({ timeouts: { workerPhaseWallClock: 1 } }),
+      );
+      assert.throws(
+        () => loadConfig({}, dir),
+        /Invalid config file.*unknown key\(s\): workerPhaseWallClock/,
+      );
     });
   });
 

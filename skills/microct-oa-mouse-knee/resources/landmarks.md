@@ -30,6 +30,13 @@ answer first. Ground every placement in the reference pack
 
 **Pre-flight (mandatory):** the segmentation CC gate must pass (CC == 1 per bone).
 Placement on a broken mask is wasted — abort and fix segmentation if it doesn't.
+Any Magic Wand / connected-component selection used before measurement must operate
+on the full **volume**, never only the displayed slice.
+
+> **Researcher note:** Landmark placement remains manual and subjective. Prefer
+> repeatable grooves or holes, and verify every endpoint lies on bone. Even the
+> choice of "the middle" can vary by operator; record that uncertainty rather than
+> implying an exact anatomical center.
 
 **The operational rules that carry the result (SKILL.md):**
 
@@ -46,6 +53,13 @@ Femoral length runs from the groove-top **midpoint** to the notch. The tibial
 measures need the long-axis reorientation first (the parent method's orientation
 workflow; the tibia-rotation correction is per-specimen) — reference frames
 `tibial-orient-extract__3d__workflow.jpg` and `reorient-mask__multiplanar__workflow.jpg`.
+
+> **Researcher note:** Tibial slicing is the hardest operational step. Select the
+> plane showing the whole, connected, widest growth plate; it supports tibial width
+> and both height measurements. Prefer the reproducible bounding-box midpoint
+> formula over hand rotation. Scan orientation remains an unresolved accuracy
+> limitation: small angle changes alter 2-D measurements, and this workflow cannot
+> currently eliminate that error.
 
 ## Verification
 
