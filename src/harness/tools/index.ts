@@ -19,6 +19,8 @@ export {
   handleSubmitGateDecision,
   handleSubmitMonitorVerdict,
   handleViewHumanFeedback,
+  isPhaseRecordable,
+  type PhaseRecordableResult,
 } from "./handlers.js";
 
 /** @deprecated Use createLabratToolServer */

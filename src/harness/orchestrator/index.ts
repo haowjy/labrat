@@ -17,7 +17,8 @@ import {
 } from "../protocol-loader/index.js";
 import { readHumanVerdict } from "../review-verdict/index.js";
 import { ensureRuntime, pythonRuntime } from "../runtime-setup/index.js";
-import { runWorkerPhase } from "../session/worker.js";
+import { runWorkerPhase, type StallExhaustedReason } from "../session/worker.js";
+import { WORKER_ITERATION_CAP } from "../session/worker-stall.js";
 import {
   appendPublishedArtifactProvenance,
   artifactSettlementPending,
@@ -75,6 +76,28 @@ async function existsAt(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Human-readable failure reason for a worker phase that ended without
+ * record_phase, keyed by the worker loop's exhaustion reason
+ * (session/worker-stall.ts). Shared by runTask and the isolated run-phase.
+ */
+function workerExhaustionReason(
+  reason: StallExhaustedReason | null,
+  phaseId: string,
+  config: LabratConfig,
+): string {
+  switch (reason) {
+    case "background-grace":
+      return `Worker background work on phase ${phaseId} exceeded ${config.retries.backgroundGraceRetries} grace continuations without record_phase`;
+    case "time-budget":
+      return `Worker on phase ${phaseId} exceeded the ${Math.round(config.timeouts.workerPhaseWallClockMs / 60_000)}-minute wall-clock budget without record_phase`;
+    case "iteration-cap":
+      return `Worker on phase ${phaseId} hit the ${WORKER_ITERATION_CAP}-iteration safety cap without record_phase`;
+    default:
+      return `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} idle turns with no progress and no record_phase`;
   }
 }
 
@@ -425,10 +448,11 @@ export async function runTask(
     }
 
     if (workerResult.stallExhausted || !workerResult.phaseComplete) {
-      const failReason =
-        workerResult.stallExhaustedReason === "background-grace"
-          ? `Worker background work on phase ${phaseId} exceeded ${config.retries.backgroundGraceRetries} grace continuations without record_phase`
-          : `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`;
+      const failReason = workerExhaustionReason(
+        workerResult.stallExhaustedReason,
+        phaseId,
+        config,
+      );
       task = {
         ...task,
         state: "failed",
@@ -873,10 +897,11 @@ export async function runPhaseInIsolation(
   }
 
   if (workerResult.stallExhausted || !workerResult.phaseComplete) {
-    const failReason =
-      workerResult.stallExhaustedReason === "background-grace"
-        ? `Worker background work on phase ${phaseId} exceeded ${config.retries.backgroundGraceRetries} grace continuations without record_phase`
-        : `Worker stalled on phase ${phaseId} after ${config.retries.workerStall} reminders without record_phase`;
+    const failReason = workerExhaustionReason(
+      workerResult.stallExhaustedReason,
+      phaseId,
+      config,
+    );
     task = {
       ...task,
       state: "failed",
