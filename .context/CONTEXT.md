@@ -19,6 +19,17 @@ is **required** (errors if absent). `protocol.runtime.deps` is declarative — i
 drives non-python (binary/conda/env) validation only, not installation;
 `environment.yml` is the authoritative install manifest.
 
+## Session env (must-know)
+
+Every harness-spawned session (worker, gate-reviewer, monitor, author,
+feedback-router) must carry `SESSION_ENV_HARDENING`
+(`src/harness/session/session-env.ts`, `ENABLE_TOOL_SEARCH=false`) — Claude
+Code's progressive tool disclosure can defer and then drop an in-process
+MCP tool (e.g. `record_phase`) after a long turn, mis-reporting a completed
+phase as a stall. A new session builder that skips it silently reopens that
+bug. See KB `labrat-worker-completion-reliability.md` for the full root
+cause and the progress-based stall detector this pairs with.
+
 ## Task tree (disk-is-the-contract)
 
 A run writes phase records, gate decisions, the provenance manifest, and the
@@ -38,3 +49,8 @@ seam.
   them). The bridge between repo-as-source-of-truth and the runtime load path.
 - Dashboard binds `localhost:4600`. This sandbox SIGTERMs listening sockets —
   verify dashboard logic via its loaders, not by hosting it.
+- The dashboard runs via `tsx` and caches modules at process start: a
+  running daemon won't pick up new dashboard-side code (e.g. a new API
+  field) until restarted. An empty-looking review artifact that should be
+  populated is often a stale daemon, not a data bug — restart before
+  debugging further.
