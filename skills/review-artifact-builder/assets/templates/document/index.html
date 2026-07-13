@@ -16,6 +16,7 @@
 <meta name="color-scheme" content="light" />
 <title>Review — document artifact (template)</title>
 <style>
+/* --- Colors: light default, dark via prefers-color-scheme --- */
 :root {
   --ink: #14181c;
   --paper: #ffffff;
@@ -29,26 +30,39 @@
   --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
 }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e4e2de;
+    --paper: #141618;
+    --surface: #1e2024;
+    --border: #2e3238;
+    --muted: #9ca3af;
+    --accent: #4da8c4;
+    --present: #4dab78;
+    --absent: #d4a017;
+  }
+}
 *, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; }
+
+/* --- Mobile-first base: single scrolling column --- */
 body {
   margin: 0; font-family: var(--sans); background: var(--paper); color: var(--ink);
-  line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden;
+  line-height: 1.45; -webkit-font-smoothing: antialiased;
 }
-.shell { height: 100dvh; display: flex; flex-direction: column; }
-.topbar { flex-shrink: 0; padding: 0.9rem 1.1rem 0.75rem; border-bottom: 1px solid var(--border); }
+.shell { display: flex; flex-direction: column; min-height: 100dvh; }
+.topbar { flex-shrink: 0; padding: 0.75rem 0.85rem; border-bottom: 1px solid var(--border); }
 .topbar h1 { margin: 0; font-size: 1.05rem; font-weight: 700; }
 .topbar-sub { margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
 .summary { margin: 0.5rem 0 0; font-size: 0.86rem; color: var(--ink); }
 
-.split { flex: 1; min-height: 0; display: flex; }
-.claims { flex: 0 0 44%; max-width: 420px; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; border-right: 1px solid var(--border); padding: 0.75rem; }
-.detail { flex: 1; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 1rem 1.1rem; }
+.split { display: flex; flex-direction: column; }
+.claims { padding: 0.6rem; border-bottom: 1px solid var(--border); }
+.detail { padding: 0.75rem; }
 
 .claim-btn {
   display: block; width: 100%; text-align: left; margin: 0 0 0.6rem; padding: 0.7rem 0.8rem;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
-  color: var(--ink); cursor: pointer; font: inherit;
+  color: var(--ink); cursor: pointer; font: inherit; min-height: 44px;
 }
 .claim-btn:hover { border-color: var(--accent); }
 .claim-btn[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
@@ -61,13 +75,19 @@ body {
 .detail .claim-statement { font-size: 0.92rem; margin: 0 0 0.9rem; }
 .src-card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: 0.9rem; }
 .src-head { background: var(--surface); padding: 0.5rem 0.7rem; font-family: var(--mono); font-size: 0.74rem; color: var(--muted); overflow-wrap: anywhere; border-bottom: 1px solid var(--border); }
-.src-excerpt { margin: 0; padding: 0.7rem 0.8rem; font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.src-excerpt { margin: 0; padding: 0.7rem 0.8rem; font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--paper); color: var(--ink); }
 .absent-note { padding: 0.7rem 0.8rem; font-size: 0.85rem; color: var(--absent); background: color-mix(in srgb, var(--absent) 10%, var(--paper)); border: 1px dashed color-mix(in srgb, var(--absent) 45%, var(--border)); border-radius: var(--radius); }
 .detail .empty { color: var(--muted); font-size: 0.88rem; }
 
-@media (max-width: 700px) {
-  .split { flex-direction: column; }
-  .claims { flex: 0 0 auto; max-width: none; max-height: 45%; border-right: none; border-bottom: 1px solid var(--border); }
+/* --- Desktop enhancement: side-by-side split --- */
+@media (min-width: 700px) {
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .shell { height: 100dvh; }
+  .topbar { padding: 0.9rem 1.1rem 0.75rem; }
+  .split { flex-direction: row; flex: 1; min-height: 0; }
+  .claims { flex: 0 0 44%; max-width: 420px; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; border-bottom: none; border-right: 1px solid var(--border); padding: 0.75rem; }
+  .detail { flex: 1; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 1rem 1.1rem; }
 }
 </style>
 </head>
@@ -207,6 +227,11 @@ window.REVIEW_EVIDENCE = {
       b.setAttribute("aria-pressed", String(i === idx));
     });
     renderDetail(claims[idx]);
+    // On mobile (single-column flow), scroll the detail into view so the
+    // reviewer sees the cited source without hunting for it.
+    if (window.matchMedia("(max-width: 700px)").matches) {
+      detailEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   claims.forEach(function (claim, idx) {

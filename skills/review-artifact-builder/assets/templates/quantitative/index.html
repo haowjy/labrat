@@ -24,9 +24,25 @@
   --pass: #2f8f5b;
   --concern: #b8860b;
   --fail: #c0402a;
+  --interp-bg: #eef2fb;
+  --interp-border: #c7d5f0;
   --radius: 10px;
   --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   --sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e4e2de;
+    --paper: #141618;
+    --surface: #1e2024;
+    --border: #2e3238;
+    --muted: #9ca3af;
+    --pass: #4dab78;
+    --concern: #d4a017;
+    --fail: #e05a42;
+    --interp-bg: #1a1f2e;
+    --interp-border: #2a3550;
+  }
 }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -74,7 +90,7 @@ table.values td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border)
 table.values td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* --- Interpretation (AFTER evidence, no anchoring) ---------------------- */
-.interp { margin-top: 1.2rem; padding: 0.8rem 0.9rem; background: #eef2fb; border: 1px solid #c7d5f0; border-radius: var(--radius); font-size: 0.86rem; }
+.interp { margin-top: 1.2rem; padding: 0.8rem 0.9rem; background: var(--interp-bg); border: 1px solid var(--interp-border); border-radius: var(--radius); font-size: 0.86rem; }
 .interp h2 { margin: 0 0 0.3rem; font-size: 0.9rem; }
 .interp .meta { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); margin-bottom: 0.35rem; }
 </style>
