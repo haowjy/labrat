@@ -7,6 +7,7 @@ import { MobileDrawer } from "./MobileDrawer.js";
 import { PhaseReviewView } from "./PhaseReviewView.js";
 import { Sidebar } from "./Sidebar.js";
 import { SkillsView } from "./SkillsView.js";
+import { SubmitPanel } from "./SubmitPanel.js";
 import { WatchPanel } from "./WatchPanel.js";
 
 const LOG_CAP = 40;
@@ -28,12 +29,14 @@ function Breadcrumb({ screen, currentId, selectedPhase, onDashboard, onSample })
   if (screen === "dashboard") {
     return html`<div class="breadcrumb"><span class="crumb-current">Dashboard</span></div>`;
   }
-  if (screen === "skills" || screen === "watch") {
+  if (screen === "skills" || screen === "watch" || screen === "submit") {
+    const label =
+      screen === "skills" ? "Skills" : screen === "watch" ? "Watch folders" : "Submit a sample";
     return html`
       <div class="breadcrumb">
         <button type="button" class="crumb crumb-link" onClick=${onDashboard}>Dashboard</button
         ><span class="crumb-sep"> / </span
-        ><span class="crumb-current">${screen === "skills" ? "Skills" : "Watch folders"}</span>
+        ><span class="crumb-current">${label}</span>
       </div>
     `;
   }
@@ -158,6 +161,16 @@ export function App() {
     scrollMainToTop();
   }, []);
 
+  /** Manual "Submit a sample" — a third top-level screen off the drawer,
+   * same shape as goToWatch: not tied to any sample, so currentId clears. */
+  const goToSubmit = useCallback(() => {
+    setCurrentId(null);
+    setScreenState("submit");
+    location.hash = "submit";
+    setDrawerOpen(false);
+    scrollMainToTop();
+  }, []);
+
   /** A Phase-review tab click — "show Phase review for this phase";
    * setting screen to "review" again when already there is a harmless
    * no-op. */
@@ -256,6 +269,7 @@ export function App() {
           screen=${screen}
           onSelect=${selectSample}
           onGoDashboard=${goToDashboard}
+          onGoSubmit=${goToSubmit}
           onGoWatch=${goToWatch}
           onGoSkills=${goToSkills}
         />
@@ -284,7 +298,9 @@ export function App() {
         <div
           class="content ${screen === "review" ? "content-review" : screen === "dashboard" ? "content-dashboard" : ""}"
         >
-          ${screen === "watch"
+          ${screen === "submit"
+            ? html`<${SubmitPanel} onOpenSample=${selectSample} />`
+            : screen === "watch"
             ? html`<${WatchPanel} />`
             : screen === "skills"
             ? html`<${SkillsView} />`

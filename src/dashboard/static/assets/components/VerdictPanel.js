@@ -36,6 +36,10 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
   const [submitting, setSubmitting] = useState(false);
   const [finishError, setFinishError] = useState(null);
   const [result, setResult] = useState(null);
+  // The chained re-run action after a send-back: null → offered, "starting"
+  // while the POST is in flight, "started" once the detached rerun launched.
+  const [rerunState, setRerunState] = useState(null);
+  const [rerunError, setRerunError] = useState(null);
 
   const label = verdictLabel(verdict);
   const adjustments = adjustmentsFromEvidence(verdict.evidence);
@@ -79,6 +83,24 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
     }, "Failed to send the phase back.");
   }
 
+  // "Re-run this phase": offered right after a send-back lands on disk, so
+  // the whole loop (verdict → mark → re-run) is one in-dashboard action.
+  // POST /api/tasks/:id/rerun launches the existing `labrat rerun` as a
+  // detached child; the phase restart then surfaces through SSE — this
+  // button only kicks it off, it never tracks the run.
+  async function rerunPhase() {
+    if (rerunState) return;
+    setRerunState("starting");
+    setRerunError(null);
+    try {
+      await postJSON(`/api/tasks/${encodeURIComponent(taskId)}/rerun`, {});
+      setRerunState("started");
+    } catch (err) {
+      setRerunState(null);
+      setRerunError(err && err.message ? err.message : "Failed to start the re-run.");
+    }
+  }
+
   async function post(body, failMsg) {
     setSubmitting(true);
     setFinishError(null);
@@ -101,7 +123,30 @@ export function VerdictPanel({ taskId, phase, verdict, setVerdict, onFinished })
       </div>
 
       ${result
-        ? html`<div class="verdict-finish-done">Review saved. This phase's verdict is on disk.</div>`
+        ? choice === "revision"
+          ? html`
+              <div class="verdict-finish-done">
+                Sent back. The changes_requested verdict is on disk.
+                <div class="verdict-step-actions">
+                  ${rerunError
+                    ? html`<span class="verdict-finish-error">${rerunError}</span>`
+                    : null}
+                  ${rerunState === "started"
+                    ? html`<span>Re-running — the phase will restart shortly.</span>`
+                    : html`
+                        <button
+                          type="button"
+                          class="btn btn-primary"
+                          disabled=${rerunState === "starting"}
+                          onClick=${rerunPhase}
+                        >
+                          ${rerunState === "starting" ? "Re-running…" : "Re-run this phase"}
+                        </button>
+                      `}
+                </div>
+              </div>
+            `
+          : html`<div class="verdict-finish-done">Review saved. This phase's verdict is on disk.</div>`
         : html`
             <div class="verdict-choice-row">
               <button

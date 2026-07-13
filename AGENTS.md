@@ -49,8 +49,11 @@ The CLI also supports: `gate`, `run-phase`, `resume`, `rerun`, `reset-to`,
 `check-review-site`, `skills`, `import-skill`. Run `npm run dev` with no args
 for usage.
 
-A folder watcher (`src/harness/watcher/`) is stubbed but not yet wired — today
-runs are CLI-initiated. Dashboard enqueue is planned.
+Ingest is wired three ways: CLI `enqueue` (above); a live folder watcher
+(`labrat watch` daemon + `control/` plane + the dashboard's WatchPanel) that
+claims drops in a watched root and runs them — the dashboard toggles ingestion
+on/off but cannot start the daemon (a file can't start a process); and a
+dashboard "Submit a sample" panel (`POST /api/enqueue`) for a one-off manual run.
 
 ## Key rules
 
