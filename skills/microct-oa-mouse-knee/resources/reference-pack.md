@@ -20,6 +20,12 @@ mouse-knee instance.
 - **Never** surface the paper's reported measurement *values* to the naming step.
   The pack teaches *what a structure is*, not *what number it should produce* —
   see "Provenance and honesty."
+- **The specimen's OA/normal phenotype is the pipeline's OUTPUT, never an input
+  assumption.** Do not carry a "this is an OA knee" (or "normal") belief into
+  naming, landmarks, or reading a ratio. A ratio far outside the paper's own group
+  means (e.g. femoral W/L > ~1.5, well beyond even the OA-group means of ~1.33–1.47)
+  is an ANOMALY to re-investigate — suspect an identity swap or landmark error, and
+  re-run the discriminator — NOT confirmation of severe disease.
 
 ## The assets
 

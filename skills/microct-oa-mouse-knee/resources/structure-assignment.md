@@ -80,8 +80,13 @@ correctly.
   `review-artifact` phase; keeping this at `segmentation/geometry.json` is what
   lets the earlier phases' hash-verified sites survive that phase's own recompute).
 
-**Femur/tibia identity** carries both ratio indices and is only moderately
-reliable on an unlabeled scan (condyle-count discriminator) — confirm in review.
+**Femur/tibia identity** carries both ratio indices. It is NOT settled by
+z-position or volume order — those are heuristics that swap on legitimate
+specimens (a scan with more tibial shaft in FOV can put more voxels in the
+tibia and the femur at low z). Identity is settled only by the **mandatory
+bicondylar discriminator** in Verification below — a comparative test (the femur
+is the more-consistently-bicondylar bone at the joint) that runs in code on every
+pass and whose geometry wins over any heuristic.
 
 ## Verification
 
@@ -90,7 +95,8 @@ reliable on an unlabeled scan (condyle-count discriminator) — confirm in revie
 inferior, patella anterior, menisci at the joint line, sesamoids as separate small
 bodies. Confirm each 3-D label agrees with its 2-D contour in all three planes. A
 swap, or a sesamoid fused to the femur, is obvious here and invisible in the
-numbers.
+numbers. This visual step is *backed by* the code discriminator in check 4 — it is
+not a substitute for it.
 
 **Then the checks:**
 
@@ -103,12 +109,86 @@ numbers.
 3. **Sesamoid / osteophyte separation (required)** — no `ossa_sesamoidea` or
    `*_osteophytes` voxels inside the femoral condyle slab used for width. This is
    what protects the W/L index; check it explicitly.
-4. **Volume ordering** — femur voxels ≥ tibia, unless documented.
-5. **Identity confidence** — a low condyle-count margin → flag
-   `ambiguous-bone-identity` (→ seed-review).
+4. **Bicondylar identity discriminator (MANDATORY, EVERY pass).** The femur is the
+   **more-consistently-bicondylar** bone at the joint line; the tibia is the
+   less-bicondylar one. This is a *comparative* test, not an absolute one — the real
+   proximal tibial plateau reads as 2 lobes in ~half its joint slices (its own
+   medial/lateral condyles), so "the tibia is single-lobed" is anatomically false
+   and must not be used. What separates the bones is that the femur is *consistently*
+   bicondylar (a long contiguous run of 2-lobe slices) while the tibia is *noisily*
+   lobed. Run this deterministic, code-runnable check whether `status` is `ready` or
+   `needs-seeds`, and whether or not identity looks obvious. It is the sole thing
+   that clears femur/tibia identity; the "look first" step, z-position, and volume
+   order do not. Run it, in python, against `labels.nii.gz`:
+
+   ```python
+   import nibabel as nib, numpy as np
+   from scipy import ndimage
+
+   lab = nib.load("artifacts/labels.nii.gz").get_fdata().astype(int)
+   FEMUR, TIBIA = 1, 2          # the integer labels assigned to femur / tibia
+   BICONDYLAR_MIN = 0.60        # femur-labeled bone must itself be clearly bicondylar
+   MARGIN = 0.15                # topology margin: how much MORE bicondylar the femur must be
+
+   def centroid(m): return np.array(np.nonzero(m)).mean(axis=1)
+   fm, tm = (lab == FEMUR), (lab == TIBIA)
+   # Split axis = the axis along which the two bones stack (largest centroid gap).
+   AX = int(np.argmax(np.abs(centroid(fm) - centroid(tm))))
+
+   def band(mask, toward, n=20):
+       # n slices of `mask` at the end of AX nearest the other bone's centroid
+       idx = np.nonzero(mask.any(axis=tuple(i for i in range(3) if i != AX)))[0]
+       lo, hi = idx.min(), idx.max()
+       return range(hi - n + 1, hi + 1) if toward > (lo + hi) / 2 else range(lo, lo + n)
+
+   def lobes(mask, k):
+       sl = np.take(mask, k, axis=AX)
+       lbl, n = ndimage.label(sl)
+       if n == 0: return 0
+       sizes = np.array([(lbl == i).sum() for i in range(1, n + 1)])
+       # keep only substantial lobes: ≥20% of the largest in-slice component,
+       # and ≥10 voxels — this drops specks and keeps two comparable condyles.
+       return int((sizes >= max(10, 0.2 * sizes.max())).sum())
+
+   ct, cf = centroid(tm)[AX], centroid(fm)[AX]
+   fem_counts = [lobes(fm, k) for k in band(fm, ct)]   # femur band toward tibia
+   tib_counts = [lobes(tm, k) for k in band(tm, cf)]   # tibia band toward femur
+   fem_frac = sum(c >= 2 for c in fem_counts) / len(fem_counts)   # fraction bicondylar
+   tib_frac = sum(c >= 2 for c in tib_counts) / len(tib_counts)
+   if tib_frac > fem_frac + MARGIN:
+       verdict = "FAIL"        # tibia-labeled bone is more bicondylar -> labels swapped
+   elif fem_frac >= BICONDYLAR_MIN and fem_frac > tib_frac + MARGIN:
+       verdict = "PASS"        # femur-labeled bone is the clearly-more-bicondylar one
+   else:
+       verdict = "AMBIGUOUS"   # too close -> flag ambiguous-bone-identity -> seed-review
+   ```
+
+   - **PASS** iff the bone labeled `femur` is itself clearly bicondylar
+     (`fem_frac >= 0.60`) AND is the more-bicondylar bone by a clear margin
+     (`fem_frac > tib_frac + 0.15`). Record `fem_frac`, `tib_frac`, both
+     `fem_counts` / `tib_counts` arrays, and `verdict` into
+     `structure_assignments.json` (key `bicondylar_discriminator`), and emit an
+     evidence PNG of the two joint bands (labeled lobes) alongside the scene image.
+   - **FAIL (swapped)** iff `tib_frac > fem_frac + 0.15` — the tibia-labeled bone is
+     the more-bicondylar one, so the labels are swapped. The ASSIGNMENT IS WRONG;
+     the discriminator geometry WINS over any volume-order or z-position heuristic.
+     Correct the labels (swap femur↔tibia) or drop to `needs-seeds` and re-run. A
+     `status: ready` must NOT stand while the discriminator FAILs.
+   - **AMBIGUOUS** iff `|fem_frac - tib_frac| <= 0.15` — too close to call. Flag
+     `ambiguous-bone-identity` and send to seed-review. (`MARGIN = 0.15` is a
+     topology margin, not tuned to a measurement value; on real correct anatomy the
+     gap is ~0.35 (fem 0.85 vs tib 0.50), well clear of it.)
+5. **Volume ordering is a trigger, not an escape.** Femur voxels are *usually* ≥
+   tibia, but a legitimate specimen can invert this (more tibial shaft in FOV). So
+   a `bone-volume-order-wrong` situation — or any other identity ambiguity — is NOT
+   cleared by a documented plausibility note. It **mandatorily requires check 4 to
+   PASS** with its evidence recorded; only that PASS clears it. A discriminator
+   AMBIGUOUS (the two bicondylar fractions within `MARGIN`) → flag
+   `ambiguous-bone-identity` and send to seed-review.
 
 **Failure modes:** ambiguous identity (needs seed-review — expected on the first
-pass); swapped femur/tibia (fix via seeds); a sesamoid or osteophyte merged into
-femur (inflates width — re-seed to split); multiple CC per bone (fragmentation).
+pass); swapped femur/tibia (discriminator FAILs → swap or re-seed); a sesamoid or
+osteophyte merged into femur (inflates width — re-seed to split); multiple CC per
+bone (fragmentation).
 
 Compare structures to each other, not to a specimen's absolute voxel counts.

@@ -12,9 +12,26 @@ call classical tools can't make alone.
 
 **When to run:** inspect `segmentation/structure_assignments.json`. If `status` is
 `needs-seeds`, or flags include `ambiguous-bone-identity` / `calibration-unverified`,
-curate seeds before landmarks. If `status: ready` on the first pass, record
-seed-review as a no-op in `phases/seed-review/summary.md` ("seeds not required")
-and proceed — don't fabricate seed work.
+curate seeds before landmarks.
+
+**Identity is verified on EVERY run, including `status: ready`.** A `ready`
+status attests segmentation *quality* — CC == 1, clean components — NOT bone
+*identity*. Identity must be independently confirmed by the bicondylar
+discriminator (check 4 in `structure-assignment.md`) before landmarks,
+unconditionally. That check is *comparative* — the femur is the
+more-consistently-bicondylar bone at the joint, not "the tibia is single-lobed"
+(the tibial plateau is itself lobed in ~half its joint slices). Run that code
+discriminator against `labels.nii.gz` first:
+- If it **PASSes** (`fem_frac >= 0.60` AND `fem_frac > tib_frac + 0.15`), and
+  `status: ready` on the first pass, record seed-review as a no-op in
+  `phases/seed-review/summary.md` — but the record must carry the discriminator
+  PASS (its `fem_frac` / `tib_frac` / count arrays / verdict) as its precondition.
+  "Seeds not required" is only valid once identity is confirmed; don't fabricate
+  seed work beyond that.
+- If it **FAILs** (`tib_frac > fem_frac + 0.15` — the tibia-labeled bone is the
+  more-bicondylar one), the labels are swapped — force seed-curation / send back to
+  segmentation, even on a `ready` pass. The discriminator geometry wins over the
+  `ready` status.
 
 **Workflow:**
 
@@ -36,10 +53,11 @@ and proceed — don't fabricate seed work.
 
 ## Verification
 
-**Look first.** After the re-run, color the bones and confirm femur (two condyles,
-near one scan end) and tibia (single plateau) are labeled correctly against
-`bone-split__femur-tibia-fibula__3d__workflow.jpg` — seed curation exists to fix a
-*visible* identity error, so verify it visually.
+**Look first.** After the re-run (or on a `ready` no-op pass), color the bones and
+confirm femur (two condyles, near one scan end) and tibia (single plateau) are
+labeled correctly against `bone-split__femur-tibia-fibula__3d__workflow.jpg` — seed
+curation exists to fix a *visible* identity error, so verify it visually. This is
+backed by, not a substitute for, the code discriminator in check 5.
 
 **Then the checks:**
 
@@ -52,10 +70,17 @@ near one scan end) and tibia (single plateau) are labeled correctly against
 4. **Connected-components gate** — re-apply the femur/tibia CC == 1 check on the
    post-seed `labels.nii.gz`. Seed resolution does not by itself guarantee CC == 1
    (largest-CC cleanup is separate) — check it explicitly.
-5. **Plausibility** — femur centroid near a scan end with two condyle components in
-   joint-adjacent slices; tibia single-plateau geometry.
+5. **Identity discriminator (MANDATORY, every run).** Run the bicondylar code
+   discriminator from `structure-assignment.md` check 4 against the post-seed (or
+   `ready`-pass) `labels.nii.gz`. It is *comparative*: PASS iff the bone labeled
+   `femur` is the more-consistently-bicondylar bone (`fem_frac >= 0.60` AND
+   `fem_frac > tib_frac + 0.15`). Do NOT expect the tibia to be single-lobed — its
+   plateau reads as 2 lobes in ~half its joint slices. A FAIL (`tib_frac >
+   fem_frac + 0.15`) means the labels are swapped — do not proceed to landmarks;
+   force curation / send back to segmentation. This runs even when seed-review is a
+   `ready` no-op.
 
 **Failure modes:** seed points outside components (fix `seeds.json`); re-run still
-needs-seeds (incomplete curation); swapped bones after seeds (heuristic overridden
-wrong); persistent multi-CC (a watershed/pruning issue, not seed identity — send
-back to watershed).
+needs-seeds (incomplete curation); swapped bones after seeds or on a `ready` pass
+(discriminator FAILs — override the labels, don't proceed); persistent multi-CC (a
+watershed/pruning issue, not seed identity — send back to watershed).
