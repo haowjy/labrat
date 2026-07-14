@@ -1632,14 +1632,14 @@ window.REVIEW_EVIDENCE = {
   controls.dampingFactor = 0.09;
   controls.enablePan = false; // read-only review: rotate + zoom only
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-  var key = new THREE.DirectionalLight(0xffffff, 0.85);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  var key = new THREE.DirectionalLight(0xffffff, 0.6);
   key.position.set(3, 6, 5);
   scene.add(key);
-  var fill = new THREE.DirectionalLight(0xbcd0ff, 0.35);
+  var fill = new THREE.DirectionalLight(0xeef2ff, 0.28);
   fill.position.set(-4, -2, -3);
   scene.add(fill);
-  var rim = new THREE.DirectionalLight(0xffffff, 0.3);
+  var rim = new THREE.DirectionalLight(0xffffff, 0.2);
   rim.position.set(0, -3, -6);
   scene.add(rim);
 
@@ -1672,7 +1672,7 @@ window.REVIEW_EVIDENCE = {
     return out;
   }
 
-  // Bone meshes — raised opacity + inverted-hull outline for clear contours.
+  // Bone meshes — opaque surface + inverted-hull outline for clear contours.
   // Returns null (structure skipped, no throw, no NaN) when the geometry is
   // empty or malformed.
   function buildMesh(md, color) {
@@ -1685,8 +1685,8 @@ window.REVIEW_EVIDENCE = {
     geo.computeVertexNormals();
     var group = new THREE.Group();
     var mat = new THREE.MeshStandardMaterial({
-      color: color, transparent: true, opacity: 0.84,
-      roughness: 0.55, metalness: 0.03, side: THREE.FrontSide,
+      color: color, transparent: false, opacity: 1.0,
+      roughness: 0.62, metalness: 0.0, side: THREE.FrontSide,
       depthWrite: true,
     });
     group.add(new THREE.Mesh(geo, mat));

@@ -5,6 +5,7 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 ## [Unreleased]
 
 ### Added
+- Review-site 3D fidelity: the shared segmentation mesh is regenerated at full-resolution marching cubes (enclosed cavities filled, volume-edge shaft ends capped, winding repaired for coherent normals) and quadric-decimated to per-structure triangle targets (femur ~150K, tibia ~130K, fibula ~60K, sesamoids ~50K, small osteophytes full-res) instead of the old ~10K-vertex cap — so the cortical surface reads as real micro-CT rather than a smooth blob. The `spatial-3d` review-site template renders it opaque with tuned neutral lighting (no more highlight clipping). Recipe in `microct-oa-mouse-knee/resources/structure-assignment.md`; shading in `review-artifact-builder/.../spatial-3d/index.html`. Trade-off: each self-contained site grows to ~9–14 MB.
 - Single config seam (`labrat.config.json` + env), precedence `default < file < env < protocol.yaml < agent-def`. Set `defaultModel`, `defaultProtocol`, `scienceHome`, dashboard `port`/`url`/`user` without touching code.
 - `model` and `permissions` (permissionMode) are now per-agent fields on `AgentProfile`, mirroring the SDK's `AgentDefinition`. Protocol authors pick the model per agent; run-wide defaults come from config.
 - `toy-stats` demo protocol: stdlib-only (fake data → classify → OLS regression), independent reviewer recomputes and gates each phase. Runs on Haiku in seconds, no imaging deps.

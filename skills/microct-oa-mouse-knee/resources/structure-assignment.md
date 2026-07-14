@@ -55,12 +55,26 @@ surface mesh. Emit `segmentation/geometry.json` here; **every downstream phase's
 seed-review, landmarks, and measurement do NOT recompute geometry). Emit it once,
 correctly.
 
-- Extract a mesh per structure from `labels.nii.gz` — marching cubes
-  (`skimage.measure.marching_cubes`) on each label's binary mask, in the label
-  volume's own frame (apply voxel spacing so the mesh is in mm).
-- **Decimate to ~10K vertices per structure** (`skimage`/`vtk`/`open3d`
-  quadric-decimation, or a coarser marching-cubes step) so the total payload
-  stays well within the 5 MB site budget alongside the inlined ~785 KB three.js.
+- For each structure's binary mask from `labels.nii.gz`: **fill enclosed
+  cavities** (`scipy.ndimage.binary_fill_holes`) and pad a one-voxel zero border
+  so shaft ends cropped by the volume edge get **capped** — otherwise marching
+  cubes leaves the hollow medullary wall showing through the opening. Then run
+  **full-resolution** marching cubes (`skimage.measure.marching_cubes`,
+  `step_size=1`): the cortical surface texture — the pitting that makes the bone
+  read as real micro-CT instead of a smooth blob — lives in that detail; do not
+  coarsen it away. (Crop each mask to its bounding box first — `fill_holes` on the
+  full volume is far too slow — then offset vertices back to the global frame.)
+- Convert to the review frame: `vertices = mc_verts[:, ::-1] * spacing_mm` (the
+  label volume is indexed ZYX; the site expects `[x,y,z]` mm). That reversal is a
+  reflection, so **repair winding** afterward (build the mesh in the final
+  coordinate space and run `trimesh.repair.fix_normals`) — decimation plus the
+  reflection otherwise leave mixed/inward normals, which `computeVertexNormals`
+  averages to ~zero and the mesh renders **black**.
+- **Decimate per structure to a triangle target** (quadric decimation —
+  `fast-simplification`/`open3d`/`vtk`) that preserves surface detail while
+  staying in budget: femur ~150K tris, tibia ~130K, fibula ~60K, sesamoids ~50K,
+  small osteophytes full-res. Round coordinates to ~3 decimals (µm). This lands
+  each self-contained site around 9–14 MB alongside the inlined ~785 KB three.js.
 - One entry per named structure (`femur`, `tibia`, and the others you assigned);
   faces are 0-based triangle vertex indices. Shape:
 
