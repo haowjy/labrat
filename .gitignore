@@ -1,5 +1,6 @@
 # Meridian / Mars
 .claude/
+.codex/
 .mars/
 .meridian/
 .meridian-prompts/
@@ -22,8 +23,14 @@ __pycache__/
 
 # Runtime
 tasks/
+# Watch-daemon control plane: machine-local desired-state, live status, lock,
+# and rerun logs — not portable source (watcher.json holds an absolute path).
+control/
 *.nii.gz
 *.dcm
+
+# Local scratch / throwaway
+temp/
 
 # OS
 .DS_Store
