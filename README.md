@@ -9,12 +9,15 @@ measurement method through segmentation, landmark placement, measurement, and
 Published methods can still be expensive to repeat on a new dataset. The paper
 describes the science, while researchers supply many software-level decisions:
 how to orient a volume, tune a segmentation, place anatomical landmarks, and
-decide whether the result is trustworthy. This project captures that work in
-an executable protocol skill. Claude Opus runs the protocol phase by phase,
-and a separate Claude session reviews the saved evidence before the run can
-continue.
+decide whether the result is trustworthy. A researcher captures those
+decisions upstream as an executable protocol skill in Claude Science. LabRat
+gives Claude Opus the tools to run that skill phase by phase, while a separate
+Claude session reviews the saved evidence before the run can continue.
 
-![Final 3D review of the OA7-4L demonstration run](samples/OA7-4L-run-005/phases/review-artifact/evidence/review_site_3d.png)
+![OA7-4L workflow from raw micro-CT through final human review](docs/assets/oa7-4l-workflow.gif)
+
+*Saved OA7-4L run: raw micro-CT, labeled anatomy, seed checks, landmarks,
+measurement lines, and final human review. [Open the silent MP4.](docs/assets/oa7-4l-workflow.mp4)*
 
 The dashboard keeps uncertain results visible. In the run above, the automated
 measurements are marked **Review required** so a researcher can inspect the 3D
@@ -49,94 +52,6 @@ npm run smoke
 The repository's `skills/` directory is the distributable source of truth. The
 export command copies those skills into the Claude Science registry, which is
 where the current runtime loads them.
-
-## Keep it running
-
-Save machine-specific settings in the gitignored `labrat.config.json`. This
-example selects the micro-CT protocol and gives its folder watcher a permanent
-drop location:
-
-```json
-{
-  "defaultModel": "opus",
-  "defaultProtocol": "microct-oa-mouse-knee",
-  "scienceHome": "~/.claude-science",
-  "watchRoots": {
-    "microct-oa-mouse-knee": "/absolute/path/to/labrat-inbox"
-  },
-  "dashboard": { "port": 4600 }
-}
-```
-
-Run the dashboard and watcher as separate long-lived processes:
-
-```bash
-npm run dashboard
-```
-
-```bash
-npm run dev -- watch
-```
-
-Open **Watch folders** in the dashboard and enable ingestion once. That choice
-is stored in `control/watcher.json`; after a restart, the watcher resumes the
-saved state. New scans go into the watch root's `incoming/` directory. The
-watcher moves each one through `in-progress/` and then into `done/` or
-`failed/`.
-
-<details>
-<summary>Start both processes automatically with systemd</summary>
-
-Create these user services, replacing `/absolute/path/to/labrat` with the
-checkout path. `bash -lic` loads the same Node environment used by an
-interactive shell, including an NVM-managed Node 24 installation.
-
-`~/.config/systemd/user/labrat-dashboard.service`:
-
-```ini
-[Unit]
-Description=LabRat dashboard
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/absolute/path/to/labrat
-ExecStart=/usr/bin/bash -lic 'exec npm run dashboard'
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-`~/.config/systemd/user/labrat-watcher.service`:
-
-```ini
-[Unit]
-Description=LabRat sample watcher
-After=network.target labrat-dashboard.service
-
-[Service]
-Type=simple
-WorkingDirectory=/absolute/path/to/labrat
-ExecStart=/usr/bin/bash -lic 'exec npm run dev -- watch'
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-Enable them with:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now labrat-dashboard.service labrat-watcher.service
-```
-
-Run `loginctl enable-linger "$USER"` if the services should start at boot and
-continue after logout. Use `journalctl --user -u labrat-dashboard -u
-labrat-watcher -f` to follow their logs.
-
-</details>
 
 ## System components
 
@@ -274,6 +189,94 @@ npm run dev -- watch
 npm run dev -- resume <task-id>
 npm run dev -- rerun <task-id> [from-phase]
 ```
+
+## Keep it running
+
+Save machine-specific settings in the gitignored `labrat.config.json`. This
+example selects the micro-CT protocol and gives its folder watcher a permanent
+drop location:
+
+```json
+{
+  "defaultModel": "opus",
+  "defaultProtocol": "microct-oa-mouse-knee",
+  "scienceHome": "~/.claude-science",
+  "watchRoots": {
+    "microct-oa-mouse-knee": "/absolute/path/to/labrat-inbox"
+  },
+  "dashboard": { "port": 4600 }
+}
+```
+
+Run the dashboard and watcher as separate long-lived processes:
+
+```bash
+npm run dashboard
+```
+
+```bash
+npm run dev -- watch
+```
+
+Open **Watch folders** in the dashboard and enable ingestion once. That choice
+is stored in `control/watcher.json`; after a restart, the watcher resumes the
+saved state. New scans go into the watch root's `incoming/` directory. The
+watcher moves each one through `in-progress/` and then into `done/` or
+`failed/`.
+
+<details>
+<summary>Start both processes automatically with systemd</summary>
+
+Create these user services, replacing `/absolute/path/to/labrat` with the
+checkout path. `bash -lic` loads the same Node environment used by an
+interactive shell, including an NVM-managed Node 24 installation.
+
+`~/.config/systemd/user/labrat-dashboard.service`:
+
+```ini
+[Unit]
+Description=LabRat dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/labrat
+ExecStart=/usr/bin/bash -lic 'exec npm run dashboard'
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+`~/.config/systemd/user/labrat-watcher.service`:
+
+```ini
+[Unit]
+Description=LabRat sample watcher
+After=network.target labrat-dashboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/labrat
+ExecStart=/usr/bin/bash -lic 'exec npm run dev -- watch'
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+Enable them with:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now labrat-dashboard.service labrat-watcher.service
+```
+
+Run `loginctl enable-linger "$USER"` if the services should start at boot and
+continue after logout. Use `journalctl --user -u labrat-dashboard -u
+labrat-watcher -f` to follow their logs.
+
+</details>
 
 ## Current boundaries
 
