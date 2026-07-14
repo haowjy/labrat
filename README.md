@@ -1,14 +1,142 @@
 # LabRat
 
-LabRat is an autonomous execution harness for repeatable scientific protocols.
-It combines reusable scientific skills, specialized agent roles, automatic
-sample ingestion, independent review, and human-facing evidence in one
-disk-backed workflow.
+LabRat runs scientific protocols with Claude and records the work so a
+researcher can inspect it. The first end-to-end demonstration starts with a
+micro-CT scan of a mouse knee and follows a newly published osteoarthritis
+measurement method through segmentation, landmark placement, measurement, and
+3D review.
 
-Published computational methods often remain expensive to reuse. Each new
-dataset may require manual operation of specialized software, consistent 3D
-orientation, anatomical judgment, and repeated quality checks. LabRat packages
-that established work as a protocol that agents can execute phase by phase.
+Published methods can still be expensive to repeat on a new dataset. The paper
+describes the science, while researchers supply many software-level decisions:
+how to orient a volume, tune a segmentation, place anatomical landmarks, and
+decide whether the result is trustworthy. This project captures that work in
+an executable protocol skill. Claude Opus runs the protocol phase by phase,
+and a separate Claude session reviews the saved evidence before the run can
+continue.
+
+![Final 3D review of the OA7-4L demonstration run](samples/OA7-4L-run-005/phases/review-artifact/evidence/review_site_3d.png)
+
+The dashboard keeps uncertain results visible. In the run above, the automated
+measurements are marked **Review required** so a researcher can inspect the 3D
+geometry and landmarks instead of treating the numbers as ground truth.
+
+## Run the included sample
+
+You need Node.js 24, Claude Science initialized under `~/.claude-science`,
+Claude Agent SDK credentials, and `micromamba`. Then:
+
+```bash
+git clone https://github.com/haowjy/labrat.git
+cd labrat
+npm install
+cp labrat.config.example.json labrat.config.json
+scripts/export-skills-to-claude-science.sh
+
+mkdir -p data/OA7-4L
+unzip -n data/OA7-4L.zip -d data/OA7-4L
+npm run dev -- enqueue data/OA7-4L microct-oa-mouse-knee
+```
+
+The final command starts the run and serves the dashboard at
+`http://localhost:4600`. The run writes its task record under `tasks/`. Expect
+the micro-CT workflow to take substantially longer than the imaging-free smoke
+test:
+
+```bash
+npm run smoke
+```
+
+The repository's `skills/` directory is the distributable source of truth. The
+export command copies those skills into the Claude Science registry, which is
+where the current runtime loads them.
+
+## Keep it running
+
+Save machine-specific settings in the gitignored `labrat.config.json`. This
+example selects the micro-CT protocol and gives its folder watcher a permanent
+drop location:
+
+```json
+{
+  "defaultModel": "opus",
+  "defaultProtocol": "microct-oa-mouse-knee",
+  "scienceHome": "~/.claude-science",
+  "watchRoots": {
+    "microct-oa-mouse-knee": "/absolute/path/to/labrat-inbox"
+  },
+  "dashboard": { "port": 4600 }
+}
+```
+
+Run the dashboard and watcher as separate long-lived processes:
+
+```bash
+npm run dashboard
+```
+
+```bash
+npm run dev -- watch
+```
+
+Open **Watch folders** in the dashboard and enable ingestion once. That choice
+is stored in `control/watcher.json`; after a restart, the watcher resumes the
+saved state. New scans go into the watch root's `incoming/` directory. The
+watcher moves each one through `in-progress/` and then into `done/` or
+`failed/`.
+
+<details>
+<summary>Start both processes automatically with systemd</summary>
+
+Create these user services, replacing `/absolute/path/to/labrat` with the
+checkout path. `bash -lic` loads the same Node environment used by an
+interactive shell, including an NVM-managed Node 24 installation.
+
+`~/.config/systemd/user/labrat-dashboard.service`:
+
+```ini
+[Unit]
+Description=LabRat dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/labrat
+ExecStart=/usr/bin/bash -lic 'exec npm run dashboard'
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+`~/.config/systemd/user/labrat-watcher.service`:
+
+```ini
+[Unit]
+Description=LabRat sample watcher
+After=network.target labrat-dashboard.service
+
+[Service]
+Type=simple
+WorkingDirectory=/absolute/path/to/labrat
+ExecStart=/usr/bin/bash -lic 'exec npm run dev -- watch'
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+Enable them with:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now labrat-dashboard.service labrat-watcher.service
+```
+
+Run `loginctl enable-linger "$USER"` if the services should start at boot and
+continue after logout. Use `journalctl --user -u labrat-dashboard -u
+labrat-watcher -f` to follow their logs.
+
+</details>
 
 ## System components
 
@@ -18,8 +146,8 @@ LabRat combines three parts:
 
    The included skills define how to inspect 3D medical volumes, execute a
    mouse-knee micro-CT protocol, and construct interactive review artifacts.
-   Protocols assign separate worker, gate-reviewer, monitor, artifact-author,
-   and feedback-routing roles.
+   Protocols assign a worker and an independent gate-reviewer, along with
+   artifact-building and feedback-routing roles.
 
 2. **Automatic protocol execution**
 
@@ -55,6 +183,20 @@ computes the published femoral and tibial indices, and preserves the
 coordinates and geometry used for each result. Interactive review sites expose
 the corresponding 3D anatomy, landmarks, and measurement lines.
 
+### What a run produces
+
+Every phase leaves behind its result, evidence, and review decision. These are
+ordinary files under the task directory, so the automated reviewer and the
+human-facing dashboard inspect the same record.
+
+**Labeled anatomy after segmentation**
+
+![Coronal, sagittal, and axial views of the labeled mouse knee](samples/OA7-4L-run-005/phases/segmentation/evidence/labeled_scene.png)
+
+**Landmarks and measurement geometry carried into final review**
+
+![Anterior and lateral measurement evidence with review-flagged landmarks](samples/OA7-4L-run-005/phases/review-artifact/evidence/packaged_spatial_evidence.png)
+
 The included `OA7-4L` scan is a healthy control from the paper's cohort.
 Published values are provided for evaluation and are never used as landmark
 targets. See [data/README.md](data/README.md) for sample provenance and reference
@@ -69,29 +211,28 @@ Claude Science authoring
 Claude Science skill registry ◀── import/export ──▶ vendored skills/
           │
           ▼
-Input sample ──▶ worker ──▶ independent gate-reviewer ──▶ monitor
-                    │                    │                    │
-                    └──────── phase outputs and decisions ──┘
-                                         │
-                                         ▼
-                              disk-backed task record
-                                         │
-                                         ▼
-                         3D review + provenance dashboard
-                                         │
-                                accept or send back
-                                         │
-                                         ▼
-                                  phase-level rerun
+Input sample ──▶ worker ──▶ independent gate-reviewer
+                    │                    │
+                    └── phase outputs and decisions ──┐
+                                                      ▼
+                                           disk-backed task record
+                                                      │
+                                                      ▼
+                                      3D review + provenance dashboard
+                                                      │
+                                             accept or send back
+                                                      │
+                                                      ▼
+                                               phase-level rerun
 ```
 
 Disk is the contract between the harness, agents, and dashboard. Phase outputs,
-reviewer verification, monitor verdicts, human feedback, events, and provenance
-are written under the task tree. The dashboard renders that record directly.
+reviewer verification, human feedback, events, and provenance are written under
+the task tree. The dashboard renders that record directly.
 
 The worker and gate-reviewer run in separate sessions behind a trust boundary.
 The reviewer cannot alter worker outputs or inspect the worker's private session
-state. The monitor audits the review evidence before the gate is accepted.
+state.
 
 ## Implemented capabilities
 
@@ -99,7 +240,6 @@ state. The monitor audits the review evidence before the gate is accepted.
 |---|---|
 | Protocol execution | Declared phases run in order, with review gates between phases. |
 | Independent review | A separate gate-reviewer reproduces phase checks and records its own verification. |
-| Reviewer audit | A monitor detects inadequate or rubber-stamped review evidence. |
 | Per-phase 3D review | Micro-CT phases publish rotatable 3D evidence; landmark and measurement phases include overlays. |
 | Human correction loop | A researcher can comment, send a phase back, rerun it, and review the returned attempt. |
 | Provenance | Phase outputs, gates, session records, events, and human verdicts remain linked on disk. |
@@ -123,46 +263,9 @@ The active agent profiles are declared by each protocol. Files under
 [`agents/`](agents/) document the project-level role defaults included with the
 Claude plugin.
 
-## Installation
+## Command reference
 
-### Prerequisites
-
-- Node.js 24
-- Claude Science with an organization under `~/.claude-science`
-- Claude Agent SDK credentials available to the local runtime
-- `micromamba` for the protocol's Python 3.11 imaging environment
-
-### Install dependencies and export skills
-
-```bash
-npm install
-cp labrat.config.example.json labrat.config.json
-scripts/export-skills-to-claude-science.sh
-```
-
-The repository's `skills/` directory is the distributable source of truth. The
-current runtime resolves protocols from the Claude Science registry, so the
-export step installs the vendored definitions into that registry before
-execution.
-
-## Running the included sample
-
-```bash
-mkdir -p data/OA7-4L
-unzip data/OA7-4L.zip -d data/OA7-4L
-npm run dev -- enqueue data/OA7-4L microct-oa-mouse-knee
-```
-
-`enqueue` starts the dashboard with the run unless `--no-dashboard` is passed.
-The default address is `http://localhost:4600`.
-
-Run the imaging-free smoke protocol with:
-
-```bash
-npm run smoke
-```
-
-Additional commands:
+Useful CLI commands:
 
 ```bash
 npm run dev -- skills
