@@ -54,3 +54,10 @@ seam.
   field) until restarted. An empty-looking review artifact that should be
   populated is often a stale daemon, not a data bug — restart before
   debugging further.
+- Per-phase review sites on disk hold `__REVIEW_INJECT:*` sentinel
+  placeholders, not real geometry/volume data — the dashboard splices the
+  real bytes in at serve time. Opening the raw `artifacts/review-sites/`
+  `index.html` via `file://` shows an empty scene and looks like a data-loss
+  bug; it isn't. Always verify through
+  `/api/tasks/:id/review-sites/:phase/index.html`. See KB
+  `labrat-review-bundle-trust-model.md`.
