@@ -42,6 +42,11 @@ All notable changes to LabRat are documented here. Caveman style: terse, behavio
 - Worker stall detection is now progress-based, not a turn-count ceiling: a phase whose declared outputs are all on disk auto-completes even if record_phase wasn't called; on-disk progress under phases/<phase>/ or active background work keeps a phase alive with no re-invocation cap; failure is bounded only by consecutive no-progress turns (workerStall), a wall-clock budget (default 90m, LABRAT_WORKER_PHASE_WALL_CLOCK_MS), and a 200-iteration safety cap.
 
 ### Removed
+- Raw OA7-4L DICOM archive from the public repository while its formal
+  institutional redistribution license is being documented. The saved run and
+  rendered workflow demonstration remain available with the originating lab's
+  permission; sample provenance now distinguishes those outputs from the
+  unpublished source data.
 - Dashboard "Claude Science skills" import affordance: the per-row `labrat import-skill <name>` CLI-command string and the header note telling users to run it. Importing writes into the repo's source tree (`skills/`), a dev-only vendoring action with no place in the researcher-facing view. The `labrat import-skill` CLI command is unchanged.
 - Machine-specific defaults: personal PYTHONPATH, the `jimmy@voluma.bio` default author (now OS username), duplicated `4600`/`~/.claude-science` literals, and the silent `microct-oa-mouse-knee` default protocol (now errors clearly when no protocol is given).
 - `runtime-setup/verify.ts` moved out of shipped `src/` to `scripts/` (microct-only manual smoke script).
