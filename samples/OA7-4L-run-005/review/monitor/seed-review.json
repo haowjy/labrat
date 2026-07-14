@@ -1,0 +1,23 @@
+{
+  "verdict": "ok",
+  "reasons": [
+    "Reviewer performed independent verification (scriptBytes=0, outputBytes=3966, files=1)."
+  ],
+  "checked": {
+    "phase": "seed-review",
+    "gateDecision": "pass",
+    "reviewerDefaulted": false,
+    "verificationDir": "review/verification/seed-review/",
+    "evidence": {
+      "fileCount": 1,
+      "scriptBytes": 0,
+      "outputBytes": 3966,
+      "totalBytes": 3966,
+      "files": [
+        "report.md"
+      ],
+      "hasRealEvidence": true
+    },
+    "modelVerdict": "ok"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "verdict": "ok",
+  "reasons": [
+    "Reviewer performed independent verification (scriptBytes=3517, outputBytes=7309, files=6)."
+  ],
+  "checked": {
+    "phase": "segmentation",
+    "gateDecision": "pass-with-concerns",
+    "reviewerDefaulted": false,
+    "verificationDir": "review/verification/segmentation/",
+    "evidence": {
+      "fileCount": 6,
+      "scriptBytes": 3517,
+      "outputBytes": 7309,
+      "totalBytes": 10826,
+      "files": [
+        "cc_results.json",
+        "discriminator.py",
+        "discriminator_result.json",
+        "recomputed.json",
+        "report.md",
+        "verify.py"
+      ],
+      "hasRealEvidence": true
+    },
+    "modelVerdict": "ok"
+  }
+}

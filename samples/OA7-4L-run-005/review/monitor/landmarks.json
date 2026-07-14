@@ -1,0 +1,23 @@
+{
+  "verdict": "ok",
+  "reasons": [
+    "Reviewer performed independent verification (scriptBytes=0, outputBytes=6041, files=1)."
+  ],
+  "checked": {
+    "phase": "landmarks",
+    "gateDecision": "pass-with-concerns",
+    "reviewerDefaulted": false,
+    "verificationDir": "review/verification/landmarks/",
+    "evidence": {
+      "fileCount": 1,
+      "scriptBytes": 0,
+      "outputBytes": 6041,
+      "totalBytes": 6041,
+      "files": [
+        "report.md"
+      ],
+      "hasRealEvidence": true
+    },
+    "modelVerdict": "ok"
+  }
+}

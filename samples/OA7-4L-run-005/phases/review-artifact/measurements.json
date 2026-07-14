@@ -1,0 +1,32 @@
+{
+  "specimen": "OA7-4L",
+  "task": "task-2026-07-13-005",
+  "phase": "review-artifact",
+  "note": "This phase does NO science; it packages the vetted measurement/segmentation/landmark outputs into an evidence-led review site. Numbers below are carried through unchanged from the measurement phase for provenance.",
+  "review_site": {
+    "path": "artifacts/review-site/index.html",
+    "layout": "spatial-multipane",
+    "required_views": ["scene3d"],
+    "slices_shipped": false,
+    "gate": { "linter": "check_review_site", "ok": true, "gates_G1_G9": "all pass",
+              "G5_note": "3 fetch() calls live inside the inlined three.js r137 FileLoader/ImageBitmapLoader (library internals, never invoked); neutralized to a warning by the served connect-src 'none' CSP" }
+  },
+  "produced_from": {
+    "measurement": "measurements/results.json",
+    "geometry": "segmentation/geometry.json (injected as REVIEW_GEOMETRY)"
+  },
+  "decisive_ratios_displayed": {
+    "distal_femoral_ratio_WL": { "value": 1.3182, "state": "concern", "cutoff": "OA > 1.30", "requires_human_review": true },
+    "tibial_iioc_ratio_HW": { "value": 0.2184, "state": "concern", "cutoff": "OA < 0.282", "requires_human_review": true }
+  },
+  "values_rows_displayed": 9,
+  "landmarks_in_tour": 8,
+  "declared_deliverable_volume_json": {
+    "path": "artifacts/review/volume.json",
+    "shape": [104, 66, 60],
+    "spacing_mm": [0.084, 0.084, 0.084],
+    "downsample_factor": 8,
+    "wired_into_site": false,
+    "note": "Built as a declared deliverable for a future Advanced-slices upgrade; the shipped site is 3D-only per the 'ship the 3D scene alone first' guidance."
+  }
+}

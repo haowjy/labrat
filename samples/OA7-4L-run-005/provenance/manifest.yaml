@@ -1,0 +1,270 @@
+- phase: intake
+  attempt: 1
+  started: 2026-07-13T22:28:09.762Z
+  completed: 2026-07-13T22:33:38.561Z
+  skills_loaded:
+    - name: resources/intake
+      hash: a7389ce89e2d
+      source: local
+  agent: worker
+  inputs:
+    - path: input/
+      fileCount: 830
+  outputs:
+    - path: artifacts/intake/volume_metadata.json
+      hash: ba74495d8d81e4acb6d5b848b1885b174c2bf8f25a7f5310d2d1eda7fd047815
+    - path: artifacts/intake/orientation_report.md
+      hash: 5a06a69fa6de7e32fc7f8226f067997ec6a08a6fe781cfc235b39cf4c2710e3a
+    - path: artifacts/intake/stage_report.json
+      hash: 5d4e66d9e333b9f6cbba06d9524820b625b0f0d9f23197f46f404a7075764017
+    - path: artifacts/intake/volume.json
+      hash: 988e0b6e979ef0ba54d69b9d73decb03d73edf499b53020b99aebc07e2d52dc5
+    - path: artifacts/spacing.json
+      hash: 9362612f2b1b873ed3998d2f9342f23c0f97fd67d38a6d8678a8fb5763a84286
+  subphases: null
+  sessions:
+    worker: 145e58ea-e6cd-45c7-848b-eff90db1877c
+    gate: fd310922-477e-4e88-8c59-4a26e5ba3f50
+    author: 7366be57-1665-4ab8-b590-15d0a9643928
+  gate_decision: pass
+  verification:
+    code: review/verification/intake/
+    results: review/gates/intake.json
+  review_artifact:
+    type: spatial-3d
+    path: artifacts/review-sites/intake
+    hash: 605bcf18110007d5392d1e024ddb8fdee5ece6420647e7a3ae6fb9cc96cae412
+    check_report: review/artifact-author/intake/attempt-1/check_review_site.json
+    check_report_hash: 5bd1b89475c663e251fc88441cd3948b6d64aa565e141cbaa8c0dcb5f0b6dc02
+- phase: segmentation
+  attempt: 1
+  started: 2026-07-14T01:39:01.848Z
+  completed: 2026-07-14T01:45:29.526Z
+  skills_loaded:
+    - name: resources/threshold
+      hash: c5830c1dd9d8
+      source: local
+    - name: resources/watershed
+      hash: 2764ae12d3cf
+      source: local
+    - name: resources/structure-assignment
+      hash: e5acb19cee7e
+      source: local
+    - name: resources/reference-pack
+      hash: b4abdbc7110b
+      source: local
+  agent: worker
+  inputs:
+    - path: input/
+      fileCount: 830
+    - path: artifacts/intake/volume_metadata.json
+      hash: ba74495d8d81e4acb6d5b848b1885b174c2bf8f25a7f5310d2d1eda7fd047815
+    - path: artifacts/spacing.json
+      hash: 9362612f2b1b873ed3998d2f9342f23c0f97fd67d38a6d8678a8fb5763a84286
+  outputs:
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/segmentation/filtered.nii.gz
+      hash: ccdc61d38611ed19bf0cd4a113b1c844252740328a1169539328f0e566a26a33
+    - path: artifacts/segmentation/structure_assignments.json
+      hash: cd8c359192361d2936881ccb1eade8cf22b5d8571fdbe7f6b803290209f9058d
+    - path: artifacts/segmentation/seeds.json
+      hash: 2a20a2a03b14f4f0f29694c8b7c3587b43b41e54a89b55724cfdb2c617901ecb
+    - path: artifacts/segmentation/metadata.json
+      hash: 30943a617d3493da643652114c8a9fb119c8b71db2cfa2cb773aea68674a59a6
+    - path: artifacts/segmentation/stage_report.json
+      hash: f79b85fb4c462189439d4f21cdb8067db27303017809ce33684b332780e725ae
+    - path: artifacts/segmentation/geometry.json
+      hash: 6870f38374172617739d7908f8e07cf78e44f81c812c4a88f4ba408165da8960
+    - path: artifacts/masks/
+      fileCount: 6
+    - path: artifacts/structure_assignments.json
+      hash: cd8c359192361d2936881ccb1eade8cf22b5d8571fdbe7f6b803290209f9058d
+  subphases:
+    threshold: pass (medium)
+    watershed: pass (high)
+    structure-assignment: pass (medium)
+  sessions:
+    worker: d35161bf-98a4-4d82-9d04-370f171925de
+    gate: 9fa6cf75-afe2-4218-8b2e-024d1bb07cdd
+    author: 73a53ec4-101b-4305-9302-b822289ad433
+  gate_decision: pass-with-concerns
+  verification:
+    code: review/verification/segmentation/
+    results: review/gates/segmentation.json
+  review_artifact:
+    type: spatial-3d
+    path: artifacts/review-sites/segmentation
+    hash: b10986c381e8e430ce8a55382e8d1060d68dfbcb317226031e646970940295a4
+    check_report: review/artifact-author/segmentation/attempt-2/check_review_site.json
+    check_report_hash: 90be18c82b737373cda0b1d3fd5cbeb4f72b067cafe76b8a1fa14ddec0bb996d
+- phase: seed-review
+  attempt: 1
+  started: 2026-07-14T01:52:26.819Z
+  completed: 2026-07-14T02:00:35.281Z
+  skills_loaded:
+    - name: resources/seed-review
+      hash: c9d1134a1dba
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/segmentation/seeds.json
+      hash: 2a20a2a03b14f4f0f29694c8b7c3587b43b41e54a89b55724cfdb2c617901ecb
+    - path: artifacts/segmentation/structure_assignments.json
+      hash: cd8c359192361d2936881ccb1eade8cf22b5d8571fdbe7f6b803290209f9058d
+  outputs:
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/segmentation/seeds.json
+      hash: 2a20a2a03b14f4f0f29694c8b7c3587b43b41e54a89b55724cfdb2c617901ecb
+    - path: artifacts/structure_assignments.json
+      hash: cd8c359192361d2936881ccb1eade8cf22b5d8571fdbe7f6b803290209f9058d
+    - path: artifacts/segmentation/structure_assignments.json
+      hash: cd8c359192361d2936881ccb1eade8cf22b5d8571fdbe7f6b803290209f9058d
+  subphases: null
+  sessions:
+    worker: 5c635041-f323-44b7-acbf-553400584dcb
+    gate: a8d7930c-a9ef-4e24-8cbc-77c76a39a591
+    author: 94c50da7-1b17-4674-8a13-ef1e7c8c76be
+  gate_decision: pass
+  verification:
+    code: review/verification/seed-review/
+    results: review/gates/seed-review.json
+  review_artifact:
+    type: spatial-3d
+    path: artifacts/review-sites/seed-review
+    hash: cf8ac8692e0c6385ebc319d75431aa3162ce4c50230b090af1c4b7695c40a9fe
+    check_report: review/artifact-author/seed-review/attempt-1/check_review_site.json
+    check_report_hash: 00754a127d5a6b1b27a8dc45eff8bc8bbe87e6c8b7fb062f0a89b63364a182fd
+- phase: landmarks
+  attempt: 1
+  started: 2026-07-14T02:12:35.173Z
+  completed: 2026-07-14T02:45:23.380Z
+  skills_loaded:
+    - name: resources/landmarks
+      hash: 175b403a548c
+      source: local
+    - name: resources/reference-pack
+      hash: b4abdbc7110b
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/masks/
+      fileCount: 6
+    - path: artifacts/spacing.json
+      hash: 9362612f2b1b873ed3998d2f9342f23c0f97fd67d38a6d8678a8fb5763a84286
+    - path: artifacts/segmentation/filtered.nii.gz
+      hash: ccdc61d38611ed19bf0cd4a113b1c844252740328a1169539328f0e566a26a33
+  outputs:
+    - path: artifacts/landmarks/positions.json
+      hash: 42ed86a081b647060915b235a4273027abd98520cd7b4816946a342b2e586eb3
+    - path: artifacts/landmarks/orientation_frame.json
+      hash: 16c3eee56de42bb69cbe94126c5ebf25eace87669f819d4f146584f5adfc51fa
+    - path: artifacts/landmarks.json
+      hash: 71467b715f108603b75883ffc7287272a9237cb086074336250f36be2ecaf06e
+  subphases: null
+  sessions:
+    worker: 53dc7892-5919-4d7f-a220-3b81b6758766
+    gate: e25fc132-b644-4bb7-ac65-d137e730dedb
+    author: 796f3ab7-1cc1-444d-aed4-b3d965fb1265
+  gate_decision: pass-with-concerns
+  verification:
+    code: review/verification/landmarks/
+    results: review/gates/landmarks.json
+  review_artifact:
+    type: spatial-3d
+    path: artifacts/review-sites/landmarks
+    hash: 321e5b9fb97c98a106cf61e346fd0c777486fa41eb6e78a7571bc30c538e99e1
+    check_report: review/artifact-author/landmarks/attempt-1/check_review_site.json
+    check_report_hash: 19025d452f17710a865683b29092e8db326306a877b8713fec0034689873c525
+- phase: measurement
+  attempt: 1
+  started: 2026-07-14T02:59:26.646Z
+  completed: 2026-07-14T03:13:56.280Z
+  skills_loaded:
+    - name: resources/measurement
+      hash: ee04f34baf5a
+      source: local
+    - name: resources/reference-pack
+      hash: b4abdbc7110b
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/landmarks.json
+      hash: 71467b715f108603b75883ffc7287272a9237cb086074336250f36be2ecaf06e
+    - path: artifacts/landmarks/positions.json
+      hash: 42ed86a081b647060915b235a4273027abd98520cd7b4816946a342b2e586eb3
+    - path: artifacts/spacing.json
+      hash: 9362612f2b1b873ed3998d2f9342f23c0f97fd67d38a6d8678a8fb5763a84286
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/masks/
+      fileCount: 6
+  outputs:
+    - path: artifacts/measurements/results.json
+      hash: de5e0a92325f8a83f8b79404153804e6ed2bd959e64670c721e0250cb37da43e
+    - path: artifacts/measurements/qc_overlays.json
+      hash: 21a62a784db2a18a53cf7b06997a8f25ab8b7e9b4e6fe5e06548a9aabc168151
+    - path: artifacts/measurements/summary.md
+      hash: acac78962c502722ccc00f3ea3cdfb58201409e807a67b2141ab3653b191d315
+    - path: artifacts/measurements_final.json
+      hash: 955e860407578e081fbbf8f100eae725650543a02e72fa9f11b06be6ec5e02df
+  subphases: null
+  sessions:
+    worker: 0887b2ca-691a-4de3-be5b-1490aa63adb9
+    gate: 3048aefb-17c2-417b-8424-f0ddc5240b40
+    author: 1adf4714-4246-4034-85c9-560c9eb87615
+  gate_decision: pass
+  verification:
+    code: review/verification/measurement/
+    results: review/gates/measurement.json
+  review_artifact:
+    type: spatial-3d
+    path: artifacts/review-sites/measurement
+    hash: 70db5f63d2a89905f7db04638591b08e168624c723a227daed84ee68e0ad6cac
+    check_report: review/artifact-author/measurement/attempt-2/check_review_site.json
+    check_report_hash: 1c36f28f652bd21126c3da731bde713b65da1c4f177e306e48e8ab14693e6908
+- phase: review-artifact
+  attempt: 1
+  started: 2026-07-14T03:35:46.403Z
+  completed: 2026-07-14T03:56:23.808Z
+  skills_loaded:
+    - name: resources/review-artifact
+      hash: 97d9bf0c3dcb
+      source: local
+    - name: resources/reference-pack
+      hash: b4abdbc7110b
+      source: local
+  agent: worker
+  inputs:
+    - path: artifacts/measurements/results.json
+      hash: de5e0a92325f8a83f8b79404153804e6ed2bd959e64670c721e0250cb37da43e
+    - path: artifacts/measurements_final.json
+      hash: 955e860407578e081fbbf8f100eae725650543a02e72fa9f11b06be6ec5e02df
+    - path: artifacts/landmarks/positions.json
+      hash: 42ed86a081b647060915b235a4273027abd98520cd7b4816946a342b2e586eb3
+    - path: artifacts/segmentation/geometry.json
+      hash: 6870f38374172617739d7908f8e07cf78e44f81c812c4a88f4ba408165da8960
+    - path: artifacts/labels.nii.gz
+      hash: a038d010b2b1286376caab5279e4e54b93525c5e1886760c4d5cbbcde6166c5c
+    - path: artifacts/segmentation/filtered.nii.gz
+      hash: ccdc61d38611ed19bf0cd4a113b1c844252740328a1169539328f0e566a26a33
+    - path: artifacts/masks/
+      fileCount: 6
+  outputs:
+    - path: artifacts/review-site/index.html
+      hash: 84f658bb1509cdb806464e7275e29fb30c4b5e6cacbee8be596d34b4f7006da5
+    - path: artifacts/review/volume.json
+      hash: 873055c1238a00a6aeef95f67203d3536be4ace02619c9ccaf9175b8b47a98b5
+  subphases: null
+  sessions:
+    worker: 6895c159-58c0-4215-be4a-f52cdb68b4ea
+    gate: 712ebba8-fed5-4b52-9b98-906bfa73c362
+  gate_decision: pass
+  verification:
+    code: review/verification/review-artifact/
+    results: review/gates/review-artifact.json

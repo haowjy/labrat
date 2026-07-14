@@ -1,0 +1,50 @@
+[
+  {
+    "subphase": "threshold",
+    "mark": "pass",
+    "attempt": 1,
+    "timestamp": "2026-07-13T23:17:19.663Z",
+    "confidence": "medium",
+    "notes": "filtered.nii.gz written (isotropic 10.5um, median iters=3 r=1). Histogram not bimodal (intake) -> manual Amira HU thresholds mask=2500 (Otsu 2563), marker=3500. Bone mask ~16.9M vox traces cortical shell. threshold_observations recorded in metadata.json. Medium per skill (not-bimodal + seeds path planned)."
+  },
+  {
+    "subphase": "watershed",
+    "mark": "pass",
+    "attempt": 1,
+    "timestamp": "2026-07-13T23:17:24.898Z",
+    "confidence": "high",
+    "notes": "First pass needs-seeds (ambiguous-bone-identity, expected). marker=3000 fuses bones; marker=3500 separates cores. Curated seeds (driver superior/inferior naming is inverted vs anatomy): femur=high-z component z574, tibia=low-z z229 -> ready. After largest-CC cleanup: femur CC=1, tibia CC=1; interface localized (z-overlap 12.6% of smaller; femur only z_max, tibia only z_min faces). Split matches reference. Evidence split_verification.png."
+  },
+  {
+    "subphase": "structure-assignment",
+    "mark": "pass",
+    "attempt": 1,
+    "timestamp": "2026-07-13T23:17:31.618Z",
+    "confidence": "medium",
+    "notes": "Bicondylar discriminator PASS (fem 0.85 vs tib 0.50, margin 0.15) — identity confirmed by geometry. Femur/tibia measured, CC=1. Sesamoid/osteophyte protection clean: 0 voxels lateral to femur condyle edges. Named position-invariantly: fibula (lateral), ossa_sesamoidea (fabella confounder, own label), med/lat osteophytes (proposed). Patella + menisci NOT segmented — escalated (AP axis not locked; menisci not reliably separable; do not invent boundary). geometry.json 1.58MB, 6 meshes. review_flags in structure_assignments.json. Medium: measured bones solid, additional structures need review."
+  },
+  {
+    "subphase": "threshold",
+    "mark": "pass",
+    "attempt": 2,
+    "timestamp": "2026-07-14T01:42:11.563Z",
+    "confidence": "medium",
+    "notes": "Verified: filtered.nii.gz present, shape (830,528,478), zooms 0.0105mm isotropic (no resample needed). Histogram NOT bimodal on this HU-rescaled scan (intake), so Scanco unitless thresholds inapplicable; manual Amira mineralized-bone thresholds used: mask=2500 HU (Otsu=2563, near-exact), marker=3500 HU. Bone mask traces cortical shell (~16.9M vox). threshold_observations recorded in metadata.json; thresholds finite. Medium per skill (not-bimodal + seeds path)."
+  },
+  {
+    "subphase": "watershed",
+    "mark": "pass",
+    "attempt": 2,
+    "timestamp": "2026-07-14T01:42:18.363Z",
+    "confidence": "high",
+    "notes": "Verified independently: femur CC=1, tibia CC=1 (largest-CC cleanup). First pass was needs-seeds (ambiguous-bone-identity, expected); curated seeds corrected the driver's inverted superior/inferior naming (femur is HIGH-z here) -> femur=high-z component, tibia=low-z. Interface localized: z-overlap 12.6% of smaller bone; femur touches only z_max face, tibia only z_min (FOV crop). Split matches reference bone-split__femur-tibia-fibula. Evidence split_verification.png."
+  },
+  {
+    "subphase": "structure-assignment",
+    "mark": "pass",
+    "attempt": 2,
+    "timestamp": "2026-07-14T01:42:26.669Z",
+    "confidence": "medium",
+    "notes": "Independently re-ran mandatory gates. Bicondylar discriminator recomputed from labels.nii.gz: AX=0, fem_frac=0.85 vs tib_frac=0.50 -> PASS (min 0.60, margin 0.15) — femur/tibia identity settled by geometry, not z-position/volume. Femur/tibia CC=1. Sesamoid+osteophyte protection: 0 voxels lateral to femur condyle x-edges [109,375] in the width slab z[354,472]. geometry.json well-formed: 6 meshes, all faces in range, 1.58MB (<5MB). Escalated for review (NOT measured): patella + medial/lateral menisci not segmented — AP axis not locked, so patella (anterior) vs fabella (posterior) is undecidable; the large 0.69mm3 ossa_sesamoidea comp2 (Y=109, below femur Y-min) is likely the patella but its identity is AP-dependent and correctly deferred to orientation phase rather than swept into femoral width. Medium: measured bones solid & verified; volume structures (patella/menisci) need review."
+  }
+]

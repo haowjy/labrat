@@ -1,0 +1,35 @@
+{
+  "specimen": "OA7-4L",
+  "coordinate_system": "volume_zyx",
+  "spacing_mm": [
+    0.010500000000000013,
+    0.0105,
+    0.0105
+  ],
+  "femoral_width_mm_3d": 2.2688,
+  "femoral_width_mm_ml": 2.1,
+  "femoral_length_mm": 1.7211,
+  "distal_femoral_wl_ratio_3d": 1.3182,
+  "distal_femoral_wl_ratio_ml": 1.2201,
+  "femoral_wl_note": "3D uses Euclidean condyle-edge distance (AP spread 80vox); ML-only uses front-view projected width. Report both; straddles normal(<1.24)/OA(>1.3) boundary.",
+  "groove_defensible_z_range": [
+    505,
+    537
+  ],
+  "tibial_iioc_max_height_mm": 0.6014,
+  "tibial_iioc_max_height_vox": 57.3,
+  "tibial_width_mm": 2.7503,
+  "tibial_width_vox": 261.9,
+  "tibial_iioc_hw_ratio": 0.2187,
+  "tibial_iioc_hw_sensitivity_band": [
+    0.18,
+    0.26
+  ],
+  "iioc_height_compartment": "lateral (max of medial/lateral; medial ~0.69mm, lateral ~0.75mm at auto-gp; symmetric -> growth plate not misplaced)",
+  "reoriented_frame": "orientation_frame.json:tibial_reorientation (tilt 11.56deg, crop z[80,280])",
+  "interpretation_applied_after_NOT_a_gate": {
+    "femoral_wl_cutoffs": "normal<1.24 / OA>1.3 (ROC 1.245/1.312/1.282). This specimen W/L 1.22(ML)-1.32(3D): borderline, straddles boundary.",
+    "tibial_hw_cutoffs": "OA<0.282, gray-zone 0.28-0.30. This specimen H/W ~0.215 (band 0.18-0.26): below cutoff = OA-consistent, robust to growth-plate uncertainty.",
+    "coherence": "femur (borderline-OA) and tibia (OA) both point OA-ward; W/L not an implausible >1.5 anomaly."
+  }
+}

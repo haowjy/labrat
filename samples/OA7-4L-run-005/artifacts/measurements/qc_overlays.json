@@ -1,0 +1,115 @@
+{
+  "specimen": "OA7-4L",
+  "task": "task-2026-07-13-005",
+  "coordinate_system": "volume_zyx (native)",
+  "overlays": [
+    {
+      "measurement": "distal_femoral_width",
+      "value_mm": 2.2688,
+      "line": {
+        "from": {
+          "landmark": "lateral_condylar_edge",
+          "voxel": [
+            390.0,
+            248.0,
+            141.0
+          ]
+        },
+        "to": {
+          "landmark": "medial_condylar_edge",
+          "voxel": [
+            373.0,
+            328.0,
+            341.0
+          ]
+        }
+      },
+      "view": "front view (AP-MIP), z-x plane",
+      "image": "phases/measurement/evidence/femoral_wl_overlay.png",
+      "check": "spans distal condyle to condyle on the frontal projection"
+    },
+    {
+      "measurement": "distal_femoral_length",
+      "value_mm": 1.7211,
+      "line": {
+        "from": {
+          "landmark": "intercondylar_groove_midpoint",
+          "voxel": [
+            534.0,
+            352.0,
+            241.0
+          ]
+        },
+        "to": {
+          "landmark": "intercondylar_notch",
+          "voxel": [
+            397.0,
+            262.0,
+            241.0
+          ]
+        }
+      },
+      "view": "sagittal midline ML-slab, z-y plane",
+      "image": "phases/measurement/evidence/femoral_wl_overlay.png",
+      "check": "runs groove-top A -> notch; NOT condyle-merge -> notch (half-length trap avoided)"
+    },
+    {
+      "measurement": "tibial_iioc_height",
+      "value_mm": 0.6014,
+      "line": {
+        "from": {
+          "landmark": "articular_surface_proximal",
+          "voxel": [
+            391.0,
+            286.0,
+            100.0
+          ]
+        },
+        "to": {
+          "landmark": "growth_plate_proximal",
+          "voxel": [
+            335.0,
+            294.0,
+            109.0
+          ]
+        }
+      },
+      "view": "reoriented frontal slab (long-axis rz)",
+      "image": "phases/measurement/evidence/tibial_iioc_overlay.png",
+      "check": "articular subchondral surface -> growth plate, lateral (max-height) compartment"
+    },
+    {
+      "measurement": "tibial_width",
+      "value_mm": 2.7535,
+      "line": {
+        "from": {
+          "landmark": "lateral_tibial_condyle_edge",
+          "voxel": [
+            326.0,
+            308.0,
+            44.0
+          ]
+        },
+        "to": {
+          "landmark": "medial_tibial_condyle_edge",
+          "voxel": [
+            358.0,
+            296.0,
+            304.0
+          ]
+        }
+      },
+      "view": "reoriented frontal slab at growth-plate level",
+      "image": "phases/measurement/evidence/tibial_iioc_overlay.png",
+      "check": "medial<->lateral border at growth-plate level; lat endpoint may touch metaphyseal flare (documented caveat)"
+    },
+    {
+      "measurement": "labeled_scene",
+      "value_mm": null,
+      "view": "front view, all labels",
+      "image": "phases/measurement/evidence/labeled_scene_front.png",
+      "check": "femur superior/bicondylar, tibia inferior/plateau, fibula lateral, ossa sesamoidea as OWN label (not swept into condyle width)"
+    }
+  ],
+  "note": "Look-first QC: a line off the anatomy is wrong whatever its number. Trust the overlay over the value."
+}

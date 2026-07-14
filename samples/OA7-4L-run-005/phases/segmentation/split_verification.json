@@ -1,0 +1,68 @@
+{
+  "femur_cc": 1,
+  "tibia_cc": 1,
+  "bicondylar_discriminator": {
+    "split_axis": 0,
+    "fem_frac": 0.85,
+    "tib_frac": 0.5,
+    "fem_counts": [
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "tib_counts": [
+      1,
+      2,
+      2,
+      2,
+      2,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      2,
+      2,
+      2,
+      2,
+      2,
+      1,
+      1,
+      1,
+      2
+    ],
+    "verdict": "PASS",
+    "BICONDYLAR_MIN": 0.6,
+    "MARGIN": 0.15
+  },
+  "condyle_slab": {
+    "z": [
+      354,
+      472
+    ],
+    "femur_condyle_x": [
+      109,
+      375
+    ],
+    "sesamoid_osteophyte_voxels_lateral_to_condyle_edges": 0,
+    "note": "width measured on exclusive femur label; separate labels cannot inflate it"
+  }
+}

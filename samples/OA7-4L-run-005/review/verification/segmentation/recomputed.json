@@ -1,0 +1,30 @@
+{
+  "cc_counts": {
+    "femur": 1,
+    "tibia": 1,
+    "medial_osteophytes": 1,
+    "lateral_osteophytes": 1,
+    "ossa_sesamoidea": 5,
+    "fibula": 1
+  },
+  "voxel_match": {
+    "femur": true,
+    "tibia": true,
+    "medial_osteophytes": true,
+    "lateral_osteophytes": true,
+    "ossa_sesamoidea": true,
+    "fibula": true
+  },
+  "interface_frac_overlap": 0.12807881773399016,
+  "femur_faces": [
+    "z_max"
+  ],
+  "tibia_faces": [
+    "z_min"
+  ],
+  "recomputed_fem_frac": 0.85,
+  "recomputed_tib_frac": 0.5,
+  "recomputed_verdict": "PASS",
+  "recorded_verdict": "PASS",
+  "recomputed_lateral_voxels": 0
+}

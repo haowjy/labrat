@@ -1,0 +1,33 @@
+{
+  "type": "not-applied",
+  "applied": false,
+  "confidence": "n/a",
+  "label": null,
+  "rotation_matrix": [
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      1
+    ]
+  ],
+  "translation": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "preserve_voxel_size": true,
+  "label_interpolation_order": 0,
+  "intensity_interpolation_order": 1,
+  "validation": "PCA orientation not used; frame derived from placed landmarks.",
+  "explanation": "PCA orientation not used; frame derived from placed landmarks."
+}

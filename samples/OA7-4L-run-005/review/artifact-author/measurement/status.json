@@ -1,0 +1,12 @@
+{
+  "status": "published",
+  "type": "spatial-3d",
+  "author_attempt": 2,
+  "author_session_id": "1adf4714-4246-4034-85c9-560c9eb87615",
+  "published_path": "artifacts/review-sites/measurement",
+  "check_report_path": "review/artifact-author/measurement/attempt-2/check_review_site.json",
+  "check_report_hash": "1c36f28f652bd21126c3da731bde713b65da1c4f177e306e48e8ab14693e6908",
+  "scientific_gate_hash": "c50d67aa0db5044b0e3fb02aaf6ec597e6690b5100e4e690a45b74b075fe184c",
+  "created_at": "2026-07-14T03:13:56.283Z",
+  "updated_at": "2026-07-14T03:35:46.342Z"
+}

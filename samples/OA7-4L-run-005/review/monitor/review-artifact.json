@@ -1,0 +1,24 @@
+{
+  "verdict": "ok",
+  "reasons": [
+    "Reviewer performed independent verification (scriptBytes=0, outputBytes=6043, files=2)."
+  ],
+  "checked": {
+    "phase": "review-artifact",
+    "gateDecision": "pass",
+    "reviewerDefaulted": false,
+    "verificationDir": "review/verification/review-artifact/",
+    "evidence": {
+      "fileCount": 2,
+      "scriptBytes": 0,
+      "outputBytes": 6043,
+      "totalBytes": 6043,
+      "files": [
+        "check_review_site.json",
+        "report.md"
+      ],
+      "hasRealEvidence": true
+    },
+    "modelVerdict": "ok"
+  }
+}

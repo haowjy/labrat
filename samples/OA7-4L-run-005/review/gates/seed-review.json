@@ -1,0 +1,7 @@
+{
+  "phase": "seed-review",
+  "decidedAt": "2026-07-14T01:59:39.945Z",
+  "decision": "pass",
+  "summary": "Pass — independently recomputed the canonical bicondylar discriminator against labels.nii.gz and it matches exactly (fem 0.85/tib 0.50/PASS); CC, fingerprint, and voxel counts all verified.",
+  "feedback_file": "review/verification/seed-review/report.md"
+}

@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "violations": [
+    {
+      "area": "phases",
+      "path": "segmentation/sessions/gate-reviewer.jsonl",
+      "kind": "modified"
+    }
+  ],
+  "checkedAt": "2026-07-14T01:44:50.414Z"
+}

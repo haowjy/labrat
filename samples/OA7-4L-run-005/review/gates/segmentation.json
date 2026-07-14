@@ -1,0 +1,12 @@
+{
+  "phase": "segmentation",
+  "decidedAt": "2026-07-14T01:44:50.414Z",
+  "decision": "pass-with-concerns",
+  "summary": "Mandatory CC==1 and bicondylar discriminator gates both reproduce exactly from scratch; sesamoid/osteophyte protection clean at 0 voxels. Concern: patella and menisci remain unsegmented (honestly escalated, not concealed).",
+  "feedback_file": "review/verification/segmentation/report.md",
+  "subphase_assessments": {
+    "threshold": "Verified filtered.nii.gz present, correct spacing; manual Amira-scale thresholds recorded and finite; medium confidence appropriate given non-bimodal histogram.",
+    "watershed": "Independently recomputed femur cc=1, tibia cc=1, interface overlap ~12.6% of smaller bbox, no unexpected face contact. needs-seeds -> curated -> ready path confirmed in driver.log, not a shortcut.",
+    "structure-assignment": "Bicondylar discriminator reimplemented from scratch and reproduces exactly (fem_frac=0.85, tib_frac=0.5, PASS, margin 0.35 vs required 0.15). Sesamoid/osteophyte-in-condyle-slab check recomputed as 0. Patella/menisci genuinely absent, honestly flagged in review_flags rather than fabricated."
+  }
+}

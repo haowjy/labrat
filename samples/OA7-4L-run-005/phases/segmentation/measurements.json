@@ -1,0 +1,32 @@
+{
+  "volume_shape_zyx": [830, 528, 478],
+  "spacing_mm": 0.0105,
+  "voxel_volume_mm3": 1.157625e-06,
+  "thresholds": {"scale": "HU-rescaled (RescaleSlope 0.3911, Intercept -1000)",
+    "mask_hu": 2500.0, "marker_hu": 3500.0, "method": "manual-override (Amira mineralized-bone)",
+    "otsu_reference_hu": 2563, "histogram_bimodal": false},
+  "watershed": {"first_pass": "needs-seeds (ambiguous-bone-identity, expected)",
+    "resolution": "curated seeds: femur=component z574 (high-z), tibia=component z229 (low-z)",
+    "note": "code superior/inferior naming is opposite to this scan (femur is high-z); auto-seeds swapped labels",
+    "joint_z_approx": 380, "cleanup": "largest-connected-component per measured bone"},
+  "structures": {
+    "femur":              {"label": 1, "voxels": 7103993, "volume_mm3": 8.223760, "n_components": 1, "role": "measured", "confidence": "high"},
+    "tibia":              {"label": 2, "voxels": 5020023, "volume_mm3": 5.811304, "n_components": 1, "role": "measured", "confidence": "high"},
+    "medial_osteophytes": {"label": 6, "voxels": 4342,    "volume_mm3": 0.005026, "n_components": 1, "role": "grounding-proposed", "confidence": "low"},
+    "lateral_osteophytes":{"label": 7, "voxels": 17436,   "volume_mm3": 0.020184, "n_components": 1, "role": "grounding-proposed", "confidence": "low"},
+    "ossa_sesamoidea":    {"label": 8, "voxels": 624281,  "volume_mm3": 0.722683, "n_components": 5, "role": "grounding-confounder", "confidence": "medium"},
+    "fibula":             {"label": 9, "voxels": 4146135, "volume_mm3": 4.799670, "n_components": 1, "role": "context", "confidence": "medium"}
+  },
+  "not_segmented_escalated": {
+    "patella": "no reliable free-standing anterior body separable from femur; AP axis not locked",
+    "medial_meniscus": "peri-meniscal calcification not reliably separable by threshold",
+    "lateral_meniscus": "peri-meniscal calcification not reliably separable by threshold"
+  },
+  "bicondylar_discriminator": {"split_axis": 0, "fem_frac": 0.85, "tib_frac": 0.50, "verdict": "PASS", "margin": 0.15, "min": 0.60},
+  "verification": {"femur_cc": 1, "tibia_cc": 1,
+    "femur_condyle_x_edges": [109, 375],
+    "sesamoid_osteophyte_voxels_lateral_to_condyle_edges": 0,
+    "z_overlap_frac_of_smaller": 0.126,
+    "femur_faces": ["z_max"], "tibia_faces": ["z_min"]},
+  "geometry_json_mb": 1.58
+}

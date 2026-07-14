@@ -1,0 +1,26 @@
+{
+  "ok": false,
+  "violations": [
+    {
+      "area": "phases",
+      "path": "review-artifact/evidence/review_site_3d.png",
+      "kind": "modified"
+    },
+    {
+      "area": "phases",
+      "path": "review-artifact/measurements.json",
+      "kind": "modified"
+    },
+    {
+      "area": "phases",
+      "path": "review-artifact/sessions/worker.jsonl",
+      "kind": "modified"
+    },
+    {
+      "area": "phases",
+      "path": "review-artifact/sessions/gate-reviewer.jsonl",
+      "kind": "added"
+    }
+  ],
+  "checkedAt": "2026-07-14T03:55:24.322Z"
+}

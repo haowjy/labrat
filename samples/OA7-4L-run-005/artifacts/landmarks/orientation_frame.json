@@ -1,0 +1,142 @@
+{
+  "type": "landmark-derived-rigid-orientation",
+  "target_plane": "frontal",
+  "axes": {
+    "superior_inferior": [
+      1.0,
+      0.0,
+      0.0
+    ],
+    "anterior_posterior": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "medial_lateral": [
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "translation": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "rotation_matrix": [
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "explanation": "Aligned the specimen to the workflow frontal plane. superior-inferior now follows the positive superior-inferior volume direction. anterior-posterior now follows the positive anterior-posterior volume direction. medial-lateral now follows the positive medial-lateral volume direction.",
+  "source_landmarks": [
+    "articular_surface_proximal",
+    "growth_plate_proximal",
+    "intercondylar_groove_midpoint",
+    "intercondylar_notch",
+    "lateral_condylar_edge",
+    "lateral_tibial_condyle_edge",
+    "medial_condylar_edge",
+    "medial_tibial_condyle_edge"
+  ],
+  "pca_orientation": {
+    "type": "not-applied",
+    "applied": false,
+    "confidence": "n/a",
+    "label": null,
+    "rotation_matrix": [
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ],
+    "translation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "preserve_voxel_size": true,
+    "label_interpolation_order": 0,
+    "intensity_interpolation_order": 1,
+    "validation": "PCA orientation not used; frame derived from placed landmarks.",
+    "explanation": "PCA orientation not used; frame derived from placed landmarks."
+  },
+  "orientation_confidence": "medium",
+  "tibial_reorientation": {
+    "type": "diaphyseal-long-axis-rigid",
+    "purpose": "IIOC height measured along reoriented tibial long axis; tibial width on reoriented frontal slab. Project persisted native landmarks (articular_surface_proximal, growth_plate_proximal, tibial condyle edges) through this transform to reproduce height/width.",
+    "long_axis_zyx": [
+      0.9797206614839755,
+      -0.1288551670161249,
+      -0.1534397972973373
+    ],
+    "tilt_from_volume_z_deg": 11.558492629695515,
+    "fit_method": "linear fit of per-slice (y,x) centroid vs z over fixed diaphyseal crop z[80,280] (straight shaft; excludes metaphyseal flare z>290 and distal FOV artifacts z<80) for run-to-run stability",
+    "fit_crop_z": [
+      80,
+      280
+    ],
+    "rotation_matrix": [
+      [
+        0.9797206614839756,
+        -0.12885516701612493,
+        -0.15343979729733734
+      ],
+      [
+        0.12885516701612493,
+        0.9916131329082015,
+        -0.009987020437948134
+      ],
+      [
+        0.15343979729733734,
+        -0.009987020437948134,
+        0.9881075285757741
+      ]
+    ],
+    "pivot_zyx": [
+      242.91088028879548,
+      337.07233253712184,
+      223.5759376002859
+    ],
+    "grid_center_zyx": [
+      415.0,
+      264.0,
+      239.0
+    ],
+    "forward_map": "reoriented = R @ (native - pivot) + grid_center",
+    "inverse_map": "native = R.T @ (reoriented - grid_center) + pivot",
+    "reoriented_landmarks_rz": {
+      "articular_rz": 586,
+      "growth_plate_rz": 528,
+      "width_slab_rz": 526,
+      "ap_center": 234
+    },
+    "iioc_height_vox": 57.27615655490763,
+    "iioc_height_mm": 0.6013996438265301,
+    "tibial_width_vox": 266,
+    "tibial_width_mm": 2.793
+  }
+}

@@ -1,0 +1,209 @@
+{
+  "specimen": "OA7-4L",
+  "task": "task-2026-07-13-005",
+  "coordinate_system": "volume_zyx (native; orientation_applied=false)",
+  "voxel_size_mm": 0.010500000000000013,
+  "indices": {
+    "distal_femoral_length": {
+      "value_mm": 1.7211,
+      "method": "3d_euclidean groove_top_midpoint->intercondylar_notch",
+      "points": {
+        "intercondylar_groove_midpoint": [
+          534.0,
+          352.0,
+          241.0
+        ],
+        "intercondylar_notch": [
+          397.0,
+          262.0,
+          241.0
+        ]
+      }
+    },
+    "distal_femoral_width": {
+      "value_mm": 2.2688,
+      "method": "frontal_projected onto derived anatomical ML vector (lateral<->medial condylar edge)",
+      "cross_check_3d_mm": 2.2688,
+      "points": {
+        "lateral_condylar_edge": [
+          390.0,
+          248.0,
+          141.0
+        ],
+        "medial_condylar_edge": [
+          373.0,
+          328.0,
+          341.0
+        ]
+      }
+    },
+    "distal_femoral_ratio": {
+      "value": 1.3182,
+      "method": "width/length",
+      "phenotype_call": "OA-consistent (>1.30) \u2014 precise ROC/severity bin requires human confirmation",
+      "phenotype_note": "Point estimate 1.318. NORMAL/OA direction is ROBUST: band [1.302, 1.515] lies entirely above the OA cutoff 1.30 (and above normal<1.24, 4wk ROC 1.245, AROA 1.282). Band straddles ONLY the 8wk PTOA ROC cutoff 1.312, which is controlled by the subjective femoral 'A' groove-top landmark (requires_user_confirmation) \u2014 so the precise severity/timepoint bin is not robust, but the OA call is.",
+      "cutoffs": "normal<1.24 / OA>1.3; ROC 1.245(4wk)/1.312(8wk)/1.282(AROA)"
+    },
+    "tibial_width": {
+      "value_mm": 2.7535,
+      "method": "3d_euclidean medial<->lateral tibial border at growth-plate level",
+      "points": {
+        "medial_tibial_condyle_edge": [
+          358.0,
+          296.0,
+          304.0
+        ],
+        "lateral_tibial_condyle_edge": [
+          326.0,
+          308.0,
+          44.0
+        ]
+      }
+    },
+    "tibial_iioc_height": {
+      "value_mm": 0.6014,
+      "value_vox": 57.276,
+      "method": "articular_surface -> growth_plate along reoriented long axis (persisted transform)",
+      "reoriented_rz": {
+        "articular": 585.63,
+        "growth_plate": 528.35
+      },
+      "native_points": {
+        "articular_surface_proximal": [
+          391.0,
+          286.0,
+          100.0
+        ],
+        "growth_plate_proximal": [
+          335.0,
+          294.0,
+          109.0
+        ]
+      }
+    },
+    "tibial_iioc_ratio": {
+      "value": 0.2184,
+      "method": "height/width",
+      "phenotype_call": "OA-consistent (<0.282)",
+      "phenotype_note": "Point estimate 0.218; band [0.182, 0.258] entirely on one side of 0.282.",
+      "cutoffs": "OA<0.282 (AROA<0.294); gray zone 0.28-0.30"
+    }
+  },
+  "sensitivity_bands": {
+    "distal_femoral_ratio": {
+      "swept_landmark": "intercondylar_groove_midpoint (femoral 'A')",
+      "swept_range_z": [
+        505,
+        537
+      ],
+      "band_wl": [
+        1.302,
+        1.515
+      ],
+      "straddles_primary_OA_cutoff_1.30": false,
+      "straddles_a_per_model_ROC_cutoff": true,
+      "detail": {
+        "505": {
+          "voxel": [
+            505.0,
+            355.0,
+            246.0
+          ],
+          "length_mm": 1.4974,
+          "wl": 1.5151
+        },
+        "534": {
+          "voxel": [
+            534.0,
+            354.0,
+            246.0
+          ],
+          "length_mm": 1.7335,
+          "wl": 1.3088
+        },
+        "537": {
+          "voxel": [
+            537.0,
+            351.0,
+            246.0
+          ],
+          "length_mm": 1.7427,
+          "wl": 1.3019
+        }
+      }
+    },
+    "tibial_iioc_ratio": {
+      "swept_landmark": "growth_plate_proximal",
+      "swept_range_rz": [
+        518,
+        538
+      ],
+      "band_hw": [
+        0.182,
+        0.258
+      ],
+      "straddles_cutoff": false,
+      "detail": {
+        "518": {
+          "height_mm": 0.7101,
+          "hw": 0.2579
+        },
+        "528": {
+          "height_mm": 0.6051,
+          "hw": 0.2198
+        },
+        "538": {
+          "height_mm": 0.5001,
+          "hw": 0.1816
+        }
+      }
+    }
+  },
+  "volumes": {
+    "patella_volume": {
+      "value_mm3": null,
+      "status": "unavailable \u2014 patella NOT segmented (escalated in segmentation: no reliable free-standing anterior body separable from femur). Reporting a value would fabricate a boundary."
+    },
+    "medial_meniscus_volume": {
+      "value_mm3": null,
+      "status": "unavailable \u2014 medial (peri-)meniscus NOT segmented (escalated: peri-meniscal calcification not reliably separable by threshold). Note: medial peri-meniscal volume is intrinsically variable (near-zero normal)."
+    },
+    "lateral_meniscus_volume": {
+      "value_mm3": null,
+      "status": "unavailable \u2014 lateral (peri-)meniscus NOT segmented (escalated). Lateral peri-meniscal volume is the paper's early change; flagged for review/re-segmentation."
+    },
+    "_reference_bone_volumes": {
+      "femur": {
+        "voxels": 7103993,
+        "volume_mm3": 8.22376,
+        "n_components": 1
+      },
+      "tibia": {
+        "voxels": 5020023,
+        "volume_mm3": 5.811304,
+        "n_components": 1
+      }
+    }
+  },
+  "verification": {
+    "wl_reproduces_width_over_length": 1.3182,
+    "wl_matches_within_1pct": true,
+    "iioc_height_recomputed_from_transform_mm": 0.6014,
+    "iioc_height_matches_landmark_frame_mm": 0.6014,
+    "iioc_height_within_1_slice": true,
+    "hw_reproduces_height_over_width": 0.2184,
+    "voxel_size_matches_spacing": true,
+    "femur_cc": 1,
+    "tibia_cc": 1,
+    "cc_gate_pass": true,
+    "compartment_symmetry_note": "landmark-phase: medial ~0.69 / lateral ~0.75 mm at auto-gp -> comparable; growth plate not misplaced on one side."
+  },
+  "provenance": {
+    "landmarks": "artifacts/landmarks/positions.json",
+    "transform": "artifacts/landmarks/orientation_frame.json:tibial_reorientation",
+    "spacing": "artifacts/spacing.json",
+    "labels": "artifacts/labels.nii.gz",
+    "masks_dir": "artifacts/masks/",
+    "note": "No expected-value gate applied. Verification checks derivation + anatomy, never the value."
+  }
+}

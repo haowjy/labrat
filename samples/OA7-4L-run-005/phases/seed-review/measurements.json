@@ -1,0 +1,28 @@
+{
+  "phase": "seed-review",
+  "path": "ready-no-op",
+  "input_status": "ready",
+  "final_status": "ready",
+  "fingerprint_match": {
+    "seeds_json": "dbeee845b4ea22df",
+    "volume_metadata": "dbeee845b4ea22df",
+    "match": true
+  },
+  "connected_components": { "femur": 1, "tibia": 1, "gate": "pass" },
+  "component_coverage": {
+    "femur": 7103993, "tibia": 5020023, "fibula": 4146135,
+    "ossa_sesamoidea": 624281, "lateral_osteophytes": 17436, "medial_osteophytes": 4342,
+    "all_above_min": true
+  },
+  "identity_discriminator": {
+    "verdict": "PASS",
+    "basis": "full-extent bicondylar frac + visual + recorded canonical",
+    "full_extent_bicondylar_frac": { "femur": 0.26, "tibia": 0.09, "margin": 0.17, "area_thresh": 800 },
+    "recorded_canonical": { "fem_frac": 0.85, "tib_frac": 0.50, "margin": 0.35 },
+    "window20_reimpl": { "fem_frac": 0.80, "tib_frac": 0.70, "margin": 0.10, "note": "confounded: samples tibial plateau band; direction never flips" },
+    "swap_detected": false
+  },
+  "femur_high_z": true, "tibia_low_z": true,
+  "seeds_curated_in_segmentation": true,
+  "rerun_required": false
+}

@@ -1,0 +1,212 @@
+{
+  "landmarks": [
+    {
+      "id": "lateral_condylar_edge",
+      "structure": "femur",
+      "domain": "femoral_3d_surface",
+      "method": "surface_extreme_minx",
+      "label": 1,
+      "voxel": [
+        390.0,
+        248.0,
+        141.0
+      ],
+      "physical": [
+        4.095000000000005,
+        2.604,
+        1.4805000000000001
+      ],
+      "confidence": "high",
+      "requires_user_confirmation": false,
+      "evidence": "ML-extreme (min-x) bone in distal two-condyle slab z[364,408]; main lateral condyle mass (axial z=390 & front MIP), not detached sesamoid. Label-7 osteophytes lateral but SEPARATE label; cannot inflate femur-label width."
+    },
+    {
+      "id": "medial_condylar_edge",
+      "structure": "femur",
+      "domain": "femoral_3d_surface",
+      "method": "surface_extreme_maxx",
+      "label": 1,
+      "voxel": [
+        373.0,
+        328.0,
+        341.0
+      ],
+      "physical": [
+        3.916500000000005,
+        3.4440000000000004,
+        3.5805000000000002
+      ],
+      "confidence": "high",
+      "requires_user_confirmation": false,
+      "evidence": "ML-extreme (max-x) bone in distal two-condyle slab; main medial condyle mass, sesamoid-free."
+    },
+    {
+      "id": "intercondylar_notch",
+      "structure": "femur",
+      "domain": "femoral_3d_surface",
+      "method": "distal_midline_bridge",
+      "label": 1,
+      "voxel": [
+        397.0,
+        262.0,
+        241.0
+      ],
+      "physical": [
+        4.168500000000005,
+        2.7510000000000003,
+        2.5305
+      ],
+      "confidence": "high",
+      "requires_user_confirmation": false,
+      "evidence": "Distal-most (min-z) midline bridging bone between condyles at ML-midline x=241 (roof of intercondylar fossa). Confirmed axial z=397 & sagittal midline. Not eroded (no fallback)."
+    },
+    {
+      "id": "intercondylar_groove_midpoint",
+      "structure": "femur",
+      "domain": "femoral_3d_surface",
+      "method": "anterior_concavity_proximal",
+      "label": 1,
+      "voxel": [
+        534.0,
+        352.0,
+        241.0
+      ],
+      "physical": [
+        5.607000000000006,
+        3.696,
+        2.5305
+      ],
+      "confidence": "medium",
+      "requires_user_confirmation": true,
+      "evidence": "Trochlear groove-top 'A' at ML-midline x=241, z=534 = proximal-most slice of SUSTAINED anterior-midline concavity (anterior high-y surface recessed behind trochlear ridges), proximal to condylar-bulge band z410-452 and distinct from condyle merge z412. SUBJECTIVE (paper places by eye, ICC 0.667-0.85); placed per single authoritative rule.",
+      "subjective": true,
+      "defensible_z_range": [
+        505,
+        537
+      ],
+      "rule": "proximal-most slice of sustained anterior-midline concavity, proximal to condylar bulge (NOT condyle merge)"
+    },
+    {
+      "id": "articular_surface_proximal",
+      "structure": "tibia",
+      "domain": "tibial_reoriented",
+      "method": "proximal_bone_contact",
+      "label": 2,
+      "voxel": [
+        391.0,
+        286.0,
+        100.0
+      ],
+      "physical": [
+        4.105500000000005,
+        3.003,
+        1.05
+      ],
+      "confidence": "medium",
+      "requires_user_confirmation": true,
+      "evidence": "Proximal-most articular/subchondral bone of max-height (lateral) compartment at reoriented long-axis rz=586. IIOC height derived by projecting this + growth_plate through the persisted tibial transform (orientation_frame.json)."
+    },
+    {
+      "id": "growth_plate_proximal",
+      "structure": "tibia",
+      "domain": "tibial_reoriented",
+      "method": "fill_drop_onset",
+      "label": 2,
+      "voxel": [
+        335.0,
+        294.0,
+        109.0
+      ],
+      "physical": [
+        3.517500000000004,
+        3.087,
+        1.1445
+      ],
+      "confidence": "medium",
+      "requires_user_confirmation": true,
+      "evidence": "Growth-plate/epiphyseal line at reoriented rz~528 (max-height lateral compartment): epiphyseal->columnar-metaphysis transition / low-attenuation cartilage band, concordant on reoriented intensity coronal AND fill-drop onset. Bounded +-10 vox (thin cartilage/trabecular noise). Sensitivity: height 0.50-0.71mm, H/W 0.18-0.26 across gp+-10 -> OA classification (H/W<0.282) robust across the band.",
+      "sensitivity_gp_rz": [
+        518,
+        538
+      ]
+    },
+    {
+      "id": "lateral_tibial_condyle_edge",
+      "structure": "tibia",
+      "domain": "tibial_reoriented",
+      "method": "plateau_border_minml",
+      "label": 2,
+      "voxel": [
+        326.0,
+        308.0,
+        44.0
+      ],
+      "physical": [
+        3.423000000000004,
+        3.234,
+        0.462
+      ],
+      "confidence": "medium",
+      "requires_user_confirmation": true,
+      "evidence": "Lateral tibial plateau border at growth-plate level (reoriented rz=526, ML fill>0.12 outer extent). May include onset of metaphyseal flare laterally (width caveat)."
+    },
+    {
+      "id": "medial_tibial_condyle_edge",
+      "structure": "tibia",
+      "domain": "tibial_reoriented",
+      "method": "plateau_border_maxml",
+      "label": 2,
+      "voxel": [
+        358.0,
+        296.0,
+        304.0
+      ],
+      "physical": [
+        3.759000000000005,
+        3.108,
+        3.192
+      ],
+      "confidence": "medium",
+      "requires_user_confirmation": true,
+      "evidence": "Medial tibial plateau border at growth-plate level (reoriented rz=526)."
+    }
+  ],
+  "coordinate_system": "volume_zyx",
+  "spacing": [
+    0.010500000000000013,
+    0.0105,
+    0.0105
+  ],
+  "source_artifacts": {
+    "labels": "artifacts/labels.nii.gz",
+    "filtered": "artifacts/segmentation/filtered.nii.gz",
+    "structure_assignments": "artifacts/structure_assignments.json"
+  },
+  "orientation_applied": false,
+  "placement_method": "visual",
+  "_derived_frame": {
+    "ml_vector": [
+      0.07867588471725474,
+      -0.37023945749296344,
+      -0.9255986437324082
+    ],
+    "ap_vector": [
+      0.8547269459678519,
+      0.5029172085939033,
+      -0.12851509303029396
+    ],
+    "si_vector": [
+      0.5130808445073993,
+      -0.7810230633057084,
+      0.35602109710541247
+    ],
+    "confidence": "high",
+    "source_landmarks": [
+      "lateral_condylar_edge",
+      "medial_condylar_edge",
+      "intercondylar_groove_midpoint",
+      "intercondylar_notch"
+    ],
+    "ap_verification": "mesh_density_confirmed"
+  }
+}

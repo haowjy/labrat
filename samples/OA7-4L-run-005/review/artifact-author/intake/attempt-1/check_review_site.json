@@ -1,0 +1,53 @@
+{
+  "ok": true,
+  "siteDir": "/home/jimyao/gitrepos/labrat/tasks/task-2026-07-13-005/artifacts/review-sites/.staging/intake/1",
+  "fidelity": "verified",
+  "findings": [
+    {
+      "gate": "G1",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G2",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G3",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G4",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G5",
+      "ok": true,
+      "detail": "",
+      "warnings": "index.html inline <script> #1: fetch(<dynamic>) — the site must ship data as .js globals, never fetch at runtime (I3) [warning: neutralized by served connect-src 'none']; index.html inline <script> #1: fetch(<dynamic>) — the site must ship data as .js globals, never fetch at runtime (I3) [warning: neutralized by served connect-src 'none']"
+    },
+    {
+      "gate": "G6",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G7",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G8",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "gate": "G9",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "phase": "measurement",
+  "decidedAt": "2026-07-14T03:13:28.278Z",
+  "decision": "pass",
+  "summary": "Pass: all required derivations (W/L, H/W, IIOC height via persisted transform, CC==1, sensitivity bands) independently reproduced exactly; volumes honestly withheld, not fabricated.",
+  "feedback_file": "review/verification/measurement/report.md"
+}

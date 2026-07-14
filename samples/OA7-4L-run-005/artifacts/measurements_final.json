@@ -1,0 +1,64 @@
+{
+  "specimen": "OA7-4L",
+  "task": "task-2026-07-13-005",
+  "phase": "measurement",
+  "voxel_size_um": 10.5,
+  "geometric_indices": {
+    "distal_femoral_length_mm": 1.7211,
+    "distal_femoral_width_mm": 2.2688,
+    "distal_femoral_ratio": 1.3182,
+    "tibial_width_mm": 2.7535,
+    "tibial_iioc_height_mm": 0.6014,
+    "tibial_iioc_ratio": 0.2184
+  },
+  "sensitivity_bands": {
+    "distal_femoral_ratio_band": [
+      1.302,
+      1.515
+    ],
+    "tibial_iioc_ratio_band": [
+      0.182,
+      0.258
+    ]
+  },
+  "phenotype_calls": {
+    "distal_femoral_ratio": "OA-consistent (>1.30) \u2014 precise ROC/severity bin requires human confirmation",
+    "tibial_iioc_ratio": "OA-consistent (<0.282)"
+  },
+  "volumes_mm3": {
+    "patella_volume": null,
+    "medial_meniscus_volume": null,
+    "lateral_meniscus_volume": null,
+    "_status": "patella + menisci NOT segmented (escalated); volumes unavailable, not fabricated",
+    "_reference_bone_volumes": {
+      "femur": 8.22376,
+      "tibia": 5.811304
+    }
+  },
+  "verification": {
+    "wl_matches_within_1pct": true,
+    "iioc_height_within_1_slice": true,
+    "voxel_size_matches_spacing": true,
+    "cc_gate_pass": true,
+    "femur_cc": 1,
+    "tibia_cc": 1
+  },
+  "artifacts": {
+    "results": "artifacts/measurements/results.json",
+    "qc_overlays": "artifacts/measurements/qc_overlays.json",
+    "summary": "artifacts/measurements/summary.md",
+    "evidence": [
+      "phases/measurement/evidence/femoral_wl_overlay.png",
+      "phases/measurement/evidence/tibial_iioc_overlay.png",
+      "phases/measurement/evidence/labeled_scene_front.png"
+    ]
+  },
+  "confidence": "medium",
+  "recommended_action": "flag",
+  "flags": [
+    "femoral-groove-top-subjective: controls precise W/L ROC bin (OA-vs-normal robust)",
+    "tibial-growth-plate-weakest: H/W OA call robust, height value uncertain +-10 vox",
+    "patella-menisci-volumes-unavailable: not segmented (escalated)",
+    "prior-run-polarity-conflict: task-004 opposite polarity / W/L~2.11 anomaly; task-005 stands on own evidence"
+  ]
+}

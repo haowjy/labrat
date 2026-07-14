@@ -1,0 +1,32 @@
+{
+  "n_slices": 830,
+  "volume_shape_zyx": [
+    830,
+    528,
+    478
+  ],
+  "spacing_mm": [
+    0.010500000000000013,
+    0.0105,
+    0.0105
+  ],
+  "voxel_size_um": [
+    10.5,
+    10.5,
+    10.5
+  ],
+  "isotropic": true,
+  "manufacturer": "SCANCO Medical",
+  "model": "10",
+  "scanner_profile": "scanco",
+  "intensity_min": -3131.29345703125,
+  "intensity_max": 9759.31640625,
+  "intensity_mean": 112.8456039428711,
+  "histogram_is_bimodal": false,
+  "otsu_threshold": 2562.98828125,
+  "separability": 0.8364490256534697,
+  "segmentation_ready": false,
+  "threshold_flags": [
+    "histogram-not-bimodal"
+  ]
+}

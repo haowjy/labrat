@@ -1,0 +1,7 @@
+{
+  "phase": "landmarks",
+  "decidedAt": "2026-07-14T02:44:10.116Z",
+  "decision": "pass-with-concerns",
+  "summary": "All required reproducibility invariants (CC gate, femoral W/L, tibial IIOC height/width) verified exactly from disk artifacts; minor stale-field and unreconciled symmetry-check figures noted but non-blocking.",
+  "feedback_file": "review/verification/landmarks/report.md"
+}

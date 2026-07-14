@@ -1,0 +1,31 @@
+=== segmentation report ===
+{
+  "stage": "segmentation",
+  "status": "needs-seeds",
+  "confidence": "low",
+  "evidence": "Structure identification ambiguous; seeds.json emitted for curation.",
+  "recommended_action": "pause",
+  "artifacts": {
+    "labels": "/home/jimyao/gitrepos/labrat/tasks/task-2026-07-13-005/artifacts/segmentation/labels.nii.gz",
+    "filtered": "/home/jimyao/gitrepos/labrat/tasks/task-2026-07-13-005/artifacts/segmentation/filtered.nii.gz",
+    "structure_assignments": "/home/jimyao/gitrepos/labrat/tasks/task-2026-07-13-005/artifacts/segmentation/structure_assignments.json",
+    "seeds": "/home/jimyao/gitrepos/labrat/tasks/task-2026-07-13-005/artifacts/segmentation/seeds.json",
+    "screenshots": [
+      "segmentation/screenshot_001.png"
+    ]
+  },
+  "structure_assignments": {},
+  "threshold_observations": [],
+  "confounders": [
+    "Partial bones at scan boundaries may bias assignments.",
+    "Sesamoid bones near joints may be misidentified as additional structures.",
+    "Osteophytes or bridging may connect adjacent bones."
+  ],
+  "flags": [
+    "manual-thresholds-used",
+    "ambiguous-bone-identity"
+  ]
+}
+status: needs-seeds
+flags: ['manual-thresholds-used', 'ambiguous-bone-identity']
+assignments: {}

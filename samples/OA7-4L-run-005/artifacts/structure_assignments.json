@@ -1,0 +1,139 @@
+{
+  "status": "ready",
+  "assignments": {
+    "femur": 1,
+    "tibia": 2,
+    "medial_osteophytes": 6,
+    "lateral_osteophytes": 7,
+    "ossa_sesamoidea": 8,
+    "fibula": 9
+  },
+  "measured_ready": {
+    "femur": 1,
+    "tibia": 2
+  },
+  "flags": [
+    "manual-thresholds-used",
+    "ambiguity-resolved-via-seeds",
+    "largest-cc-cleanup"
+  ],
+  "review_flags": [
+    "patella-not-segmented: no reliable free-standing anterior body separable from femur; AP axis not locked (escalate to orientation phase)",
+    "menisci-not-segmented: peri-meniscal calcification not reliably separable by threshold; escalate",
+    "osteophytes-proposed: near-joint dense residual bodies labeled by ML side; osteophyte-vs-peri-meniscal identity needs locked AP axis (review)",
+    "ossa_sesamoidea-proposed: free-standing dense periarticular bodies (fabella-class); confirm in review",
+    "fibula-context: lateral long bone; not a measured structure"
+  ],
+  "volumes": {
+    "femur": {
+      "label": 1,
+      "voxels": 7103993,
+      "volume_mm3": 8.22376,
+      "n_components": 1
+    },
+    "tibia": {
+      "label": 2,
+      "voxels": 5020023,
+      "volume_mm3": 5.811304,
+      "n_components": 1
+    },
+    "medial_osteophytes": {
+      "label": 6,
+      "voxels": 4342,
+      "volume_mm3": 0.005026,
+      "n_components": 1
+    },
+    "lateral_osteophytes": {
+      "label": 7,
+      "voxels": 17436,
+      "volume_mm3": 0.020184,
+      "n_components": 1
+    },
+    "ossa_sesamoidea": {
+      "label": 8,
+      "voxels": 624281,
+      "volume_mm3": 0.722683,
+      "n_components": 5
+    },
+    "fibula": {
+      "label": 9,
+      "voxels": 4146135,
+      "volume_mm3": 4.79967,
+      "n_components": 1
+    }
+  },
+  "verification": {
+    "femur_cc": 1,
+    "tibia_cc": 1,
+    "bicondylar_discriminator": {
+      "split_axis": 0,
+      "fem_frac": 0.85,
+      "tib_frac": 0.5,
+      "fem_counts": [
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "tib_counts": [
+        1,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        2,
+        2,
+        1,
+        1,
+        1,
+        2
+      ],
+      "verdict": "PASS",
+      "BICONDYLAR_MIN": 0.6,
+      "MARGIN": 0.15
+    },
+    "condyle_slab": {
+      "z": [
+        354,
+        472
+      ],
+      "femur_condyle_x": [
+        109,
+        375
+      ],
+      "sesamoid_osteophyte_voxels_lateral_to_condyle_edges": 0,
+      "note": "width measured on exclusive femur label; separate labels cannot inflate it"
+    }
+  },
+  "polarity": {
+    "femur": "high-z",
+    "tibia": "low-z",
+    "lateral": "low-x (fibula-defined)",
+    "AP": "unresolved-escalated"
+  }
+}

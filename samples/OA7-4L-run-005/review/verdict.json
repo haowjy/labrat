@@ -1,0 +1,8 @@
+{
+  "status": "pass-with-concerns",
+  "flags": [
+    "landmarks: All required reproducibility invariants (CC gate, femoral W/L, tibial IIOC height/width) verified exactly from disk artifacts; minor stale-field and unreconciled symmetry-check figures noted but non-blocking.",
+    "segmentation: Mandatory CC==1 and bicondylar discriminator gates both reproduce exactly from scratch; sesamoid/osteophyte protection clean at 0 voxels. Concern: patella and menisci remain unsegmented (honestly escalated, not concealed)."
+  ],
+  "updatedAt": "2026-07-14T03:56:23.612Z"
+}

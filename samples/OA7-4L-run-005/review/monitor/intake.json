@@ -1,0 +1,23 @@
+{
+  "verdict": "ok",
+  "reasons": [
+    "Reviewer performed independent verification (scriptBytes=0, outputBytes=3352, files=1)."
+  ],
+  "checked": {
+    "phase": "intake",
+    "gateDecision": "pass",
+    "reviewerDefaulted": false,
+    "verificationDir": "review/verification/intake/",
+    "evidence": {
+      "fileCount": 1,
+      "scriptBytes": 0,
+      "outputBytes": 3352,
+      "totalBytes": 3352,
+      "files": [
+        "report.md"
+      ],
+      "hasRealEvidence": true
+    },
+    "modelVerdict": "ok"
+  }
+}
