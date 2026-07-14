@@ -1,5 +1,5 @@
 {
-  "defaultModel": "sonnet",
+  "defaultModel": "opus",
   "defaultProtocol": null,
   "scienceHome": "~/.claude-science",
   "dashboard": { "port": 4600 }
