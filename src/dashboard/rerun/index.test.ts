@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
+import { parseRerunArgs } from "../../cli/rerun-args.js";
 import { startRerun, type StartRerunDeps } from "./index.js";
 
 // Unit tests for the POST /api/tasks/:id/rerun backing logic. The detached
@@ -14,6 +15,24 @@ const TASK_ID = "task-2026-07-10-001";
 const dirs: string[] = [];
 after(async () => {
   for (const d of dirs) await rm(d, { recursive: true, force: true });
+});
+
+describe("dashboard rerun CLI arguments", () => {
+  it("keeps --no-dashboard out of the optional phase slot", () => {
+    assert.deepEqual(parseRerunArgs([TASK_ID, "--no-dashboard"]), {
+      taskId: TASK_ID,
+      fromPhase: undefined,
+      force: false,
+    });
+  });
+
+  it("preserves an explicit phase and force flag", () => {
+    assert.deepEqual(parseRerunArgs([TASK_ID, "landmarks", "--force", "--no-dashboard"]), {
+      taskId: TASK_ID,
+      fromPhase: "landmarks",
+      force: true,
+    });
+  });
 });
 
 /** A project root with a tasks/<TASK_ID>/ tree in the given state. */

@@ -19,6 +19,7 @@ import {
   listClaudeScienceSkills,
   listVendoredSkillNames,
 } from "../harness/claude-science/registry.js";
+import { parseRerunArgs } from "./rerun-args.js";
 
 /** Start the dashboard server in-process so SSE events land and the live view
  *  is available during protocol execution. Skipped when `--no-dashboard` is
@@ -224,10 +225,7 @@ async function main(): Promise<void> {
   }
 
   if (command === "rerun") {
-    const rerunArgs = args.slice(1).filter((a) => a !== "--force");
-    const force = args.includes("--force");
-    const taskId = rerunArgs[0];
-    const fromPhase = rerunArgs[1];
+    const { taskId, fromPhase, force } = parseRerunArgs(args.slice(1));
     if (!taskId) {
       console.error("Usage: labrat rerun <task-id> [from-phase] [--force]");
       process.exit(1);
