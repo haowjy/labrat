@@ -19,7 +19,7 @@ import { getJSON, postJSON } from "../lib/api.js";
  * server-side launch log instead of spinning forever.
  */
 
-const DEFAULT_INPUT = "data/OA7-4L.zip";
+const DEFAULT_INPUT = "";
 const PREFERRED_PROTOCOL = "microct-oa-mouse-knee";
 const POLL_MS = 2000;
 const POLL_TIMEOUT_MS = 120000;

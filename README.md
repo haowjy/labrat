@@ -17,13 +17,15 @@ Claude session reviews the saved evidence before the run can continue.
 ![OA7-4L workflow from raw micro-CT through final human review](docs/assets/oa7-4l-workflow.gif)
 
 *Saved OA7-4L run: raw micro-CT, labeled anatomy, seed checks, landmarks,
-measurement lines, and final human review. [Open the silent MP4.](docs/assets/oa7-4l-workflow.mp4)*
+measurement lines, and final human review. The derived workflow media is shown
+with permission from the originating lab. [Open the silent
+MP4.](docs/assets/oa7-4l-workflow.mp4)*
 
 The dashboard keeps uncertain results visible. In the run above, the automated
 measurements are marked **Review required** so a researcher can inspect the 3D
 geometry and landmarks instead of treating the numbers as ground truth.
 
-## Run the included sample
+## Run with your own data
 
 You need Node.js 24, Claude Science initialized under `~/.claude-science`,
 Claude Agent SDK credentials, and `micromamba`. Then:
@@ -35,19 +37,17 @@ npm install
 cp labrat.config.example.json labrat.config.json
 scripts/export-skills-to-claude-science.sh
 
-mkdir -p data/OA7-4L
-unzip -n data/OA7-4L.zip -d data/OA7-4L
-npm run dev -- enqueue data/OA7-4L microct-oa-mouse-knee
+# Fast, imaging-free check
+npm run smoke
+
+# Full mouse-knee protocol with a DICOM directory or ZIP you are authorized to use
+npm run dev -- enqueue /absolute/path/to/dicom-input microct-oa-mouse-knee
 ```
 
-The final command starts the run and serves the dashboard at
+The full protocol command starts the run and serves the dashboard at
 `http://localhost:4600`. The run writes its task record under `tasks/`. Expect
 the micro-CT workflow to take substantially longer than the imaging-free smoke
-test:
-
-```bash
-npm run smoke
-```
+test.
 
 The repository's `skills/` directory is the distributable source of truth. The
 export command copies those skills into the Claude Science registry, which is
@@ -112,7 +112,8 @@ human-facing dashboard inspect the same record.
 
 ![Anterior and lateral measurement evidence with review-flagged landmarks](samples/OA7-4L-run-005/phases/review-artifact/evidence/packaged_spatial_evidence.png)
 
-The included `OA7-4L` scan is a healthy control from the paper's cohort.
+The `OA7-4L` scan used for the saved demonstration is a healthy control from
+the paper's cohort. The raw DICOM series is not distributed in this repository.
 Published values are provided for evaluation and are never used as landmark
 targets. See [data/README.md](data/README.md) for sample provenance and reference
 measurements.
@@ -297,9 +298,12 @@ labrat-watcher -f` to follow their logs.
 - [`src/`](src/) — execution harness, trust boundaries, dashboard, and CLI
 - [`skills/`](skills/) — vendored scientific and review skills
 - [`agents/`](agents/) — project-level agent role definitions
-- [`data/`](data/) — OA7-4L sample and provenance
+- [`data/`](data/) — OA7-4L provenance and data-release notice
 - [`validation/`](validation/) — smoke, end-to-end, and trust-boundary checks
 
 LabRat is an open-source Claude plugin built on the Claude Agent SDK. The code
-is licensed under the [MIT License](LICENSE). The included sample data is CC BY
-4.0 as documented in [data/README.md](data/README.md).
+is licensed under the [MIT License](LICENSE). The OA7-4L source DICOM series is
+not included or licensed by this repository. Saved results and rendered
+workflow media are shown with permission from the originating lab; see
+[data/README.md](data/README.md) for the full data notice. Article material
+identified there remains subject to its stated CC BY 4.0 license.

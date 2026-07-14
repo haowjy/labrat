@@ -31,16 +31,32 @@ Both decisive indices are solidly in the normal range — this is a healthy
 joint. The harness should produce values close to these; deviations indicate
 landmark placement error, not OA.
 
-### Usage
+### Data availability and permission
+
+The raw OA7-4L DICOM series is not distributed in this repository. The
+originating laboratory authorized its use and public demonstration for this
+project. A formal institutional license for redistribution of the raw series
+has not yet been documented, so this repository does not assert or grant one.
+
+The saved run under `samples/OA7-4L-run-005/` and the rendered workflow media
+under `docs/assets/` are project outputs shown with the originating lab's
+permission. Their inclusion documents the pipeline's behavior and does not
+grant a license to the underlying DICOM series.
+
+The work is associated with NIH/NIA Award R01 AG076731. NIH funding and the
+article's publication do not, by themselves, establish a redistribution
+license for unpublished source data.
+
+### Published material
+
+The Tang et al. article, its figures, and its published supplementary material
+are available under CC BY 4.0. That license applies to the material published
+with the article; it should not be read as a license for the source DICOM
+series used in this demonstration.
+
+To run the protocol, provide a DICOM directory or ZIP that you are authorized
+to use:
 
 ```bash
-# Extract DICOMs
-mkdir -p data/OA7-4L && cd data/OA7-4L && unzip ../OA7-4L.zip
-
-# Run the protocol
-npm run dev -- enqueue data/OA7-4L microct-oa-mouse-knee
+npm run dev -- enqueue /absolute/path/to/dicom-input microct-oa-mouse-knee
 ```
-
-### License
-
-CC BY 4.0 (per the source publication).
