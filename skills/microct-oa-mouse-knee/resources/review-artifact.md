@@ -96,15 +96,17 @@ required_views: ["scene3d"],          // 3D is the hero; slices optional
 linked_views: true,                   // only when slices are shipped
 ```
 
-**Export the geometry.** Produce `review/geometry.json` — one decimated mesh per
-structure (femur, tibia, …) at **~10K vertices each** (marching cubes on each
-label of `labels.nii.gz`, in mm, quadric-decimated), shape
-`{"meshes":{"<name>":{"vertices":[...],"faces":[...]}}}`, within the 5 MB site
-budget. Inline the r185+ three.js UMD build + OrbitControls (CSP-sandboxed — no
-CDN). This is the same mesh shape the **segmentation** phase emits once to
-`segmentation/geometry.json` for the earlier phases' 3D sites; this phase writes
-its **own** `review/geometry.json` (a distinct path, so its recompute never
-disturbs those earlier hash-verified sites).
+**Reference the shared geometry — do not recompute it.** The **segmentation**
+phase already emitted the decimated mesh ONCE to `segmentation/geometry.json`
+(one mesh per structure — femur, tibia, … — at ~10K vertices each, marching
+cubes per label, in mm, quadric-decimated, shape
+`{"meshes":{"<name>":{"vertices":[...],"faces":[...]}}}`). This phase **injects
+that same artifact** as `REVIEW_GEOMETRY` — it does **not** run its own marching
+cubes and does **not** write `review/geometry.json`. Point `data_sources.
+REVIEW_GEOMETRY.artifact` at `segmentation/geometry.json` and hash it in
+`produced_from.geometry` (the injector resolves it under `artifacts/` and
+G8 recomputes the sha256). Inline the r185+ three.js UMD build + OrbitControls
+(CSP-sandboxed — no CDN).
 
 **Slices are optional drill-down.** The downsampled-volume export is the
 hardest step; ship the 3D scene alone first. When you add slices, produce
@@ -180,7 +182,7 @@ measurement outputs.
 including `REVIEW_EVIDENCE` (inlined) and `REVIEW_GEOMETRY` (mesh, injected);
 `data_sources` mapping the injected globals to their artifacts; and
 `produced_from` hashing every source (`measurements/results.json`,
-`review/geometry.json`) — G8 recomputes them. The 3D scene needs only these;
+`segmentation/geometry.json`) — G8 recomputes them. The 3D scene needs only these;
 `REVIEW_VOLUME` + the `slice-*` views + `linked_views: true` are added only when
 the optional Advanced-slices tab ships.
 
@@ -189,7 +191,7 @@ window.REVIEW_MANIFEST = {
   sample_id: "<task-id>",
   produced_from: {
     measurement: "measurements/results.json@<sha256>",
-    geometry: "review/geometry.json@<sha256>"
+    geometry: "segmentation/geometry.json@<sha256>"
     // volume: "review/volume.json@<sha256>"   // only if slices are shipped
   },
   verdict_schema: "review-verdict/1",
@@ -197,7 +199,7 @@ window.REVIEW_MANIFEST = {
   required_views: ["scene3d"],                  // 3D is the hero; slices optional
   data_globals: ["REVIEW_MANIFEST", "REVIEW_EVIDENCE", "REVIEW_GEOMETRY"],
   data_sources: {
-    REVIEW_GEOMETRY: { artifact: "review/geometry.json", transform: "identity" }
+    REVIEW_GEOMETRY: { artifact: "segmentation/geometry.json", transform: "identity" }
   }
   // When slices ARE shipped, add: required_views +[slice-axial/coronal/sagittal],
   // linked_views: true, data_globals +REVIEW_VOLUME,

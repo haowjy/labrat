@@ -12,7 +12,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="light" />
-<title>Review — spatial 3D artifact (template)</title>
+<title>LabRat — spatial 3D review</title>
 <style>
 :root {
   --ink: #12161b;
@@ -126,6 +126,38 @@ body {
 .conf-legend span { display: flex; align-items: center; gap: 0.35rem; }
 .conf-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .conf-dot.ring { background: transparent !important; border: 2px solid #fff; }
+.conf-legend:empty { display: none; }
+
+/* --- Layers panel: per-element show/hide key ----------------------------- */
+.layers-panel {
+  position: absolute; top: 10px; left: 10px; z-index: 4;
+  display: flex; flex-direction: column; gap: 0.12rem;
+  font-size: 0.7rem; color: #dbe2ea;
+  background: rgba(12,14,18,0.72); border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px; padding: 0.35rem 0.4rem;
+  max-height: 55%; overflow-y: auto; scrollbar-width: thin;
+  min-width: 128px; max-width: 200px;
+}
+.layers-panel[hidden] { display: none; }
+.layers-group-title {
+  font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.08em;
+  color: #97a2ae; margin: 0.28rem 0.15rem 0.1rem; user-select: none;
+}
+.layers-group-title:first-child { margin-top: 0.05rem; }
+.layer-row {
+  display: flex; align-items: center; gap: 0.4rem; width: 100%;
+  font: inherit; text-align: left; color: #eef2f8;
+  background: none; border: none; border-radius: 6px;
+  padding: 0.22rem 0.3rem; cursor: pointer; min-height: 28px;
+}
+.layer-row:hover { background: rgba(255,255,255,0.1); }
+.layer-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; border: 1px solid rgba(255,255,255,0.25); }
+.layer-swatch.dot { border-radius: 50%; }
+.layer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-state { font-size: 0.78rem; flex: none; color: #9fd2ff; line-height: 1; }
+.layer-row.off { color: #7c8794; }
+.layer-row.off .layer-swatch { opacity: 0.35; }
+.layer-row.off .layer-state { color: #5b6570; }
 
 .scene-hint {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5;
@@ -224,7 +256,8 @@ table.values td.num { text-align: right; font-family: var(--mono); font-variant-
         </div>
         <button type="button" id="btn-labels">Labels</button>
       </div>
-      <div class="orient-legend">X lateral &middot; Y proximal &middot; Z anterior<br /><span id="ratio-value"></span></div>
+      <div class="layers-panel" id="layers-panel" hidden aria-label="Scene layers"></div>
+      <div class="orient-legend"><span id="orient-text"></span><br /><span id="ratio-value"></span></div>
       <div class="conf-legend" id="conf-legend"></div>
     </div>
   </section>
@@ -1412,6 +1445,20 @@ window.REVIEW_EVIDENCE = {
 };
 </script>
 <script>
+// ═══════════════════════════════════════════════════════════════════════════
+// TEMPLATE-OWNED CORE RENDERING — DO NOT EDIT PER-PHASE.
+//
+// Everything in this script block (buildMesh, scene/camera setup, the layers
+// panel, projection/overlay, tour, tabs) is owned by the template. Per-phase
+// authors inject ONLY the data blocks above (window.REVIEW_MANIFEST,
+// REVIEW_EVIDENCE, REVIEW_GEOMETRY, optional REVIEW_VOLUME) and captions.
+//
+// Why: when a rendering bug shipped here, authors patched it differently per
+// phase (flatten3 vs flat3 vs no patch), so the five phase sites diverged and
+// some meshes rendered as NaN/invisible. Rendering fixes belong HERE, once —
+// buildMesh already accepts both nested (N,3) and flat vertex/face arrays.
+// ═══════════════════════════════════════════════════════════════════════════
+//
 // Review-artifact 3D app (fixture). Read-only spatial review: rotate, examine,
 // walk the guided landmark tour, read the evidence. No exfil surfaces, no
 // inline handlers, no runtime data loading, no eval (G5/I3), no landmark
@@ -1445,8 +1492,24 @@ window.REVIEW_EVIDENCE = {
   var decisive = EV && Array.isArray(EV.decisive) && EV.decisive[0] ? EV.decisive[0] : null;
   var HAS_EVIDENCE = !!decisive;
 
-  // --- Header --------------------------------------------------------------
+  // --- Header + document title ---------------------------------------------
+  // The tab/window title is derived from the manifest at runtime so it can
+  // never be the static template placeholder. Phase name comes from
+  // MANIFEST.phase when present, else the provenance key (produced_from).
+  var PHASE_NAME = MANIFEST.phase || Object.keys(MANIFEST.produced_from || {})[0] || "";
+  document.title = "LabRat review — " + MANIFEST.sample_id + (PHASE_NAME ? " — " + PHASE_NAME : "");
   document.getElementById("sample-title").textContent = "Review " + MANIFEST.sample_id;
+
+  // Orientation legend: ONE canonical anatomical convention for every phase,
+  // rendered by the template (never per-phase authored text). A manifest may
+  // override via MANIFEST.orientation = ["X …", "Y …", "Z …"] if a protocol
+  // genuinely uses a different frame.
+  (function () {
+    var conv = Array.isArray(MANIFEST.orientation) && MANIFEST.orientation.length === 3
+      ? MANIFEST.orientation
+      : ["X lateral", "Y proximal", "Z anterior"];
+    document.getElementById("orient-text").textContent = conv.join(" · ");
+  })();
   // Provenance collapses to a short, hoverable link (full hash off-screen on mobile).
   (function () {
     // Phases differ in what they were produced from: measurement ships a
@@ -1580,11 +1643,45 @@ window.REVIEW_EVIDENCE = {
   rim.position.set(0, -3, -6);
   scene.add(rim);
 
+  // Flatten an array of [a,b,c] triples — the numpy (N,3).tolist() shape that
+  // real phase geometry ships — into a flat typed array of length 3N. Also
+  // accepts an already-flat numeric array (length divisible by 3). Returns
+  // null for empty/malformed/non-finite input: three.js coerces nested arrays
+  // and bad values to NaN, which renders an invisible mesh and logs
+  // "Computed radius is NaN", so malformed structures are skipped instead.
+  function flattenTriples(arr, Ctor) {
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    var out, i, t, v;
+    if (Array.isArray(arr[0])) {          // nested (N,3) shape
+      out = new Ctor(arr.length * 3);
+      for (i = 0; i < arr.length; i++) {
+        t = arr[i];
+        if (!Array.isArray(t) || t.length !== 3 ||
+            !isFinite(t[0]) || !isFinite(t[1]) || !isFinite(t[2])) return null;
+        out[i * 3] = t[0]; out[i * 3 + 1] = t[1]; out[i * 3 + 2] = t[2];
+      }
+      return out;
+    }
+    if (arr.length % 3 !== 0) return null; // flat shape
+    out = new Ctor(arr.length);
+    for (i = 0; i < arr.length; i++) {
+      v = arr[i];
+      if (typeof v !== "number" || !isFinite(v)) return null;
+      out[i] = v;
+    }
+    return out;
+  }
+
   // Bone meshes — raised opacity + inverted-hull outline for clear contours.
+  // Returns null (structure skipped, no throw, no NaN) when the geometry is
+  // empty or malformed.
   function buildMesh(md, color) {
+    var positions = md ? flattenTriples(md.vertices, Float32Array) : null;
+    var index = md ? flattenTriples(md.faces, Uint32Array) : null;
+    if (!positions || !index) return null;
     var geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(md.vertices, 3));
-    geo.setIndex(md.faces);
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.computeVertexNormals();
     var group = new THREE.Group();
     var mat = new THREE.MeshStandardMaterial({
@@ -1668,9 +1765,16 @@ window.REVIEW_EVIDENCE = {
   // Canonical structure colors; any other structure gets a neutral bone tone.
   var MESH_COLORS = { femur: 0xe4c98f, tibia: 0x9fb6cf }; // warm tan / cool blue
   var boneGroup = new THREE.Group();
+  // name → { group, colorHex } for every structure that built successfully;
+  // the layers panel drives per-structure visibility through this map.
+  var structureMeshes = {};
   if (HAS_MESH) {
     meshNames.forEach(function (name) {
-      boneGroup.add(buildMesh(GEO.meshes[name], MESH_COLORS[name] || 0xbfc8d4));
+      var color = MESH_COLORS[name] || 0xbfc8d4;
+      var m = buildMesh(GEO.meshes[name], color);
+      if (!m) return; // empty/malformed structure: skipped, never NaN
+      boneGroup.add(m);
+      structureMeshes[name] = { group: m, colorHex: "#" + color.toString(16).padStart(6, "0") };
     });
     scene.add(boneGroup);
   }
@@ -1746,11 +1850,14 @@ window.REVIEW_EVIDENCE = {
     landmarks[lm.name] = {
       marker: marker, core: core, outline: outline, pos: pos,
       label: labelEl, leader: leaderEl, ring: ringEl, hex: hex, data: lm,
+      hit: hit, hidden: false,
     };
   });
 
-  // Confidence legend.
+  // Confidence legend — only meaningful when the phase actually has landmarks
+  // (intake/segmentation have none, so the legend would be dead chrome).
   (function buildLegend() {
+    if (!HAS_LANDMARKS) return;
     var el = document.getElementById("conf-legend");
     var rows = [
       ["ring", "#fff", "Selected landmark"],
@@ -1797,6 +1904,107 @@ window.REVIEW_EVIDENCE = {
     if (ml.id === "femoral_width") wid0 = ml.value_mm;
   });
   if (len0 && wid0) ratioEl.textContent = "W/L = " + (wid0 / len0).toFixed(2);
+
+  // --- Layers panel: the interactive key -----------------------------------
+  // A docked panel, consistent across every phase, listing the scene's actual
+  // toggleable elements grouped by kind. Each row toggles the visibility of
+  // exactly one element (a structure mesh, a landmark's marker+label, or a
+  // measurement line+label) — replacing the old all-or-nothing hide-labels.
+  // A group is rendered only when the phase has those elements.
+  (function buildLayersPanel() {
+    var panel = document.getElementById("layers-panel");
+    var groups = [];
+
+    // STRUCTURES — one row per successfully built mesh.
+    var structNames = Object.keys(structureMeshes);
+    if (structNames.length) {
+      groups.push({
+        title: "Structures",
+        rows: structNames.map(function (name) {
+          var s = structureMeshes[name];
+          return {
+            swatch: s.colorHex, dot: false, name: humanize(name),
+            visible: function () { return s.group.visible; },
+            toggle: function () { s.group.visible = !s.group.visible; },
+          };
+        }),
+      });
+    }
+
+    // LANDMARKS — one row per landmark; toggles marker + label + hit target.
+    if (HAS_LANDMARKS) {
+      groups.push({
+        title: "Landmarks",
+        rows: landmarkList.map(function (lm) {
+          var L = landmarks[lm.name];
+          return {
+            swatch: L.hex, dot: true, name: humanize(lm.name),
+            visible: function () { return !L.hidden; },
+            toggle: function () {
+              L.hidden = !L.hidden;
+              L.marker.visible = !L.hidden;
+              if (L.hit) L.hit.userData.hidden = L.hidden;
+              // label/leader/ring are hidden by updateOverlay when L.hidden.
+            },
+          };
+        }),
+      });
+    }
+
+    // MEASUREMENTS — one row per line; toggles the line + its mm badge.
+    var lineIds = Object.keys(lines);
+    if (lineIds.length) {
+      groups.push({
+        title: "Measurements",
+        rows: lineIds.map(function (id) {
+          var Ln = lines[id];
+          return {
+            swatch: "#ffd24d", dot: false, name: humanize(id),
+            visible: function () { return !Ln.hidden; },
+            toggle: function () {
+              Ln.hidden = !Ln.hidden;
+              Ln.line.visible = !Ln.hidden;
+            },
+          };
+        }),
+      });
+    }
+
+    if (!groups.length) return; // nothing toggleable (e.g. bare volume): stay hidden
+    panel.hidden = false;
+
+    groups.forEach(function (g) {
+      var h = document.createElement("div");
+      h.className = "layers-group-title";
+      h.textContent = g.title;
+      panel.appendChild(h);
+      g.rows.forEach(function (row) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "layer-row";
+        var sw = document.createElement("span");
+        sw.className = "layer-swatch" + (row.dot ? " dot" : "");
+        sw.style.background = row.swatch;
+        var nm = document.createElement("span");
+        nm.className = "layer-name";
+        nm.textContent = row.name;
+        var st = document.createElement("span");
+        st.className = "layer-state";
+        function sync() {
+          var on = row.visible();
+          btn.classList.toggle("off", !on);
+          st.textContent = on ? "◉" : "○";
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+        btn.appendChild(sw);
+        btn.appendChild(nm);
+        btn.appendChild(st);
+        btn.addEventListener("click", function () { row.toggle(); sync(); });
+        sync();
+        panel.appendChild(btn);
+      });
+    });
+  })();
 
   // --- Camera framing ------------------------------------------------------
   // Fit whatever the phase actually renders: the landmark cloud when present
@@ -1905,6 +2113,12 @@ window.REVIEW_EVIDENCE = {
     var m = 8; // edge margin
     Object.keys(landmarks).forEach(function (name) {
       var L = landmarks[name];
+      if (L.hidden) { // toggled off in the layers panel: hide all overlays
+        L.label.style.display = "none";
+        L.leader.style.display = "none";
+        L.ring.style.display = "none";
+        return;
+      }
       var selected = name === currentName;
       var wantLabel = selected || name === hoverName || (showAll && !narrow);
       var p = project(L.pos);
@@ -1943,6 +2157,7 @@ window.REVIEW_EVIDENCE = {
     var linked = cur.measurement_lines || [];
     Object.keys(lines).forEach(function (id) {
       var Ln = lines[id];
+      if (Ln.hidden) { Ln.badge.style.display = "none"; return; } // toggled off in panel
       var on = linked.indexOf(id) !== -1;
       Ln.line.material.opacity = on ? 1 : 0.28;
       if (on) {
@@ -2027,7 +2242,10 @@ window.REVIEW_EVIDENCE = {
     setPointer(ev);
     raycaster.setFromCamera(pointer, camera);
     var hits = raycaster.intersectObjects(hitMeshes, false);
-    return hits.length ? hits[0].object.userData.landmark : null;
+    for (var i = 0; i < hits.length; i++) {
+      if (!hits[i].object.userData.hidden) return hits[i].object.userData.landmark;
+    }
+    return null;
   }
   canvas.addEventListener("pointerdown", function (ev) { downXY = [ev.clientX, ev.clientY]; });
   canvas.addEventListener("pointerup", function (ev) {

@@ -270,17 +270,6 @@ a { color:var(--accent); }
 .verdict-more[open] .verdict-more-summary::before { transform:rotate(90deg); }
 .verdict-more-summary:hover { color:var(--ink); }
 
-/* === SUGGESTION BOX (per-phase, ReviewLayer.js) === */
-.suggestion-box { padding:1rem; background:var(--surface); border-radius:8px; border:1px solid var(--accent-line); }
-.suggestion-box h3 { font-family:var(--mono); font-size:0.72rem; font-weight:700; margin:0 0 0.5rem; color:var(--accent); }
-.suggestion-list { margin-bottom:0.75rem; display:flex; flex-direction:column; gap:0.4rem; }
-.suggestion-item { font-size:0.78rem; padding:0.5rem 0.6rem; background:var(--paper); border:1px solid var(--accent-line); border-radius:4px; }
-.suggestion-item .meta { font-family:var(--mono); font-size:0.62rem; color:var(--muted2); margin-top:0.3rem; }
-.suggestion-box textarea { width:100%; min-height:60px; resize:vertical; border:1px solid var(--accent-line); border-radius:4px; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:0.82rem; padding:0.4rem 0.5rem; }
-.suggestion-box textarea:focus { outline:none; border-color:var(--accent); }
-.suggestion-box .actions { display:flex; justify-content:flex-end; align-items:center; gap:0.75rem; margin-top:0.5rem; }
-.suggestion-box .note { font-size:0.68rem; color:var(--muted2); font-family:var(--mono); }
-
 /* === SIGN-OFF ACTIONS (per-phase review layer, ReviewLayer.js) === */
 .signoff-actions { display:flex; justify-content:flex-end; gap:0.5rem; }
 
@@ -424,7 +413,6 @@ a { color:var(--accent); }
   .evidence-panel { padding:0.7rem 0.75rem; }
   .review-chain-card { padding:0.75rem 0.85rem; }
   .verdict-panel { padding:0.7rem 0.75rem; }
-  .suggestion-box { padding:0.75rem; }
   .chain-col { padding:0.55rem 0.65rem; }
   .gate-note { padding:0.45rem 0.6rem; }
   .topbar { padding:0.5rem 0.65rem; }

@@ -7,90 +7,6 @@ import { ReviewEmbed } from "./ReviewEmbed.js";
 import { VerdictPanel } from "./VerdictPanel.js";
 
 /**
- * Per-phase suggestion to the protocol author, scoped to the phase under
- * review (no phase picker — the phase IS the context). Posts under the active
- * phase and lists only that phase's suggestions. Mounted inside ReviewLayer,
- * which is keyed `taskId:phase`, so a half-typed draft can't survive a phase
- * switch and get filed against the wrong phase.
- */
-function SuggestionBox({ taskId, phase }) {
-  const [suggestions, setSuggestions] = useState([]);
-  const [text, setText] = useState("");
-  const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getJSON(`/api/tasks/${encodeURIComponent(taskId)}/suggestions`)
-      .then((s) => {
-        if (!cancelled) setSuggestions(s);
-      })
-      .catch(() => {
-        if (!cancelled) setSuggestions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId]);
-
-  async function submit() {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      setNote("Enter a suggestion first.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const r = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/suggestions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phase, text: trimmed }),
-      });
-      if (!r.ok) throw new Error(await r.text());
-      const entry = await r.json();
-      setSuggestions((prev) => [...prev, entry]);
-      setText("");
-      setNote("Saved.");
-    } catch {
-      setNote("Failed to save.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const visible = suggestions.filter((s) => s.phase === phase);
-
-  return html`
-    <div class="suggestion-box">
-      <h3>Suggestions for the protocol author · ${phase}</h3>
-      <div class="suggestion-list">
-        ${visible.length === 0
-          ? html`<div class="note">No suggestions for this phase yet.</div>`
-          : visible.map(
-              (s) => html`
-                <div class="suggestion-item" key=${s.id}>
-                  ${s.text}
-                  <div class="meta">${s.author} · ${s.id}</div>
-                </div>
-              `,
-            )}
-      </div>
-      <textarea
-        placeholder="e.g., add a largest-connected-component filter to the segmentation skill so femur speckle is cleaned before handoff."
-        value=${text}
-        onInput=${(e) => setText(e.currentTarget.value)}
-      ></textarea>
-      <div class="actions">
-        <span class="note">${note}</span>
-        <button class="btn btn-primary" disabled=${submitting} onClick=${submit}>
-          Submit suggestion
-        </button>
-      </div>
-    </div>
-  `;
-}
-
-/**
  * Sign-off actions: download the review chain and copy the task's folder
  * path. Export is a plain download anchor — the endpoint sets
  * Content-Disposition, so the browser saves the bundle with no JS. Copy
@@ -145,7 +61,7 @@ function SignOffActions({ taskId, taskDir }) {
  * sandboxed artifact with its full-screen toggle (full-screen is a CSS-only
  * promotion of the SAME iframe element, so the bridge survives enter/exit);
  * then the trusted verdict controls in normal flow (never floated on the
- * iframe); then per-phase feedback and the task-level sign-off actions.
+ * iframe); then the task-level sign-off actions.
  */
 export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }) {
   const { verdict, bindIframe, setVerdict } = useReviewBridge();
@@ -220,7 +136,6 @@ export function ReviewLayer({ taskId, phase, entry, taskDir, onVerdictFinished }
         <${EvidencePanel} phaseDetail=${phaseDetail} />
       </details>
 
-      <${SuggestionBox} taskId=${taskId} phase=${phase} />
       <${SignOffActions} taskId=${taskId} taskDir=${taskDir} />
     </div>
   `;
